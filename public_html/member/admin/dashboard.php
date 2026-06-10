@@ -136,6 +136,7 @@ try {
             <nav class="nav-links">
                 <a href="../index.php">Dashboard</a>
                 <a href="../calendar.php">Calendar</a>
+                <a href="../volunteers.php">Volunteers</a>
                 <a href="../checkin.php">Check-In</a>
                 <a href="dashboard.php" class="active">Admin</a>
                 <a href="../index.php?action=logout" class="btn-logout">Logout</a>

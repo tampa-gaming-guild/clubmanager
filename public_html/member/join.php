@@ -152,6 +152,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                 <a href="index.php">Home / Login</a>
                 <a href="join.php" class="active">Join Us</a>
                 <a href="calendar.php">Calendar</a>
+                <a href="volunteers.php">Volunteers</a>
             </nav>
         </header>
 

@@ -75,6 +75,7 @@ if (Auth::check()) {
                 <?php if (Auth::check()): ?>
                     <a href="index.php" class="active">Dashboard</a>
                     <a href="calendar.php">Calendar</a>
+                    <a href="volunteers.php">Volunteers</a>
                     <a href="checkin.php">Check-In</a>
                     <?php if (has_role('admin')): ?>
                         <a href="admin/dashboard.php">Admin</a>
@@ -84,6 +85,7 @@ if (Auth::check()) {
                     <a href="index.php" class="active">Login</a>
                     <a href="join.php">Join Us</a>
                     <a href="calendar.php">Calendar</a>
+                    <a href="volunteers.php">Volunteers</a>
                     <a href="checkin.php">Check-In</a>
                 <?php endif; ?>
             </nav>

@@ -95,6 +95,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
             <nav class="nav-links">
                 <a href="index.php">Dashboard</a>
                 <a href="calendar.php">Calendar</a>
+                <a href="volunteers.php">Volunteers</a>
                 <a href="checkin.php">Check-In</a>
                 <?php if (has_role('admin')): ?>
                     <a href="admin/dashboard.php">Admin</a>

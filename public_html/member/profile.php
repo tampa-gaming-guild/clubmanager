@@ -164,6 +164,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
                 <?php if (Auth::check()): ?>
                     <a href="index.php" class="<?php echo $isOwner ? 'active' : ''; ?>">Dashboard</a>
                     <a href="calendar.php">Calendar</a>
+                    <a href="volunteers.php">Volunteers</a>
                     <a href="checkin.php">Check-In</a>
                     <?php if (has_role('admin')): ?>
                         <a href="admin/dashboard.php">Admin</a>
@@ -173,6 +174,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
                     <a href="index.php">Login</a>
                     <a href="join.php">Join Us</a>
                     <a href="calendar.php">Calendar</a>
+                    <a href="volunteers.php">Volunteers</a>
                 <?php endif; ?>
             </nav>
         </header>

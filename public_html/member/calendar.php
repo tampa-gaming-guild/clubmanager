@@ -106,6 +106,7 @@ if ($nextMonth > 12) { $nextMonth = 1; $nextYear++; }
                 <?php if (Auth::check()): ?>
                     <a href="index.php">Dashboard</a>
                     <a href="calendar.php" class="active">Calendar</a>
+                    <a href="volunteers.php">Volunteers</a>
                     <a href="checkin.php">Check-In</a>
                     <?php if (has_role('admin')): ?>
                         <a href="admin/dashboard.php">Admin</a>
@@ -115,6 +116,7 @@ if ($nextMonth > 12) { $nextMonth = 1; $nextYear++; }
                     <a href="index.php">Login</a>
                     <a href="join.php">Join Us</a>
                     <a href="calendar.php" class="active">Calendar</a>
+                    <a href="volunteers.php">Volunteers</a>
                     <a href="checkin.php">Check-In</a>
                 <?php endif; ?>
             </nav>
@@ -221,7 +223,7 @@ if ($nextMonth > 12) { $nextMonth = 1; $nextYear++; }
                                     $slotsFilled = count($vols);
                                     $maxSlots = (int)$evt['max_volunteers'];
                                 ?>
-                                <div class="event-card">
+                                <div class="event-card" id="event-<?php echo $evtId; ?>">
                                     <div class="event-card-header">
                                         <h4><?php echo e($evt['title']); ?></h4>
                                         <span class="event-time">

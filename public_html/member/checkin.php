@@ -111,6 +111,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <nav class="nav-links">
                 <a href="index.php">Portal Hub</a>
                 <a href="calendar.php">Calendar</a>
+                <a href="volunteers.php">Volunteers</a>
                 <a href="checkin.php" class="active">Check-In Portal</a>
             </nav>
         </header>
