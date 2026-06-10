@@ -1,7 +1,7 @@
 <?php
 /**
  * Admin Dashboard - Control Hub
- * Provides summary metrics and a searchable members list for desk administrators.
+ * Provides summary metrics and a searchable, sortable members list for desk administrators.
  */
 require_once dirname(dirname(dirname(__DIR__))) . '/config/bootstrap.php';
 
@@ -62,6 +62,31 @@ try {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Dashboard - Club Management</title>
     <link rel="stylesheet" href="../assets/css/style.css">
+    <style>
+        .sortable-header {
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+            transition: background 0.2s ease;
+        }
+        .sortable-header:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .sortable-header::after {
+            content: " ⇅";
+            font-size: 0.8rem;
+            color: var(--color-text-muted);
+            margin-left: 5px;
+        }
+        .sortable-header.sort-asc::after {
+            content: " ▲";
+            color: var(--color-primary);
+        }
+        .sortable-header.sort-desc::after {
+            content: " ▼";
+            color: var(--color-primary);
+        }
+    </style>
 </head>
 <body>
     <div class="app-container">
@@ -141,14 +166,14 @@ try {
                         </div>
 
                         <div class="admin-table-container">
-                            <table class="admin-table" id="members-table">
+                            <table class="admin-table" id="members-table" data-sort-dir="">
                                 <thead>
                                     <tr>
-                                        <th>Name</th>
-                                        <th>Contact Email</th>
-                                        <th>Membership Level</th>
-                                        <th>Status</th>
-                                        <th>Expires</th>
+                                        <th class="sortable-header" onclick="sortTable('members-table', 0, false)">Name</th>
+                                        <th class="sortable-header" onclick="sortTable('members-table', 1, false)">Contact Email</th>
+                                        <th class="sortable-header" onclick="sortTable('members-table', 2, false)">Membership Level</th>
+                                        <th class="sortable-header" onclick="sortTable('members-table', 3, false)">Status</th>
+                                        <th class="sortable-header" onclick="sortTable('members-table', 4, false)">Expires</th>
                                         <th>Actions</th>
                                     </tr>
                                 </thead>
@@ -190,7 +215,7 @@ try {
         </footer>
     </div>
 
-    <!-- Client-side filter script -->
+    <!-- Client-side filter and sort script -->
     <script>
         function filterMembersTable() {
             const input = document.getElementById('member-search');
@@ -211,6 +236,53 @@ try {
                     }
                 }
             }
+        }
+
+        // Table Sorter
+        function sortTable(tableId, colIndex, isNumeric) {
+            const table = document.getElementById(tableId);
+            const tbody = table.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            
+            // If empty row exists, ignore
+            if (rows.length === 1 && rows[0].cells.length === 1) return;
+
+            // Toggle Sort Direction
+            const currentDir = table.getAttribute('data-sort-dir') === 'asc' ? 'desc' : 'asc';
+            table.setAttribute('data-sort-dir', currentDir);
+
+            // Toggle visual class in headers
+            const headers = table.querySelectorAll('th');
+            headers.forEach((h, index) => {
+                if (index < 5) h.className = 'sortable-header'; // Exclude Actions
+            });
+            headers[colIndex].classList.add(currentDir === 'asc' ? 'sort-asc' : 'sort-desc');
+
+            rows.sort((a, b) => {
+                let cellA = a.cells[colIndex].innerText || a.cells[colIndex].textContent;
+                let cellB = b.cells[colIndex].innerText || b.cells[colIndex].textContent;
+
+                // Handle dates or custom N/A strings
+                if (colIndex === 4) { // Expiry date column
+                    let timeA = cellA.trim() === 'N/A' ? 0 : new Date(cellA).getTime();
+                    let timeB = cellB.trim() === 'N/A' ? 0 : new Date(cellB).getTime();
+                    return currentDir === 'asc' ? timeA - timeB : timeB - timeA;
+                }
+
+                if (isNumeric) {
+                    let numA = parseFloat(cellA.replace(/[^\d.-]/g, '')) || 0;
+                    let numB = parseFloat(cellB.replace(/[^\d.-]/g, '')) || 0;
+                    return currentDir === 'asc' ? numA - numB : numB - numA;
+                } else {
+                    return currentDir === 'asc' 
+                        ? cellA.trim().localeCompare(cellB.trim()) 
+                        : cellB.trim().localeCompare(cellA.trim());
+                }
+            });
+
+            // Re-render
+            tbody.innerHTML = '';
+            rows.forEach(row => tbody.appendChild(row));
         }
     </script>
 </body>

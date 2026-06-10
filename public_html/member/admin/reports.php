@@ -2,6 +2,7 @@
 /**
  * Admin Reports & Analytics
  * Aggregates attendance and financial metrics, presenting them in responsive visual charts.
+ * Includes sortable tabular reports for recent payments and check-in logs.
  */
 require_once dirname(dirname(dirname(__DIR__))) . '/config/bootstrap.php';
 
@@ -21,6 +22,10 @@ $financeData = [];
 
 $tierLabels = [];
 $tierData = [];
+
+// Tabular Reports Datasets
+$paymentsList = [];
+$checkinsList = [];
 
 try {
     $appDb = Database::getAppConnection();
@@ -64,7 +69,7 @@ try {
     ");
     $finRows = $finStmt->fetchAll();
 
-    // Group by week or date. Let's do dates for detailed 30-day lines
+    // Group by date for detailed 30-day lines
     for ($i = 29; $i >= 0; $i--) {
         $dateStr = date('Y-m-d', strtotime("-{$i} days"));
         $labelStr = date('M d', strtotime($dateStr));
@@ -95,6 +100,43 @@ try {
         $tierData[] = (int)$row['count'];
     }
 
+    // 4. Fetch Recent Payments Log (Financial Table Report)
+    $payLogStmt = $civiDb->query("
+        SELECT c.display_name, p.receive_date, p.total_amount, p.trxn_id 
+        FROM civicrm_contribution p
+        INNER JOIN civicrm_contact c ON p.contact_id = c.id
+        WHERE p.contribution_status_id = 1
+        ORDER BY p.receive_date DESC
+        LIMIT 50
+    ");
+    $paymentsList = $payLogStmt->fetchAll();
+
+    // 5. Fetch Recent Attendance Log (Attendance Table Report)
+    $chkLogStmt = $appDb->query("
+        SELECT contact_id, checked_in_at, notes 
+        FROM tgg_checkins 
+        ORDER BY checked_in_at DESC 
+        LIMIT 50
+    ");
+    $checkinsRaw = $chkLogStmt->fetchAll();
+    if (!empty($checkinsRaw)) {
+        $contactIds = array_unique(array_column($checkinsRaw, 'contact_id'));
+        $placeholders = implode(',', array_fill(0, count($contactIds), '?'));
+        
+        $civiContactStmt = $civiDb->prepare("SELECT id, display_name FROM civicrm_contact WHERE id IN ({$placeholders})");
+        $civiContactStmt->execute(array_values($contactIds));
+        $contactsMap = $civiContactStmt->fetchAll(PDO::FETCH_KEY_PAIR);
+        
+        foreach ($checkinsRaw as $row) {
+            $cid = (int)$row['contact_id'];
+            $checkinsList[] = [
+                'display_name' => $contactsMap[$cid] ?? "Member #{$cid}",
+                'checked_in_at' => $row['checked_in_at'],
+                'notes' => $row['notes']
+            ];
+        }
+    }
+
 } catch (Exception $e) {
     $errorMsg = "Failed to compile analytical data: " . $e->getMessage();
 }
@@ -108,6 +150,31 @@ try {
     <link rel="stylesheet" href="../assets/css/style.css">
     <!-- Chart.js CDN for client-side visualizations -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .sortable-header {
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+            transition: background 0.2s ease;
+        }
+        .sortable-header:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .sortable-header::after {
+            content: " ⇅";
+            font-size: 0.8rem;
+            color: var(--color-text-muted);
+            margin-left: 5px;
+        }
+        .sortable-header.sort-asc::after {
+            content: " ▲";
+            color: var(--color-primary);
+        }
+        .sortable-header.sort-desc::after {
+            content: " ▼";
+            color: var(--color-primary);
+        }
+    </style>
 </head>
 <body>
     <div class="app-container">
@@ -139,7 +206,7 @@ try {
                 <!-- Work Area: Reports -->
                 <section class="admin-workspace">
                     <h2>Reports & Analytics Dashboard</h2>
-                    <p class="description-text">Visual charts demonstrating member attendance, financial growth, and tier distributions.</p>
+                    <p class="description-text">Visual charts and sortable data summaries for attendance and finances.</p>
 
                     <?php if ($errorMsg): ?>
                         <div class="alert alert-danger"><?php echo e($errorMsg); ?></div>
@@ -170,6 +237,73 @@ try {
                                 <canvas id="financeChart"></canvas>
                             </div>
                         </div>
+
+                        <!-- 4. Tabular Financial Report -->
+                        <div class="table-card glass-panel span-full-row mt-20">
+                            <h3>Recent Payments Log</h3>
+                            <p class="settings-instruction mb-10">Click any column header to sort.</p>
+                            <div class="admin-table-container">
+                                <table class="admin-table" id="payments-report-table" data-sort-dir="">
+                                    <thead>
+                                        <tr>
+                                            <th class="sortable-header" onclick="sortTable('payments-report-table', 0, false)">Date / Time</th>
+                                            <th class="sortable-header" onclick="sortTable('payments-report-table', 1, false)">Member Name</th>
+                                            <th class="sortable-header" onclick="sortTable('payments-report-table', 2, false)">Stripe Transaction ID</th>
+                                            <th class="sortable-header" onclick="sortTable('payments-report-table', 3, true)">Amount Paid</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php if (empty($paymentsList)): ?>
+                                            <tr>
+                                                <td colspan="4" class="text-center">No payment history found.</td>
+                                            </tr>
+                                        <?php else: ?>
+                                            <?php foreach ($paymentsList as $pay): ?>
+                                                <tr>
+                                                    <td><span class="table-datetime"><?php echo date('Y-m-d H:i:s', strtotime($pay['receive_date'])); ?></span></td>
+                                                    <td><strong><?php echo e($pay['display_name']); ?></strong></td>
+                                                    <td><code><?php echo e($pay['trxn_id']); ?></code></td>
+                                                    <td><strong>$<?php echo number_format($pay['total_amount'], 2); ?></strong></td>
+                                                </tr>
+                                            <?php endforeach; ?>
+                                        <?php endif; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- 5. Tabular Attendance Report -->
+                        <div class="table-card glass-panel span-full-row mt-20">
+                            <h3>Recent Attendance Log</h3>
+                            <p class="settings-instruction mb-10">Click any column header to sort.</p>
+                            <div class="admin-table-container">
+                                <table class="admin-table" id="attendance-report-table" data-sort-dir="">
+                                    <thead>
+                                        <tr>
+                                            <th class="sortable-header" onclick="sortTable('attendance-report-table', 0, false)">Check-In Time</th>
+                                            <th class="sortable-header" onclick="sortTable('attendance-report-table', 1, false)">Member Name</th>
+                                            <th class="sortable-header" onclick="sortTable('attendance-report-table', 2, false)">Check-In Notes</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php if (empty($checkinsList)): ?>
+                                            <tr>
+                                                <td colspan="3" class="text-center">No check-in logs found.</td>
+                                            </tr>
+                                        <?php else: ?>
+                                            <?php foreach ($checkinsList as $chk): ?>
+                                                <tr>
+                                                    <td><span class="table-datetime"><?php echo date('Y-m-d H:i:s', strtotime($chk['checked_in_at'])); ?></span></td>
+                                                    <td><strong><?php echo e($chk['display_name']); ?></strong></td>
+                                                    <td><?php echo e($chk['notes'] ?: 'Regular Visit'); ?></td>
+                                                </tr>
+                                            <?php endforeach; ?>
+                                        <?php endif; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
                     </div>
                 </section>
             </div>
@@ -180,8 +314,46 @@ try {
         </footer>
     </div>
 
-    <!-- Chart Configuration Script -->
+    <!-- Chart & Table Sorting Configuration Script -->
     <script>
+        // Table Sorter
+        function sortTable(tableId, colIndex, isNumeric) {
+            const table = document.getElementById(tableId);
+            const tbody = table.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            
+            // If empty row exists, ignore
+            if (rows.length === 1 && rows[0].cells.length === 1) return;
+
+            // Toggle Sort Direction
+            const currentDir = table.getAttribute('data-sort-dir') === 'asc' ? 'desc' : 'asc';
+            table.setAttribute('data-sort-dir', currentDir);
+
+            // Toggle visual class in headers
+            const headers = table.querySelectorAll('th');
+            headers.forEach(h => h.className = 'sortable-header');
+            headers[colIndex].classList.add(currentDir === 'asc' ? 'sort-asc' : 'sort-desc');
+
+            rows.sort((a, b) => {
+                let cellA = a.cells[colIndex].innerText || a.cells[colIndex].textContent;
+                let cellB = b.cells[colIndex].innerText || b.cells[colIndex].textContent;
+
+                if (isNumeric) {
+                    let numA = parseFloat(cellA.replace(/[^\d.-]/g, '')) || 0;
+                    let numB = parseFloat(cellB.replace(/[^\d.-]/g, '')) || 0;
+                    return currentDir === 'asc' ? numA - numB : numB - numA;
+                } else {
+                    return currentDir === 'asc' 
+                        ? cellA.trim().localeCompare(cellB.trim()) 
+                        : cellB.trim().localeCompare(cellA.trim());
+                }
+            });
+
+            // Re-render
+            tbody.innerHTML = '';
+            rows.forEach(row => tbody.appendChild(row));
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             // Chart.js global options for dark theme alignment
             Chart.defaults.color = 'rgba(255, 255, 255, 0.7)';
