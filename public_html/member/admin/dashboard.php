@@ -1,7 +1,7 @@
 <?php
 /**
  * Admin Dashboard - Control Hub
- * Provides summary metrics and a searchable, sortable members list for desk administrators.
+ * Provides summary metrics and a searchable, sortable, and filterable members list for desk administrators.
  */
 require_once dirname(dirname(dirname(__DIR__))) . '/config/bootstrap.php';
 
@@ -13,6 +13,8 @@ Auth::requireAdmin();
 
 $errorMsg = null;
 $members = [];
+$tiers = [];
+$statuses = [];
 
 // Fetch statistics
 $totalMembers = 0;
@@ -51,6 +53,10 @@ try {
           AND contribution_status_id = 1
     ")->fetchColumn();
 
+    // 4. Fetch Tiers & Statuses for dropdown filtering
+    $tiers = CiviCRMImporter::getMembershipTiers();
+    $statuses = $civiDb->query("SELECT id, name, label FROM civicrm_membership_status ORDER BY id ASC")->fetchAll();
+
 } catch (Exception $e) {
     $errorMsg = "Unable to fetch summary metrics: " . $e->getMessage();
 }
@@ -85,6 +91,41 @@ try {
         .sortable-header.sort-desc::after {
             content: " ▼";
             color: var(--color-primary);
+        }
+        .filter-controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        .filter-select select {
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border-glass);
+            border-radius: 6px;
+            color: #fff;
+            padding: 8px 14px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            font-family: var(--font-body);
+            transition: border-color 0.2s;
+        }
+        .filter-select select:focus {
+            outline: none;
+            border-color: var(--color-primary);
+        }
+        @media (max-width: 900px) {
+            .table-card-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 15px;
+            }
+            .filter-controls {
+                flex-direction: column;
+                width: 100%;
+                align-items: stretch;
+            }
+            .search-bar input, .filter-select select {
+                width: 100%;
+            }
         }
     </style>
 </head>
@@ -160,8 +201,28 @@ try {
                     <div class="table-card glass-panel mt-20">
                         <div class="table-card-header">
                             <h3>Registered Members Directory</h3>
-                            <div class="search-bar">
-                                <input type="text" id="member-search" placeholder="Search members by name/email..." onkeyup="filterMembersTable()">
+                            
+                            <!-- Search & Filter Controls -->
+                            <div class="filter-controls">
+                                <div class="search-bar">
+                                    <input type="text" id="member-search" placeholder="Search by name/email..." onkeyup="filterMembersTable()">
+                                </div>
+                                <div class="filter-select">
+                                    <select id="filter-level" onchange="filterMembersTable()">
+                                        <option value="">All Levels</option>
+                                        <?php foreach ($tiers as $tier): ?>
+                                            <option value="<?php echo e($tier['name']); ?>"><?php echo e($tier['name']); ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="filter-select">
+                                    <select id="filter-status" onchange="filterMembersTable()">
+                                        <option value="">All Statuses</option>
+                                        <?php foreach ($statuses as $stat): ?>
+                                            <option value="<?php echo e($stat['label']); ?>"><?php echo e($stat['label']); ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
                             </div>
                         </div>
 
@@ -218,18 +279,40 @@ try {
     <!-- Client-side filter and sort script -->
     <script>
         function filterMembersTable() {
-            const input = document.getElementById('member-search');
-            const filter = input.value.toLowerCase();
+            const searchInput = document.getElementById('member-search');
+            const searchFilter = searchInput.value.toLowerCase();
+            
+            const levelSelect = document.getElementById('filter-level');
+            const levelFilter = levelSelect.value.toLowerCase();
+            
+            const statusSelect = document.getElementById('filter-status');
+            const statusFilter = statusSelect.value.toLowerCase();
+            
             const table = document.getElementById('members-table');
             const trs = table.getElementsByTagName('tr');
 
             for (let i = 1; i < trs.length; i++) {
                 let nameTd = trs[i].getElementsByTagName('td')[0];
                 let emailTd = trs[i].getElementsByTagName('td')[1];
-                if (nameTd && emailTd) {
-                    let nameTxt = nameTd.textContent || nameTd.innerText;
-                    let emailTxt = emailTd.textContent || emailTd.innerText;
-                    if (nameTxt.toLowerCase().indexOf(filter) > -1 || emailTxt.toLowerCase().indexOf(filter) > -1) {
+                let levelTd = trs[i].getElementsByTagName('td')[2];
+                let statusTd = trs[i].getElementsByTagName('td')[3];
+                
+                if (nameTd && emailTd && levelTd && statusTd) {
+                    let nameTxt = (nameTd.textContent || nameTd.innerText).toLowerCase();
+                    let emailTxt = (emailTd.textContent || emailTd.innerText).toLowerCase();
+                    let levelTxt = (levelTd.textContent || levelTd.innerText).toLowerCase();
+                    let statusTxt = (statusTd.textContent || statusTd.innerText).toLowerCase();
+                    
+                    // Match Search Text
+                    const matchesSearch = nameTxt.indexOf(searchFilter) > -1 || emailTxt.indexOf(searchFilter) > -1;
+                    
+                    // Match Level
+                    const matchesLevel = levelFilter === "" || levelTxt.indexOf(levelFilter) > -1;
+                    
+                    // Match Status
+                    const matchesStatus = statusFilter === "" || statusTxt.indexOf(statusFilter) > -1;
+                    
+                    if (matchesSearch && matchesLevel && matchesStatus) {
                         trs[i].style.display = "";
                     } else {
                         trs[i].style.display = "none";
