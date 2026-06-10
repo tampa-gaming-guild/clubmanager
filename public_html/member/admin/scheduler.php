@@ -168,6 +168,11 @@ try {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Event & Session Scheduler - Admin</title>
     <link rel="stylesheet" href="../assets/css/style.css">
+    <style>
+        .main-content {
+            max-width: 1600px;
+        }
+    </style>
 </head>
 <body>
     <div class="app-container">
@@ -380,7 +385,7 @@ try {
                                                     <td><strong><?php echo e($evt['title']); ?></strong></td>
                                                     <td>
                                                         <span class="table-datetime">
-                                                            <?php echo date('M d, Y', strtotime($evt['start_time'])); ?><br>
+                                                            <?php echo date('m/d/y', strtotime($evt['start_time'])); ?><br>
                                                             <?php echo date('g:i A', strtotime($evt['start_time'])); ?> - <?php echo date('g:i A', strtotime($evt['end_time'])); ?>
                                                         </span>
                                                     </td>
