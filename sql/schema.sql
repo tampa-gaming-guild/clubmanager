@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS `tgg_volunteer_signups` (
   `id` INT AUTO_INCREMENT NOT NULL,
   `event_id` INT NOT NULL, -- references tgg_events.id
   `contact_id` INT NOT NULL, -- references civicrm_contact.id
-  `role` VARCHAR(100) NOT NULL, -- e.g., 'Setup Crew', 'Greeter', 'Clean Up'
+  `role` VARCHAR(100) NOT NULL, -- e.g., 'Open', 'Close', 'Greeter'
   `signed_up_at` DATETIME NOT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_event_contact` (`event_id`, `contact_id`),

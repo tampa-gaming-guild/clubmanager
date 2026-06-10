@@ -259,14 +259,12 @@ if ($nextMonth > 12) { $nextMonth = 1; $nextYear++; }
                                                 <form action="calendar.php?month=<?php echo $month; ?>&year=<?php echo $year; ?>" method="POST" class="volunteer-signup-form">
                                                     <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
                                                     <input type="hidden" name="event_id" value="<?php echo $evtId; ?>">
-                                                    
                                                     <div class="form-row-inline">
                                                         <select name="role" required>
                                                             <option value="" disabled selected>-- Choose Role --</option>
+                                                            <option value="Open">Open</option>
+                                                            <option value="Close">Close</option>
                                                             <option value="Greeter">Greeter</option>
-                                                            <option value="Setup Crew">Setup Crew</option>
-                                                            <option value="Support Staff">Event Support</option>
-                                                            <option value="Clean Up">Clean Up Crew</option>
                                                         </select>
                                                         <button type="submit" name="action_signup" class="btn btn-success">Volunteer</button>
                                                     </div>
