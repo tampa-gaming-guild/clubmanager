@@ -3,7 +3,7 @@
  * Public Volunteer Schedule
  * Displays upcoming events and the signup status of the three roles: Open, Close, Greeter.
  */
-require_once dirname(__DIR__) . '/config/bootstrap.php';
+require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
 use App\Event;
 use App\Auth;
