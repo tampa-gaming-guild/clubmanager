@@ -30,32 +30,58 @@ try {
     $appDb = Database::getAppConnection();
     $civiDb = Database::getCiviConnection();
 
-    // 1. Calculate Active/Expired status counts
+    // 1. Fetch Tiers & Statuses first for pivot matrix layout & dropdowns
+    $tiers = CiviCRMImporter::getMembershipTiers();
+    $statuses = $civiDb->query("SELECT id, name, label FROM civicrm_membership_status ORDER BY id ASC")->fetchAll();
+
+    // 2. Initialize matrix with all membership levels and statuses
+    $matrix = [];
+    foreach ($tiers as $tier) {
+        $matrix[$tier['name']] = [];
+        foreach ($statuses as $stat) {
+            $matrix[$tier['name']][$stat['label']] = 0;
+        }
+    }
+
+    // 3. Calculate Active/Expired counts & populate matrix
     foreach ($members as $m) {
         if ($m['is_active']) {
             $activeMembers++;
         } else if ($m['status_label'] === 'Expired') {
             $expiredMembers++;
         }
+        
+        $lvl = $m['membership_name'];
+        $stat = $m['status_label'];
+        
+        if ($lvl && $stat) {
+            if (!isset($matrix[$lvl])) {
+                $matrix[$lvl] = [];
+                foreach ($statuses as $s) {
+                    $matrix[$lvl][$s['label']] = 0;
+                }
+            }
+            if (!isset($matrix[$lvl][$stat])) {
+                $matrix[$lvl][$stat] = 0;
+            }
+            $matrix[$lvl][$stat]++;
+        }
     }
+    ksort($matrix);
 
-    // 2. Fetch Check-ins logged today
+    // 4. Fetch Check-ins logged today
     $checkinsToday = (int)$appDb->query("
         SELECT COUNT(*) FROM tgg_checkins 
         WHERE DATE(checked_in_at) = CURRENT_DATE()
     ")->fetchColumn();
 
-    // 3. Fetch Stripe/CiviCRM contribution revenue this month
+    // 5. Fetch Stripe/CiviCRM contribution revenue this month
     $monthRevenue = (float)$civiDb->query("
         SELECT SUM(total_amount) FROM civicrm_contribution 
         WHERE MONTH(receive_date) = MONTH(CURRENT_DATE()) 
           AND YEAR(receive_date) = YEAR(CURRENT_DATE())
           AND contribution_status_id = 1
     ")->fetchColumn();
-
-    // 4. Fetch Tiers & Statuses for dropdown filtering
-    $tiers = CiviCRMImporter::getMembershipTiers();
-    $statuses = $civiDb->query("SELECT id, name, label FROM civicrm_membership_status ORDER BY id ASC")->fetchAll();
 
 } catch (Exception $e) {
     $errorMsg = "Unable to fetch summary metrics: " . $e->getMessage();
@@ -168,25 +194,18 @@ try {
 
                     <!-- Stat Cards Panel -->
                     <div class="stats-panel-grid">
-                        <div class="stat-card glass-panel border-left-blue">
-                            <span class="stat-icon">👥</span>
-                            <div class="stat-vals">
-                                <strong><?php echo $totalMembers; ?></strong>
-                                <span>Total Contacts</span>
-                            </div>
-                        </div>
-                        <div class="stat-card glass-panel border-left-green">
-                            <span class="stat-icon">✔️</span>
-                            <div class="stat-vals">
-                                <strong><?php echo $activeMembers; ?></strong>
-                                <span>Active Members</span>
-                            </div>
-                        </div>
                         <div class="stat-card glass-panel border-left-orange">
                             <span class="stat-icon">🎟️</span>
                             <div class="stat-vals">
                                 <strong><?php echo $checkinsToday; ?></strong>
                                 <span>Check-Ins Today</span>
+                            </div>
+                        </div>
+                        <div class="stat-card glass-panel border-left-blue">
+                            <span class="stat-icon">👥</span>
+                            <div class="stat-vals">
+                                <strong><?php echo $totalMembers; ?></strong>
+                                <span>Total Contacts</span>
                             </div>
                         </div>
                         <div class="stat-card glass-panel border-left-yellow">
@@ -195,6 +214,39 @@ try {
                                 <strong>$<?php echo number_format($monthRevenue, 2); ?></strong>
                                 <span>Revenue (Month)</span>
                             </div>
+                        </div>
+                    </div>
+
+                    <!-- Level & Status Pivot Table (Full Width) -->
+                    <div class="table-card glass-panel mt-20" style="padding: 20px;">
+                        <span style="font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary); margin-bottom: 15px; display: block;">Members by Level & Status</span>
+                        <div style="overflow-x: auto; font-size: 0.8rem;">
+                            <table style="width: 100%; border-collapse: collapse; text-align: left; min-width: 600px;">
+                                <thead>
+                                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.08); color: var(--color-text-secondary);">
+                                        <th style="padding: 6px 8px;">Membership Level</th>
+                                        <?php foreach ($statuses as $stat): ?>
+                                            <th style="padding: 6px 8px; text-align: right; white-space: nowrap;"><?php echo e($stat['label']); ?></th>
+                                        <?php endforeach; ?>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($matrix as $lvl => $stats): ?>
+                                        <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
+                                            <td style="padding: 6px 8px; font-weight: 500; color: #fff; white-space: nowrap;"><?php echo e($lvl); ?></td>
+                                            <?php foreach ($statuses as $stat): 
+                                                $count = $stats[$stat['label']] ?? 0;
+                                                $color = $count > 0 ? ($stat['label'] === 'Current' || $stat['label'] === 'New' ? 'var(--color-success)' : ($stat['label'] === 'Expired' ? 'var(--color-danger)' : '#fff')) : 'rgba(255,255,255,0.15)';
+                                                $weight = $count > 0 ? '700' : '400';
+                                            ?>
+                                                <td style="padding: 6px 8px; text-align: right; font-weight: <?php echo $weight; ?>; color: <?php echo $color; ?>;">
+                                                    <?php echo $count; ?>
+                                                </td>
+                                            <?php endforeach; ?>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
 
@@ -220,7 +272,7 @@ try {
                                     <select id="filter-status" onchange="filterMembersTable()">
                                         <option value="">All Statuses</option>
                                         <?php foreach ($statuses as $stat): ?>
-                                            <option value="<?php echo e($stat['label']); ?>"><?php echo e($stat['label']); ?></option>
+                                            <option value="<?php echo e($stat['label']); ?>" <?php echo $stat['label'] === 'Current' ? 'selected' : ''; ?>><?php echo e($stat['label']); ?></option>
                                         <?php endforeach; ?>
                                     </select>
                                 </div>
@@ -368,6 +420,9 @@ try {
             tbody.innerHTML = '';
             rows.forEach(row => tbody.appendChild(row));
         }
+
+        // Apply initial filter on page load
+        document.addEventListener('DOMContentLoaded', filterMembersTable);
     </script>
 </body>
 </html>
