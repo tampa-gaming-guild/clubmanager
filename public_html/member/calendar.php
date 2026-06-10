@@ -61,9 +61,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && Auth::check()) {
         
         // B. Cancel Action
         if (isset($_POST['action_cancel'])) {
+            $role = $_POST['role'] ?? null;
             try {
-                Event::cancelVolunteer($eventId, $contactId);
-                $successMsg = "Your volunteer registration has been cancelled.";
+                Event::cancelVolunteer($eventId, $contactId, $role);
+                if ($role) {
+                    $successMsg = "Your signup for the role '{$role}' has been cancelled.";
+                } else {
+                    $successMsg = "Your volunteer registration has been cancelled.";
+                }
                 // Refresh events
                 $events = Event::getEvents($monthStart, $monthEnd);
             } catch (Exception $e) {
@@ -212,7 +217,7 @@ if ($nextMonth > 12) { $nextMonth = 1; $nextYear++; }
                                 <?php 
                                     $evtId = (int)$evt['id'];
                                     $vols = Event::getVolunteers($evtId);
-                                    $isSignedUp = Auth::check() && Event::isSignedUp($evtId, $_SESSION['user']['contact_id']);
+                                    $userRoles = Auth::check() ? Event::getMemberRolesForEvent($evtId, $_SESSION['user']['contact_id']) : [];
                                     $slotsFilled = count($vols);
                                     $maxSlots = (int)$evt['max_volunteers'];
                                 ?>
@@ -249,28 +254,51 @@ if ($nextMonth > 12) { $nextMonth = 1; $nextYear++; }
                                     <!-- Volunteer Action forms -->
                                     <div class="volunteer-actions-area">
                                         <?php if (Auth::check()): ?>
-                                            <?php if ($isSignedUp): ?>
-                                                <form action="calendar.php?month=<?php echo $month; ?>&year=<?php echo $year; ?>" method="POST" class="inline-form">
-                                                    <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
-                                                    <input type="hidden" name="event_id" value="<?php echo $evtId; ?>">
-                                                    <button type="submit" name="action_cancel" class="btn btn-danger btn-block">Cancel Volunteer Registration</button>
-                                                </form>
-                                            <?php elseif ($maxSlots == 0 || $slotsFilled < $maxSlots): ?>
-                                                <form action="calendar.php?month=<?php echo $month; ?>&year=<?php echo $year; ?>" method="POST" class="volunteer-signup-form">
-                                                    <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
-                                                    <input type="hidden" name="event_id" value="<?php echo $evtId; ?>">
-                                                    <div class="form-row-inline">
-                                                        <select name="role" required>
-                                                            <option value="" disabled selected>-- Choose Role --</option>
-                                                            <option value="Open">Open</option>
-                                                            <option value="Close">Close</option>
-                                                            <option value="Greeter">Greeter</option>
-                                                        </select>
-                                                        <button type="submit" name="action_signup" class="btn btn-success">Volunteer</button>
+                                            <!-- Display active signups for user with single-role cancel buttons -->
+                                            <?php if (!empty($userRoles)): ?>
+                                                <div class="user-volunteer-status" style="margin-bottom: 15px;">
+                                                    <strong style="font-size: 0.9rem; color: var(--color-text-secondary); display: block; margin-bottom: 5px;">Your Signed Up Roles:</strong>
+                                                    <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                                                        <?php foreach ($userRoles as $r): ?>
+                                                            <span class="badge badge-active" style="display: inline-flex; align-items: center; gap: 8px; font-size: 0.8rem; padding: 4px 10px;">
+                                                                <?php echo e($r); ?>
+                                                                <form action="calendar.php?month=<?php echo $month; ?>&year=<?php echo $year; ?>" method="POST" style="display: inline;">
+                                                                    <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                                                    <input type="hidden" name="event_id" value="<?php echo $evtId; ?>">
+                                                                    <input type="hidden" name="role" value="<?php echo e($r); ?>">
+                                                                    <button type="submit" name="action_cancel" style="background: none; border: none; color: hsl(350, 89%, 65%); cursor: pointer; padding: 0; font-size: 0.95rem; line-height: 1; font-weight: bold; margin-left: 2px;" title="Cancel role">✕</button>
+                                                                </form>
+                                                            </span>
+                                                        <?php endforeach; ?>
                                                     </div>
-                                                </form>
+                                                </div>
+                                            <?php endif; ?>
+
+                                            <?php 
+                                                $allRoles = ['Open', 'Close', 'Greeter'];
+                                                $availableRoles = array_diff($allRoles, $userRoles);
+                                            ?>
+
+                                            <?php if (!empty($availableRoles)): ?>
+                                                <?php if ($maxSlots == 0 || $slotsFilled < $maxSlots): ?>
+                                                    <form action="calendar.php?month=<?php echo $month; ?>&year=<?php echo $year; ?>" method="POST" class="volunteer-signup-form">
+                                                        <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                                        <input type="hidden" name="event_id" value="<?php echo $evtId; ?>">
+                                                        <div class="form-row-inline">
+                                                            <select name="role" required>
+                                                                <option value="" disabled selected><?php echo empty($userRoles) ? '-- Choose Role --' : '-- Sign up for another role --'; ?></option>
+                                                                <?php foreach ($availableRoles as $r): ?>
+                                                                    <option value="<?php echo e($r); ?>"><?php echo e($r); ?></option>
+                                                                <?php endforeach; ?>
+                                                            </select>
+                                                            <button type="submit" name="action_signup" class="btn btn-success">Volunteer</button>
+                                                        </div>
+                                                    </form>
+                                                <?php else: ?>
+                                                    <button class="btn btn-secondary btn-block" disabled>Volunteer Slots Full</button>
+                                                <?php endif; ?>
                                             <?php else: ?>
-                                                <button class="btn btn-secondary btn-block" disabled>Volunteer Slots Full</button>
+                                                <p class="info-block" style="margin-bottom: 0; text-align: center; background: rgba(34, 197, 94, 0.08); border: 1px solid rgba(34, 197, 94, 0.2); color: var(--color-success);">You have volunteered for all available roles!</p>
                                             <?php endif; ?>
                                         <?php else: ?>
                                             <p class="login-prompt-text"><a href="index.php?action=login">Log in</a> to sign up as a volunteer for this session.</p>

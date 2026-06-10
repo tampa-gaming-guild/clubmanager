@@ -101,13 +101,35 @@ class Event {
     /**
      * Cancel a volunteer signup
      */
-    public static function cancelVolunteer(int $eventId, int $contactId): bool {
+    public static function cancelVolunteer(int $eventId, int $contactId, string $role = null): bool {
         $appDb = Database::getAppConnection();
-        $stmt = $appDb->prepare("DELETE FROM tgg_volunteer_signups WHERE event_id = :event_id AND contact_id = :contact_id");
-        return $stmt->execute([
+        if ($role) {
+            $stmt = $appDb->prepare("DELETE FROM tgg_volunteer_signups WHERE event_id = :event_id AND contact_id = :contact_id AND role = :role");
+            return $stmt->execute([
+                'event_id' => $eventId,
+                'contact_id' => $contactId,
+                'role' => $role
+            ]);
+        } else {
+            $stmt = $appDb->prepare("DELETE FROM tgg_volunteer_signups WHERE event_id = :event_id AND contact_id = :contact_id");
+            return $stmt->execute([
+                'event_id' => $eventId,
+                'contact_id' => $contactId
+            ]);
+        }
+    }
+
+    /**
+     * Get list of roles a member has signed up for on an event
+     */
+    public static function getMemberRolesForEvent(int $eventId, int $contactId): array {
+        $appDb = Database::getAppConnection();
+        $stmt = $appDb->prepare("SELECT role FROM tgg_volunteer_signups WHERE event_id = :event_id AND contact_id = :contact_id");
+        $stmt->execute([
             'event_id' => $eventId,
             'contact_id' => $contactId
         ]);
+        return $stmt->fetchAll(PDO::FETCH_COLUMN);
     }
 
     /**
