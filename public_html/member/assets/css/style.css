@@ -212,6 +212,11 @@ a:hover {
     transition: all 0.2s ease;
 }
 
+select option {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+}
+
 .form-group input:focus,
 .form-group select:focus,
 .form-group textarea:focus {
