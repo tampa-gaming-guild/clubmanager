@@ -204,7 +204,7 @@ try {
                                                     <span class="badge badge-active" style="display: inline-flex; align-items: center; gap: 8px;">
                                                         👤 <?php echo e($volName); ?>
                                                     </span>
-                                                <?php else: ?>
+                                                <?php elseif ($role !== 'Greeter'): ?>
                                                     <span class="volunteer-status-needed">
                                                         👋 Volunteer Needed
                                                     </span>
