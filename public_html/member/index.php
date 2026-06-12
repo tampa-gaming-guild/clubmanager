@@ -21,6 +21,11 @@ if (isset($_GET['loggedout'])) {
     $successMsg = "You have been logged out successfully.";
 }
 
+if (isset($_GET['renew_success'])) {
+    $amount = isset($_GET['amount']) ? (float)$_GET['amount'] : 0.00;
+    $successMsg = "Thank you! Your renewal payment " . ($amount > 0 ? "of $" . number_format($amount, 2) : "") . " was processed successfully. Please sign in to view your updated status.";
+}
+
 if (isset($_GET['error']) && $_GET['error'] === 'unauthorized') {
     $errorMsg = "Access denied. You do not have permission to view that page.";
 }

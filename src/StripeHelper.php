@@ -12,6 +12,7 @@ class StripeHelper {
     /**
      * Create a Stripe Checkout Session
      * @param int $contactId CiviCRM contact ID
+     * @param int $planId Local plan ID
      * @param int $membershipTypeId CiviCRM membership type ID
      * @param string $membershipTypeName Name of membership (e.g. Annual Standard)
      * @param float $amount Amount to charge in USD
@@ -19,7 +20,7 @@ class StripeHelper {
      * @return array Checkout session response from Stripe
      * @throws Exception
      */
-    public static function createCheckoutSession(int $contactId, int $membershipTypeId, string $membershipTypeName, float $amount, string $action): array {
+    public static function createCheckoutSession(int $contactId, int $planId, int $membershipTypeId, string $membershipTypeName, float $amount, string $action): array {
         $secretKey = $_ENV['STRIPE_SECRET_KEY'] ?? '';
         if (empty($secretKey)) {
             throw new Exception("Stripe Secret Key is not configured in environment.");
@@ -54,6 +55,7 @@ class StripeHelper {
             'cancel_url' => $cancelUrl,
             'metadata' => [
                 'contact_id' => $contactId,
+                'plan_id' => $planId,
                 'membership_type_id' => $membershipTypeId,
                 'action' => $action
             ]

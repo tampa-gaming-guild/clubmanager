@@ -68,6 +68,12 @@ header("X-Content-Type-Options: nosniff");
 header("X-XSS-Protection: 1; mode=block");
 header("Referrer-Policy: strict-origin-when-cross-origin");
 
+// Detect proxy-terminated HTTPS (e.g., from Caddy reverse proxy)
+if ((isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') ||
+    (isset($_SERVER['HTTP_X_FORWARDED_SSL']) && $_SERVER['HTTP_X_FORWARDED_SSL'] === 'on')) {
+    $_SERVER['HTTPS'] = 'on';
+}
+
 // 5. Secure Session Setup
 if (session_status() === PHP_SESSION_NONE) {
     // Dynamically determine cookie path from BASE_URL to support subdirectories and localhost root
@@ -84,7 +90,7 @@ if (session_status() === PHP_SESSION_NONE) {
         'domain' => '', // Empty lets browser default to host (ignoring port number)
         'secure' => isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on', // HTTPS only when enabled
         'httponly' => true, // Inaccessible to JavaScript
-        'samesite' => 'Strict' // Protect against CSRF
+        'samesite' => 'Lax' // Lax allows session persistence across external redirects (e.g. Stripe Checkout)
     ];
     
     session_set_cookie_params($cookieParams);

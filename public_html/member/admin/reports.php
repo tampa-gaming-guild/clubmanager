@@ -58,13 +58,13 @@ try {
         $attendanceData[] = $count;
     }
 
-    // 2. Fetch Financial Trends (Last 30 Days)
-    $finStmt = $civiDb->query("
-        SELECT DATE(receive_date) as receive_date, SUM(total_amount) as amount 
-        FROM civicrm_contribution 
-        WHERE receive_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) 
-          AND contribution_status_id = 1
-        GROUP BY DATE(receive_date) 
+    // 2. Fetch Financial Trends (Last 30 Days) from local ledger
+    $finStmt = $appDb->query("
+        SELECT DATE(created_at) as receive_date, SUM(amount) as amount 
+        FROM tgg_billing_ledger 
+        WHERE created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) 
+          AND payment_status = 'paid'
+        GROUP BY DATE(created_at) 
         ORDER BY receive_date ASC
     ");
     $finRows = $finStmt->fetchAll();
@@ -86,12 +86,12 @@ try {
         $financeData[] = $amount;
     }
 
-    // 3. Fetch Membership Tier Distribution
-    $tierStmt = $civiDb->query("
-        SELECT t.name as tier_name, COUNT(m.id) as count 
-        FROM civicrm_membership m 
-        INNER JOIN civicrm_membership_type t ON m.membership_type_id = t.id 
-        GROUP BY t.id
+    // 3. Fetch Membership Tier Distribution from local subscriptions
+    $tierStmt = $appDb->query("
+        SELECT p.name as tier_name, COUNT(s.contact_id) as count 
+        FROM tgg_subscriptions s 
+        INNER JOIN tgg_subscription_plans p ON s.plan_id = p.id 
+        GROUP BY p.id
         ORDER BY count DESC
     ");
     $tierRows = $tierStmt->fetchAll();
@@ -100,16 +100,36 @@ try {
         $tierData[] = (int)$row['count'];
     }
 
-    // 4. Fetch Recent Payments Log (Financial Table Report)
-    $payLogStmt = $civiDb->query("
-        SELECT c.display_name, p.receive_date, p.total_amount, p.trxn_id 
-        FROM civicrm_contribution p
-        INNER JOIN civicrm_contact c ON p.contact_id = c.id
-        WHERE p.contribution_status_id = 1
-        ORDER BY p.receive_date DESC
+    // 4. Fetch Recent Payments Log (Financial Table Report) from local ledger
+    $payLogsRaw = $appDb->query("
+        SELECT l.contact_id, l.created_at as receive_date, l.amount as total_amount, l.payment_intent_id as trxn_id, p.name as plan_name
+        FROM tgg_billing_ledger l
+        LEFT JOIN tgg_subscription_plans p ON l.plan_id = p.id
+        WHERE l.payment_status = 'paid'
+        ORDER BY l.created_at DESC
         LIMIT 50
-    ");
-    $paymentsList = $payLogStmt->fetchAll();
+    ")->fetchAll();
+    
+    $paymentsList = [];
+    if (!empty($payLogsRaw)) {
+        $contactIds = array_unique(array_column($payLogsRaw, 'contact_id'));
+        $placeholders = implode(',', array_fill(0, count($contactIds), '?'));
+        
+        $civiContactStmt = $civiDb->prepare("SELECT id, display_name FROM civicrm_contact WHERE id IN ({$placeholders})");
+        $civiContactStmt->execute(array_values($contactIds));
+        $contactsMap = $civiContactStmt->fetchAll(PDO::FETCH_KEY_PAIR);
+        
+        foreach ($payLogsRaw as $row) {
+            $cid = (int)$row['contact_id'];
+            $paymentsList[] = [
+                'display_name' => $contactsMap[$cid] ?? "Member #{$cid}",
+                'receive_date' => $row['receive_date'],
+                'total_amount' => $row['total_amount'],
+                'trxn_id' => $row['trxn_id'],
+                'plan_name' => $row['plan_name'] ?? 'Unknown Plan'
+            ];
+        }
+    }
 
     // 5. Fetch Recent Attendance Log (Attendance Table Report)
     $chkLogStmt = $appDb->query("
@@ -200,6 +220,7 @@ try {
                         <li><a href="dashboard.php">Control Hub</a></li>
                         <li><a href="scheduler.php">Event Scheduler</a></li>
                         <li><a href="import.php">CiviCRM Importer</a></li>
+                        <li><a href="memberships.php">Memberships</a></li>
                         <li><a href="reports.php" class="active">Reports & Analytics</a></li>
                     </ul>
                 </aside>
@@ -249,20 +270,22 @@ try {
                                         <tr>
                                             <th class="sortable-header" onclick="sortTable('payments-report-table', 0, false)">Date / Time</th>
                                             <th class="sortable-header" onclick="sortTable('payments-report-table', 1, false)">Member Name</th>
-                                            <th class="sortable-header" onclick="sortTable('payments-report-table', 2, false)">Stripe Transaction ID</th>
-                                            <th class="sortable-header" onclick="sortTable('payments-report-table', 3, true)">Amount Paid</th>
+                                            <th class="sortable-header" onclick="sortTable('payments-report-table', 2, false)">Membership Tier</th>
+                                            <th class="sortable-header" onclick="sortTable('payments-report-table', 3, false)">Stripe Transaction ID</th>
+                                            <th class="sortable-header" onclick="sortTable('payments-report-table', 4, true)">Amount Paid</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         <?php if (empty($paymentsList)): ?>
                                             <tr>
-                                                <td colspan="4" class="text-center">No payment history found.</td>
+                                                <td colspan="5" class="text-center">No payment history found.</td>
                                             </tr>
                                         <?php else: ?>
                                             <?php foreach ($paymentsList as $pay): ?>
                                                 <tr>
                                                     <td><span class="table-datetime"><?php echo date('Y-m-d H:i:s', strtotime($pay['receive_date'])); ?></span></td>
                                                     <td><strong><?php echo e($pay['display_name']); ?></strong></td>
+                                                    <td><?php echo e($pay['plan_name']); ?></td>
                                                     <td><code><?php echo e($pay['trxn_id']); ?></code></td>
                                                     <td><strong>$<?php echo number_format($pay['total_amount'], 2); ?></strong></td>
                                                 </tr>

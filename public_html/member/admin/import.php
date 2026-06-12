@@ -59,6 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <li><a href="dashboard.php">Control Hub</a></li>
                         <li><a href="scheduler.php">Event Scheduler</a></li>
                         <li><a href="import.php" class="active">CiviCRM Importer</a></li>
+                        <li><a href="memberships.php">Memberships</a></li>
                         <li><a href="reports.php">Reports & Analytics</a></li>
                     </ul>
                 </aside>

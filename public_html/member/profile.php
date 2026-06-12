@@ -84,6 +84,25 @@ if (!$settings['is_profile_public'] && !$hasPrivateAccess) {
     $profileHidden = false;
 }
 
+// Fetch Billing Transactions if Viewer has Private Access
+$transactions = [];
+if ($hasPrivateAccess && $appDb) {
+    try {
+        $transStmt = $appDb->prepare("
+            SELECT l.created_at, l.amount, l.currency, l.action_type, l.payment_status, l.payment_intent_id as trxn_id, p.name as plan_name
+            FROM tgg_billing_ledger l
+            INNER JOIN tgg_subscription_plans p ON l.plan_id = p.id
+            WHERE l.contact_id = :contact_id
+            ORDER BY l.created_at DESC
+        ");
+        $transStmt->execute(['contact_id' => $profileId]);
+        $transactions = $transStmt->fetchAll();
+    } catch (Exception $e) {
+        $errorMsg = ($errorMsg ? $errorMsg . " | " : "") . "Failed to load billing history: " . $e->getMessage();
+    }
+}
+
+
 // 4. Handle Settings Updates (Only owner or admin)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
@@ -239,11 +258,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
                                             </td>
                                         </tr>
                                         <?php endif; ?>
+
+                                        <?php if ($hasPrivateAccess): ?>
+                                        <tr>
+                                            <td></td>
+                                            <td>
+                                                <a href="renew.php" class="btn btn-warning btn-small" style="margin-top: 5px; display: inline-block;">Renew/Extend Membership</a>
+                                            </td>
+                                        </tr>
+                                        <?php endif; ?>
                                     <?php else: ?>
                                         <tr>
                                             <td><strong>Membership:</strong></td>
                                             <td>No active membership records.</td>
                                         </tr>
+                                        <?php if ($hasPrivateAccess): ?>
+                                        <tr>
+                                            <td></td>
+                                            <td>
+                                                <a href="renew.php" class="btn btn-primary btn-small" style="margin-top: 5px; display: inline-block;">Purchase Membership</a>
+                                            </td>
+                                        </tr>
+                                        <?php endif; ?>
                                     <?php endif; ?>
                                 </table>
                             </div>
@@ -280,6 +316,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
                                     <p class="private-locked-msg">You do not have permission to view private details (Email, Phone, Dates).</p>
                                 <?php endif; ?>
                             </div>
+
+                            <!-- BILLING HISTORY SECTION -->
+                            <?php if ($hasPrivateAccess): ?>
+                                <div class="detail-section private-detail-section mt-20">
+                                    <div class="section-header">
+                                        <h3 class="section-title">Billing History</h3>
+                                        <span class="private-badge">🔒 Owner & Admins Only</span>
+                                    </div>
+                                    
+                                    <?php if (empty($transactions)): ?>
+                                        <p class="private-locked-msg">No billing transactions found.</p>
+                                    <?php else: ?>
+                                        <div class="admin-table-container">
+                                            <table class="admin-table" style="font-size: 0.85rem; width: 100%;">
+                                                <thead>
+                                                    <tr>
+                                                        <th style="padding: 8px 10px;">Date</th>
+                                                        <th style="padding: 8px 10px;">Plan</th>
+                                                        <th style="padding: 8px 10px;">Amount</th>
+                                                        <th style="padding: 8px 10px;">Status</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <?php foreach ($transactions as $tx): ?>
+                                                        <tr>
+                                                            <td style="padding: 8px 10px;"><span class="table-datetime"><?php echo date('Y-m-d', strtotime($tx['created_at'])); ?></span></td>
+                                                            <td style="padding: 8px 10px;"><strong><?php echo e($tx['plan_name']); ?></strong></td>
+                                                            <td style="padding: 8px 10px;">$<?php echo number_format($tx['amount'], 2); ?></td>
+                                                            <td style="padding: 8px 10px;">
+                                                                <span class="badge <?php echo $tx['payment_status'] === 'paid' ? 'badge-active' : 'badge-expired'; ?>" style="font-size: 0.75rem; padding: 2px 6px; display: inline-block;">
+                                                                    <?php echo e(ucfirst($tx['payment_status'])); ?>
+                                                                </span>
+                                                            </td>
+                                                        </tr>
+                                                    <?php endforeach; ?>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
+                            <?php endif; ?>
                         </div>
 
                         <!-- Right Panel: Management (Only for Owner or Admin) -->

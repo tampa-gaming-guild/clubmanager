@@ -75,12 +75,12 @@ try {
         WHERE DATE(checked_in_at) = CURRENT_DATE()
     ")->fetchColumn();
 
-    // 5. Fetch Stripe/CiviCRM contribution revenue this month
-    $monthRevenue = (float)$civiDb->query("
-        SELECT SUM(total_amount) FROM civicrm_contribution 
-        WHERE MONTH(receive_date) = MONTH(CURRENT_DATE()) 
-          AND YEAR(receive_date) = YEAR(CURRENT_DATE())
-          AND contribution_status_id = 1
+    // 5. Fetch Stripe transaction revenue this month from local ledger
+    $monthRevenue = (float)$appDb->query("
+        SELECT SUM(amount) FROM tgg_billing_ledger 
+        WHERE MONTH(created_at) = MONTH(CURRENT_DATE()) 
+          AND YEAR(created_at) = YEAR(CURRENT_DATE())
+          AND payment_status = 'paid'
     ")->fetchColumn();
 
 } catch (Exception $e) {
@@ -179,6 +179,7 @@ try {
                         <li><a href="dashboard.php" class="active">Control Hub</a></li>
                         <li><a href="scheduler.php">Event Scheduler</a></li>
                         <li><a href="import.php">CiviCRM Importer</a></li>
+                        <li><a href="memberships.php">Memberships</a></li>
                         <li><a href="reports.php">Reports & Analytics</a></li>
                     </ul>
                 </aside>
@@ -213,6 +214,7 @@ try {
                             <div class="stat-vals">
                                 <strong>$<?php echo number_format($monthRevenue, 2); ?></strong>
                                 <span>Revenue (Month)</span>
+                                <a href="reports.php#payments-report-table" class="card-link" style="font-size: 0.7rem; color: var(--color-primary); text-decoration: none; margin-top: 5px; display: inline-block;">View Payments Log &rarr;</a>
                             </div>
                         </div>
                     </div>

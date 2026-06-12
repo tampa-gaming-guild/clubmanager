@@ -9,32 +9,27 @@ use App\Database;
 use App\CiviCRMImporter;
 use App\StripeHelper;
 use App\Auth;
+use App\BillingHelper;
 
-Auth::requireAuth();
-
-$contactId = $_SESSION['user']['contact_id'];
 $errorMsg = null;
 $successMsg = null;
 $membership = null;
 $tiers = [];
 
-try {
-    $membership = CiviCRMImporter::getMemberMembershipDetails($contactId);
-    $tiers = CiviCRMImporter::getMembershipTiers();
-} catch (Exception $e) {
-    $errorMsg = "Unable to fetch membership details: " . $e->getMessage();
-}
-
-// 1. Handle Successful Redirect from Stripe
+// 1. Handle Successful Redirect from Stripe (Run BEFORE Auth check as fallback)
 if (isset($_GET['status']) && $_GET['status'] === 'success' && isset($_GET['session_id'])) {
     $sessionId = $_GET['session_id'];
     try {
         $session = StripeHelper::retrieveCheckoutSession($sessionId);
         if ($session['payment_status'] === 'paid') {
-            $successMsg = "Your renewal payment of $" . number_format($session['amount_total'] / 100, 2) . " was processed successfully! Your membership status is updated.";
+            BillingHelper::processCheckoutSession($session);
             
-            // Reload membership details
-            $membership = CiviCRMImporter::getMemberMembershipDetails($contactId);
+            // If the user's session was lost (e.g. domain/protocol mismatch), redirect to login page with success msg
+            if (!Auth::check()) {
+                redirect("index.php?renew_success=1&amount=" . ($session['amount_total'] / 100));
+            }
+            
+            $successMsg = "Your renewal payment of $" . number_format($session['amount_total'] / 100, 2) . " was processed successfully! Your membership status is updated.";
         } else {
             $errorMsg = "Payment verification is pending.";
         }
@@ -48,7 +43,21 @@ if (isset($_GET['status']) && $_GET['status'] === 'cancelled') {
     $errorMsg = "Renewal process cancelled. No changes have been made.";
 }
 
-// 3. Handle Renewal Request Form POST
+// 3. Auth Gate & Load Details
+Auth::requireAuth();
+$contactId = $_SESSION['user']['contact_id'];
+
+try {
+    $membership = BillingHelper::getMemberSubscriptionDetails($contactId);
+    if (!$membership) {
+        $membership = CiviCRMImporter::getMemberMembershipDetails($contactId);
+    }
+    $tiers = BillingHelper::getSubscriptionPlans();
+} catch (Exception $e) {
+    $errorMsg = "Unable to fetch membership details: " . $e->getMessage();
+}
+
+// 4. Handle Renewal Request Form POST
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
         $errorMsg = "Invalid security token. Please try again.";
@@ -64,11 +73,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                     throw new Exception("Invalid membership tier selected.");
                 }
                 $tier = $tiers[$tierIndex];
-                $fee = (float)$tier['minimum_fee'];
+                $fee = (float)$tier['price'];
                 $tierName = $tier['name'];
+                $civicrmTypeId = (int)$tier['civicrm_membership_type_id'];
 
                 // Create Checkout Session
-                $session = StripeHelper::createCheckoutSession($contactId, $tierId, $tierName, $fee, 'renew');
+                $session = StripeHelper::createCheckoutSession($contactId, $tierId, $civicrmTypeId, $tierName, $fee, 'renew');
                 
                 header("Location: " . $session['url']);
                 exit;
@@ -176,6 +186,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                     </div>
 
                     <button type="submit" class="btn btn-primary btn-block">Pay Renewal Dues</button>
+                    <a href="profile.php?id=<?php echo $contactId; ?>" class="btn btn-secondary btn-block mt-10" style="text-align: center; justify-content: center; align-items: center;">Back to Profile</a>
                 </form>
             </div>
         </main>

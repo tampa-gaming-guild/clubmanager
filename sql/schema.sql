@@ -51,3 +51,54 @@ CREATE TABLE IF NOT EXISTS `tgg_volunteer_signups` (
   UNIQUE KEY `uq_event_contact` (`event_id`, `contact_id`),
   CONSTRAINT `fk_volunteer_event` FOREIGN KEY (`event_id`) REFERENCES `tgg_events` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
+
+-- 5. Subscription Plans (Local Options)
+CREATE TABLE IF NOT EXISTS `tgg_subscription_plans` (
+  `id` INT AUTO_INCREMENT NOT NULL,
+  `name` VARCHAR(255) NOT NULL,
+  `description` TEXT NULL,
+  `price` DECIMAL(20,2) NOT NULL,
+  `duration_unit` VARCHAR(20) NOT NULL DEFAULT 'year', -- 'month' or 'year'
+  `duration_interval` INT NOT NULL DEFAULT 1,
+  `civicrm_membership_type_id` INT NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB;
+
+-- Seed default local subscription plans (options) matching mock CiviCRM membership types
+INSERT INTO `tgg_subscription_plans` (`id`, `name`, `description`, `price`, `duration_unit`, `duration_interval`, `civicrm_membership_type_id`) VALUES
+(1, 'Monthly Member', 'Monthly membership subscription', 15.00, 'month', 1, 1),
+(2, 'Annual Standard', 'Yearly standard individual membership', 120.00, 'year', 1, 2),
+(3, 'Annual Premium', 'Yearly premium member support', 250.00, 'year', 1, 3)
+ON DUPLICATE KEY UPDATE `name`=VALUES(`name`), `description`=VALUES(`description`), `price`=VALUES(`price`), `duration_unit`=VALUES(`duration_unit`), `duration_interval`=VALUES(`duration_interval`), `civicrm_membership_type_id`=VALUES(`civicrm_membership_type_id`);
+
+-- 6. Billing Transaction Ledger
+CREATE TABLE IF NOT EXISTS `tgg_billing_ledger` (
+  `id` INT AUTO_INCREMENT NOT NULL,
+  `contact_id` INT NOT NULL,
+  `plan_id` INT NOT NULL,
+  `stripe_session_id` VARCHAR(255) NOT NULL,
+  `payment_intent_id` VARCHAR(255) NOT NULL,
+  `amount` DECIMAL(20,2) NOT NULL,
+  `currency` VARCHAR(10) NOT NULL DEFAULT 'usd',
+  `payment_status` VARCHAR(50) NOT NULL,
+  `action_type` VARCHAR(20) NOT NULL, -- 'join' or 'renew'
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_stripe_session` (`stripe_session_id`),
+  KEY `idx_contact_ledger` (`contact_id`),
+  CONSTRAINT `fk_ledger_plan` FOREIGN KEY (`plan_id`) REFERENCES `tgg_subscription_plans` (`id`)
+) ENGINE=InnoDB;
+
+-- 7. Local Member Subscriptions
+CREATE TABLE IF NOT EXISTS `tgg_subscriptions` (
+  `contact_id` INT NOT NULL,
+  `plan_id` INT NOT NULL,
+  `status` VARCHAR(50) NOT NULL DEFAULT 'pending',
+  `join_date` DATE NOT NULL,
+  `start_date` DATE NOT NULL,
+  `end_date` DATE NOT NULL,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`contact_id`),
+  CONSTRAINT `fk_sub_plan` FOREIGN KEY (`plan_id`) REFERENCES `tgg_subscription_plans` (`id`)
+) ENGINE=InnoDB;
+

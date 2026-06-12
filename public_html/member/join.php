@@ -9,13 +9,14 @@ use App\Database;
 use App\CiviCRMImporter;
 use App\StripeHelper;
 use App\Auth;
+use App\BillingHelper;
 
 $tiers = [];
 $errorMsg = null;
 $successMsg = null;
 
 try {
-    $tiers = CiviCRMImporter::getMembershipTiers();
+    $tiers = BillingHelper::getSubscriptionPlans();
 } catch (Exception $e) {
     $errorMsg = "System Connection Error: Unable to fetch membership tiers.";
 }
@@ -26,6 +27,7 @@ if (isset($_GET['status']) && $_GET['status'] === 'success' && isset($_GET['sess
     try {
         $session = StripeHelper::retrieveCheckoutSession($sessionId);
         if ($session['payment_status'] === 'paid') {
+            BillingHelper::processCheckoutSession($session);
             $successMsg = "Thank you! Your payment was successful and your membership is active. You can now login using the credentials you created.";
         } else {
             $errorMsg = "Your payment is pending. Once completed, your membership will be active.";
@@ -110,15 +112,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                             throw new Exception("Invalid membership tier selected.");
                         }
                         $tier = $tiers[$tierIndex];
-                        $fee = (float)$tier['minimum_fee'];
+                        $fee = (float)$tier['price'];
                         $tierName = $tier['name'];
+                        $civicrmTypeId = (int)$tier['civicrm_membership_type_id'];
 
                         // Commit both transactions
                         $civiDb->commit();
                         $appDb->commit();
 
                         // F. Create Stripe Session and Redirect
-                        $session = StripeHelper::createCheckoutSession($contactId, $tierId, $tierName, $fee, 'join');
+                        $session = StripeHelper::createCheckoutSession($contactId, $tierId, $civicrmTypeId, $tierName, $fee, 'join');
                         
                         header("Location: " . $session['url']);
                         exit;
