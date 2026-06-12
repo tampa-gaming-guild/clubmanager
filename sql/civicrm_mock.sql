@@ -85,7 +85,8 @@ CREATE TABLE IF NOT EXISTS `civicrm_contribution` (
 INSERT INTO `civicrm_membership_type` (`id`, `name`, `description`, `minimum_fee`, `duration_unit`, `duration_interval`) VALUES
 (1, 'Monthly Member', 'Monthly membership subscription', 15.00, 'month', 1),
 (2, 'Annual Standard', 'Yearly standard individual membership', 120.00, 'year', 1),
-(3, 'Annual Premium', 'Yearly premium member support', 250.00, 'year', 1);
+(3, 'Annual Premium', 'Yearly premium member support', 250.00, 'year', 1),
+(9, 'Daily', 'Daily membership level', 10.00, 'day', 1);
 
 INSERT INTO `civicrm_membership_status` (`id`, `name`, `label`, `is_active`) VALUES
 (1, 'New', 'New', 1),

@@ -178,6 +178,14 @@ try {
     <div class="app-container">
         <header class="navbar">
             <div class="logo">TGG Members</div>
+            <?php if (has_role('admin')): ?>
+                <form action="<?php echo rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/admin/dashboard.php'; ?>" method="GET" class="navbar-search-form" style="margin: 0 20px; flex-grow: 1; max-width: 380px; position: relative;">
+                    <input type="text" name="search" placeholder="Search members by name..." 
+                        value="<?php echo isset($_GET['search']) ? e($_GET['search']) : ''; ?>"
+                        style="width: 100%; padding: 8px 15px 8px 35px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; color: #fff; font-size: 0.85rem; outline: none; transition: all 0.2s ease;">
+                    <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: rgba(255, 255, 255, 0.4); font-size: 0.9rem;">🔍</span>
+                </form>
+            <?php endif; ?>
             <nav class="nav-links">
                 <a href="../index.php">Dashboard</a>
                 <a href="../calendar.php">Calendar</a>
@@ -195,11 +203,16 @@ try {
                 <aside class="admin-sidebar glass-panel">
                     <h3>Admin Controls</h3>
                     <ul class="admin-menu">
-                        <li><a href="dashboard.php">Control Hub</a></li>
+                        <li><a href="dashboard.php">Dashboard</a></li>
                         <li><a href="scheduler.php" class="active">Event Scheduler</a></li>
                         <li><a href="import.php">CiviCRM Importer</a></li>
                         <li><a href="memberships.php">Memberships</a></li>
-                        <li><a href="reports.php">Reports & Analytics</a></li>
+                        <li><a href="reports.php" class="<?php echo in_array(basename($_SERVER['PHP_SELF']), ['reports.php', 'payments.php', 'attendance.php']) ? 'active' : ''; ?>">Reports & Analytics</a>
+                            <ul class="admin-submenu" style="list-style-type: none; padding-left: 15px; margin-top: 5px; display: flex; flex-direction: column; gap: 4px;">
+                                <li><a href="payments.php" class="<?php echo (basename($_SERVER['PHP_SELF']) === 'payments.php') ? 'active' : ''; ?>" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Payments Log</a></li>
+                                <li><a href="attendance.php" class="<?php echo (basename($_SERVER['PHP_SELF']) === 'attendance.php') ? 'active' : ''; ?>" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Attendance Log</a></li>
+                            </ul>
+                        </li>
                     </ul>
                 </aside>
 

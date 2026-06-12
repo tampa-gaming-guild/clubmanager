@@ -27,6 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_plan'])) {
         $price = (float)($_POST['price'] ?? 0);
         $durationInterval = (int)($_POST['duration_interval'] ?? 1);
         $durationUnit = strtolower($_POST['duration_unit'] ?? 'year');
+        $active = trim($_POST['active'] ?? 'active');
 
         try {
             $data = [
@@ -35,7 +36,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_plan'])) {
                 'description' => $description,
                 'price' => $price,
                 'duration_interval' => $durationInterval,
-                'duration_unit' => $durationUnit
+                'duration_unit' => $durationUnit,
+                'active' => $active
             ];
 
             BillingHelper::savePlan($data);
@@ -95,6 +97,27 @@ if (isset($_GET['action']) && $_GET['action'] === 'edit' && isset($_GET['id'])) 
             gap: 10px;
             margin-top: 15px;
         }
+        .reports-table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            margin-top: 10px;
+        }
+        .reports-table th {
+            padding: 12px 24px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            color: var(--color-text-secondary);
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .reports-table td {
+            padding: 14px 24px;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+        }
+        .reports-table tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
     </style>
 </head>
 <body>
@@ -102,6 +125,14 @@ if (isset($_GET['action']) && $_GET['action'] === 'edit' && isset($_GET['id'])) 
         <!-- Navigation Bar -->
         <header class="navbar">
             <div class="logo">TGG Members</div>
+            <?php if (has_role('admin')): ?>
+                <form action="<?php echo rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/admin/dashboard.php'; ?>" method="GET" class="navbar-search-form" style="margin: 0 20px; flex-grow: 1; max-width: 380px; position: relative;">
+                    <input type="text" name="search" placeholder="Search members by name..." 
+                        value="<?php echo isset($_GET['search']) ? e($_GET['search']) : ''; ?>"
+                        style="width: 100%; padding: 8px 15px 8px 35px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; color: #fff; font-size: 0.85rem; outline: none; transition: all 0.2s ease;">
+                    <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: rgba(255, 255, 255, 0.4); font-size: 0.9rem;">🔍</span>
+                </form>
+            <?php endif; ?>
             <nav class="nav-links">
                 <a href="../index.php">Dashboard</a>
                 <a href="../calendar.php">Calendar</a>
@@ -119,19 +150,24 @@ if (isset($_GET['action']) && $_GET['action'] === 'edit' && isset($_GET['id'])) 
                 <aside class="admin-sidebar glass-panel">
                     <h3>Admin Controls</h3>
                     <ul class="admin-menu">
-                        <li><a href="dashboard.php">Control Hub</a></li>
+                        <li><a href="dashboard.php">Dashboard</a></li>
                         <li><a href="scheduler.php">Event Scheduler</a></li>
                         <li><a href="import.php">CiviCRM Importer</a></li>
                         <li><a href="memberships.php" class="active">Memberships</a></li>
-                        <li><a href="reports.php">Reports & Analytics</a></li>
+                        <li><a href="reports.php" class="<?php echo in_array(basename($_SERVER['PHP_SELF']), ['reports.php', 'payments.php', 'attendance.php']) ? 'active' : ''; ?>">Reports & Analytics</a>
+                            <ul class="admin-submenu" style="list-style-type: none; padding-left: 15px; margin-top: 5px; display: flex; flex-direction: column; gap: 4px;">
+                                <li><a href="payments.php" class="<?php echo (basename($_SERVER['PHP_SELF']) === 'payments.php') ? 'active' : ''; ?>" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Payments Log</a></li>
+                                <li><a href="attendance.php" class="<?php echo (basename($_SERVER['PHP_SELF']) === 'attendance.php') ? 'active' : ''; ?>" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Attendance Log</a></li>
+                            </ul>
+                        </li>
                     </ul>
                 </aside>
 
                 <!-- Work Area -->
                 <section class="admin-workspace glass-panel">
                     <h2>Membership Levels & Pricing</h2>
-                    <p class="description-text">
-                        Configure pricing plans, descriptions, and durations for member subscriptions. Changes are saved locally and synced with WordPress CiviCRM tables.
+                    <p class="description-text" style="margin-bottom: 20px;">
+                        Configure pricing plans, descriptions, and durations for member subscriptions.
                     </p>
 
                     <?php if ($errorMsg): ?>
@@ -153,6 +189,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'edit' && isset($_GET['id'])) 
                                         <th>Name</th>
                                         <th>Price</th>
                                         <th>Billing Cycle</th>
+                                        <th>Status</th>
                                         <th style="width: 100px; text-align: center;">Actions</th>
                                     </tr>
                                 </thead>
@@ -164,9 +201,16 @@ if (isset($_GET['action']) && $_GET['action'] === 'edit' && isset($_GET['id'])) 
                                                     <strong><?php echo e($plan['name']); ?></strong><br>
                                                     <small style="color: var(--color-text-muted);"><?php echo e($plan['description'] ?? 'No description'); ?></small>
                                                 </td>
-                                                <td>$<?php echo number_format($plan['price'], 2); ?></td>
-                                                <td>
-                                                    Every <?php echo (int)$plan['duration_interval']; ?> <?php echo e(ucfirst($plan['duration_unit'])); ?>(s)
+                                                <td style="font-size: 0.85rem;">$<?php echo (float)$plan['price'] == (int)$plan['price'] ? number_format($plan['price'], 0) : number_format($plan['price'], 2); ?></td>
+                                                <td style="font-size: 0.85rem;">
+                                                    <?php if (strtolower($plan['duration_unit']) !== 'day'): ?>
+                                                        Every <?php echo (int)$plan['duration_interval']; ?> <?php echo e(ucfirst($plan['duration_unit'])); ?>(s)
+                                                    <?php endif; ?>
+                                                </td>
+                                                <td style="font-size: 0.85rem;">
+                                                    <span class="badge <?php echo $plan['active'] === 'active' ? 'badge-active' : 'badge-expired'; ?>" style="font-size: 0.7rem; padding: 2px 6px;">
+                                                        <?php echo e(ucfirst($plan['active'] ?? 'active')); ?>
+                                                    </span>
                                                 </td>
                                                 <td style="text-align: center;">
                                                     <a href="memberships.php?action=edit&id=<?php echo (int)$plan['id']; ?>" class="btn btn-warning btn-sm" style="display: inline-block; padding: 4px 8px; font-size: 0.8rem;">Edit</a>
@@ -213,10 +257,19 @@ if (isset($_GET['action']) && $_GET['action'] === 'edit' && isset($_GET['id'])) 
                                     <div class="form-group">
                                         <label for="duration_unit">Interval Unit</label>
                                         <select id="duration_unit" name="duration_unit" required>
+                                            <option value="day" <?php echo ($editPlan && $editPlan['duration_unit'] === 'day') ? 'selected' : ''; ?>>Day(s)</option>
                                             <option value="month" <?php echo ($editPlan && $editPlan['duration_unit'] === 'month') ? 'selected' : ''; ?>>Month(s)</option>
-                                            <option value="year" <?php echo (!$editPlan || $editPlan['duration_unit'] === 'year') ? 'selected' : 'selected'; ?>>Year(s)</option>
+                                            <option value="year" <?php echo (!$editPlan || ($editPlan && $editPlan['duration_unit'] === 'year')) ? 'selected' : ''; ?>>Year(s)</option>
                                         </select>
                                     </div>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="active">Status</label>
+                                    <select id="active" name="active" required>
+                                        <option value="active" <?php echo (!$editPlan || ($editPlan && ($editPlan['active'] ?? 'active') === 'active')) ? 'selected' : ''; ?>>Active</option>
+                                        <option value="inactive" <?php echo ($editPlan && ($editPlan['active'] ?? 'active') === 'inactive') ? 'selected' : ''; ?>>Inactive</option>
+                                    </select>
                                 </div>
 
                                 <div class="form-actions">

@@ -450,6 +450,14 @@ select option {
     background: rgba(239, 68, 68, 0.2);
     color: var(--color-danger);
 }
+.badge-free {
+    background: rgba(59, 130, 246, 0.2);
+    color: var(--color-primary);
+}
+.badge-volunteer {
+    background: rgba(245, 158, 11, 0.2);
+    color: var(--color-warning);
+}
 
 .status-dates p {
     font-size: 0.9rem;

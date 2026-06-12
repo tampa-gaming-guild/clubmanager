@@ -31,31 +31,35 @@ try {
     $appDb = Database::getAppConnection();
     $civiDb = Database::getCiviConnection();
 
-    // 1. Fetch Attendance Trends (Last 7 Days)
-    $attStmt = $appDb->query("
-        SELECT DATE(checked_in_at) as checkin_date, COUNT(*) as count 
-        FROM tgg_checkins 
-        WHERE checked_in_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY) 
-        GROUP BY DATE(checked_in_at) 
-        ORDER BY checkin_date ASC
+    // 1. Fetch Attendance Trends (Display only days of past scheduled events)
+    $eventsStmt = $appDb->query("
+        SELECT DISTINCT DATE(start_time) as event_date 
+        FROM tgg_events 
+        WHERE DATE(start_time) <= CURRENT_DATE()
+        ORDER BY event_date DESC
+        LIMIT 7
     ");
-    $attRows = $attStmt->fetchAll();
-    
-    // Fill in last 7 days even if 0 checkins to make a smooth chart
-    for ($i = 6; $i >= 0; $i--) {
-        $dateStr = date('Y-m-d', strtotime("-{$i} days"));
-        $labelStr = date('D (M d)', strtotime($dateStr));
-        
-        $attendanceLabels[] = $labelStr;
-        
-        $count = 0;
-        foreach ($attRows as $row) {
-            if ($row['checkin_date'] === $dateStr) {
-                $count = (int)$row['count'];
-                break;
-            }
+    $eventDates = array_column($eventsStmt->fetchAll(), 'event_date');
+    $eventDates = array_reverse($eventDates); // Chronological order (left-to-right)
+
+    if (empty($eventDates)) {
+        // Fallback to last 7 days if no events are recorded in the past
+        for ($i = 6; $i >= 0; $i--) {
+            $eventDates[] = date('Y-m-d', strtotime("-{$i} days"));
         }
-        $attendanceData[] = $count;
+    }
+
+    foreach ($eventDates as $dateStr) {
+        $labelStr = date('D (M d)', strtotime($dateStr));
+        $attendanceLabels[] = $labelStr;
+
+        $countStmt = $appDb->prepare("
+            SELECT COUNT(*) 
+            FROM tgg_checkins 
+            WHERE DATE(checked_in_at) = :dt
+        ");
+        $countStmt->execute(['dt' => $dateStr]);
+        $attendanceData[] = (int)$countStmt->fetchColumn();
     }
 
     // 2. Fetch Financial Trends (Last 30 Days) from local ledger
@@ -200,6 +204,14 @@ try {
     <div class="app-container">
         <header class="navbar">
             <div class="logo">TGG Members</div>
+            <?php if (has_role('admin')): ?>
+                <form action="<?php echo rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/admin/dashboard.php'; ?>" method="GET" class="navbar-search-form" style="margin: 0 20px; flex-grow: 1; max-width: 380px; position: relative;">
+                    <input type="text" name="search" placeholder="Search members by name..." 
+                        value="<?php echo isset($_GET['search']) ? e($_GET['search']) : ''; ?>"
+                        style="width: 100%; padding: 8px 15px 8px 35px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; color: #fff; font-size: 0.85rem; outline: none; transition: all 0.2s ease;">
+                    <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: rgba(255, 255, 255, 0.4); font-size: 0.9rem;">🔍</span>
+                </form>
+            <?php endif; ?>
             <nav class="nav-links">
                 <a href="../index.php">Dashboard</a>
                 <a href="../calendar.php">Calendar</a>
@@ -217,11 +229,16 @@ try {
                 <aside class="admin-sidebar glass-panel">
                     <h3>Admin Controls</h3>
                     <ul class="admin-menu">
-                        <li><a href="dashboard.php">Control Hub</a></li>
+                        <li><a href="dashboard.php">Dashboard</a></li>
                         <li><a href="scheduler.php">Event Scheduler</a></li>
                         <li><a href="import.php">CiviCRM Importer</a></li>
                         <li><a href="memberships.php">Memberships</a></li>
-                        <li><a href="reports.php" class="active">Reports & Analytics</a></li>
+                        <li><a href="reports.php" class="<?php echo in_array(basename($_SERVER['PHP_SELF']), ['reports.php', 'payments.php', 'attendance.php']) ? 'active' : ''; ?>">Reports & Analytics</a>
+                            <ul class="admin-submenu" style="list-style-type: none; padding-left: 15px; margin-top: 5px; display: flex; flex-direction: column; gap: 4px;">
+                                <li><a href="payments.php" class="<?php echo (basename($_SERVER['PHP_SELF']) === 'payments.php') ? 'active' : ''; ?>" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Payments Log</a></li>
+                                <li><a href="attendance.php" class="<?php echo (basename($_SERVER['PHP_SELF']) === 'attendance.php') ? 'active' : ''; ?>" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Attendance Log</a></li>
+                            </ul>
+                        </li>
                     </ul>
                 </aside>
 
@@ -238,7 +255,7 @@ try {
                         
                         <!-- 1. Attendance Trend Chart -->
                         <div class="report-chart-card glass-panel">
-                            <h3>Attendance (Last 7 Days)</h3>
+                            <h3>Attendance (Last 7 Events)</h3>
                             <div class="chart-canvas-container">
                                 <canvas id="attendanceChart"></canvas>
                             </div>
@@ -263,7 +280,7 @@ try {
                         <!-- 4. Tabular Financial Report -->
                         <div class="table-card glass-panel span-full-row mt-20">
                             <h3>Recent Payments Log</h3>
-                            <p class="settings-instruction mb-10">Click any column header to sort.</p>
+
                             <div class="admin-table-container">
                                 <table class="admin-table" id="payments-report-table" data-sort-dir="">
                                     <thead>
@@ -271,7 +288,7 @@ try {
                                             <th class="sortable-header" onclick="sortTable('payments-report-table', 0, false)">Date / Time</th>
                                             <th class="sortable-header" onclick="sortTable('payments-report-table', 1, false)">Member Name</th>
                                             <th class="sortable-header" onclick="sortTable('payments-report-table', 2, false)">Membership Tier</th>
-                                            <th class="sortable-header" onclick="sortTable('payments-report-table', 3, false)">Stripe Transaction ID</th>
+                                            <th class="sortable-header" onclick="sortTable('payments-report-table', 3, false)">Method / Transaction ID</th>
                                             <th class="sortable-header" onclick="sortTable('payments-report-table', 4, true)">Amount Paid</th>
                                         </tr>
                                     </thead>
@@ -285,8 +302,32 @@ try {
                                                 <tr>
                                                     <td><span class="table-datetime"><?php echo date('Y-m-d H:i:s', strtotime($pay['receive_date'])); ?></span></td>
                                                     <td><strong><?php echo e($pay['display_name']); ?></strong></td>
-                                                    <td><?php echo e($pay['plan_name']); ?></td>
-                                                    <td><code><?php echo e($pay['trxn_id']); ?></code></td>
+                                                    <td><a href="dashboard.php?level=<?php echo urlencode($pay['plan_name']); ?>" style="color: var(--color-primary); text-decoration: none; font-weight: 600;"><?php echo e($pay['plan_name']); ?></a></td>
+                                                    <td>
+                                                        <?php
+                                                        $trxnId = $pay['trxn_id'] ?? '';
+                                                        $badgeClass = 'badge-active';
+                                                        $badgeLabel = 'Paid (Card)';
+                                                        
+                                                        if (strpos($trxnId, 'offline_volunteer_credit_') === 0) {
+                                                            $badgeClass = 'badge-volunteer';
+                                                            $badgeLabel = 'Volunteer';
+                                                        } elseif (strpos($trxnId, 'offline_complimentary_') === 0) {
+                                                            $badgeClass = 'badge-free';
+                                                            $badgeLabel = 'Free';
+                                                        } elseif (strpos($trxnId, 'offline_cash_') === 0) {
+                                                            $badgeClass = 'badge-active';
+                                                            $badgeLabel = 'Paid (Cash)';
+                                                        } elseif (strpos($trxnId, 'offline_check_') === 0) {
+                                                            $badgeClass = 'badge-active';
+                                                            $badgeLabel = 'Paid (Check)';
+                                                        }
+                                                        ?>
+                                                        <span class="badge <?php echo $badgeClass; ?>" style="font-size: 0.75rem; padding: 2px 6px; display: inline-block; margin-right: 5px;">
+                                                            <?php echo e($badgeLabel); ?>
+                                                        </span>
+                                                        <code><?php echo e($trxnId); ?></code>
+                                                    </td>
                                                     <td><strong>$<?php echo number_format($pay['total_amount'], 2); ?></strong></td>
                                                 </tr>
                                             <?php endforeach; ?>
@@ -299,7 +340,7 @@ try {
                         <!-- 5. Tabular Attendance Report -->
                         <div class="table-card glass-panel span-full-row mt-20">
                             <h3>Recent Attendance Log</h3>
-                            <p class="settings-instruction mb-10">Click any column header to sort.</p>
+
                             <div class="admin-table-container">
                                 <table class="admin-table" id="attendance-report-table" data-sort-dir="">
                                     <thead>
@@ -414,7 +455,7 @@ try {
 
             // 2. Membership Tier Distribution (Doughnut)
             const tierCtx = document.getElementById('tierChart').getContext('2d');
-            new Chart(tierCtx, {
+            const tierChartInstance = new Chart(tierCtx, {
                 type: 'doughnut',
                 data: {
                     labels: <?php echo json_encode($tierLabels); ?>,
@@ -433,6 +474,17 @@ try {
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    onClick: (event, activeElements) => {
+                        if (activeElements.length > 0) {
+                            const activeElement = activeElements[0];
+                            const dataIndex = activeElement.index;
+                            const label = tierChartInstance.data.labels[dataIndex];
+                            window.location.href = 'dashboard.php?level=' + encodeURIComponent(label);
+                        }
+                    },
+                    onHover: (event, activeElements) => {
+                        event.native.target.style.cursor = activeElements.length ? 'pointer' : 'default';
+                    },
                     plugins: {
                         legend: {
                             position: 'bottom'

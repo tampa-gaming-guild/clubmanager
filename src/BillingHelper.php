@@ -11,13 +11,19 @@ use Exception;
 class BillingHelper {
 
     /**
-     * Get all local subscription plans
+     * Get local subscription plans
+     * @param bool $onlyActive If true, only retrieves active plans
      * @return array
      */
-    public static function getSubscriptionPlans(): array {
+    public static function getSubscriptionPlans(bool $onlyActive = false): array {
         try {
             $db = Database::getAppConnection();
-            $stmt = $db->query("SELECT *, price as minimum_fee FROM tgg_subscription_plans ORDER BY price ASC");
+            $sql = "SELECT *, price as minimum_fee FROM tgg_subscription_plans";
+            if ($onlyActive) {
+                $sql .= " WHERE active = 'active'";
+            }
+            $sql .= " ORDER BY price ASC";
+            $stmt = $db->query($sql);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Exception $e) {
             return [];
@@ -127,19 +133,38 @@ class BillingHelper {
             $subStmt->execute(['contact_id' => $contactId]);
             $existingSub = $subStmt->fetch(PDO::FETCH_ASSOC);
 
+            // Fetch existing CiviCRM membership
+            $memberQuery = $civiDb->prepare("SELECT id, end_date FROM civicrm_membership WHERE contact_id = :contact_id LIMIT 1");
+            $memberQuery->execute(['contact_id' => $contactId]);
+            $existingCiviMembership = $memberQuery->fetch(PDO::FETCH_ASSOC);
+
             $today = date('Y-m-d');
             $startDate = $today;
+            $existingEndDate = null;
 
-            if ($existingSub && $action === 'renew') {
+            if ($existingSub) {
                 $existingEndDate = $existingSub['end_date'];
+            } elseif ($existingCiviMembership && !empty($existingCiviMembership['end_date'])) {
+                $existingEndDate = $existingCiviMembership['end_date'];
+            }
+
+            if ($existingEndDate && $action === 'renew') {
                 // If existing subscription is still active, start renewal from day after current expiry
                 if (strtotime($existingEndDate) >= strtotime($today)) {
                     $startDate = date('Y-m-d', strtotime($existingEndDate . ' +1 day'));
                 }
             }
 
-            $unitString = $durationUnit === 'month' ? 'month' : 'year';
-            $endDate = date('Y-m-d', strtotime($startDate . " +{$durationInterval} {$unitString}"));
+            if ($durationUnit === 'day') {
+                // Daily payment should never change the expiration date
+                $endDate = $existingEndDate ? $existingEndDate : $today;
+            } else {
+                $unitString = $durationUnit;
+                if (!in_array($unitString, ['month', 'year'])) {
+                    $unitString = 'year';
+                }
+                $endDate = date('Y-m-d', strtotime($startDate . " +{$durationInterval} {$unitString}"));
+            }
 
             // C. Insert or update local subscription
             if ($existingSub) {
@@ -256,6 +281,10 @@ class BillingHelper {
         $price = (float)($data['price'] ?? 0);
         $durationUnit = strtolower($data['duration_unit'] ?? 'year');
         $durationInterval = (int)($data['duration_interval'] ?? 1);
+        $active = trim($data['active'] ?? 'active');
+        if (!in_array($active, ['active', 'inactive'])) {
+            $active = 'active';
+        }
 
         if (empty($name)) {
             throw new Exception("Plan name cannot be empty.");
@@ -266,8 +295,8 @@ class BillingHelper {
         if ($durationInterval <= 0) {
             throw new Exception("Duration interval must be greater than zero.");
         }
-        if (!in_array($durationUnit, ['month', 'year'])) {
-            throw new Exception("Invalid duration unit. Allowed units are 'month' or 'year'.");
+        if (!in_array($durationUnit, ['day', 'month', 'year'])) {
+            throw new Exception("Invalid duration unit. Allowed units are 'day', 'month', or 'year'.");
         }
 
         $appDb->beginTransaction();
@@ -288,7 +317,7 @@ class BillingHelper {
                 // 2. Update CiviCRM table
                 $updateCivi = $civiDb->prepare("
                     UPDATE civicrm_membership_type 
-                    SET name = :name, title = :title, frontend_title = :frontend_title, description = :description, minimum_fee = :price, duration_unit = :duration_unit, duration_interval = :duration_interval 
+                    SET name = :name, title = :title, frontend_title = :frontend_title, description = :description, minimum_fee = :price, duration_unit = :duration_unit, duration_interval = :duration_interval, is_active = :is_active 
                     WHERE id = :id
                 ");
                 $updateCivi->execute([
@@ -299,13 +328,14 @@ class BillingHelper {
                     'price' => $price,
                     'duration_unit' => $durationUnit,
                     'duration_interval' => $durationInterval,
+                    'is_active' => $active === 'active' ? 1 : 0,
                     'id' => $civiTypeId
                 ]);
 
                 // 3. Update Local table
                 $updateLocal = $appDb->prepare("
                     UPDATE tgg_subscription_plans 
-                    SET name = :name, description = :description, price = :price, duration_unit = :duration_unit, duration_interval = :duration_interval 
+                    SET name = :name, description = :description, price = :price, duration_unit = :duration_unit, duration_interval = :duration_interval, active = :active 
                     WHERE id = :id
                 ");
                 $updateLocal->execute([
@@ -314,6 +344,7 @@ class BillingHelper {
                     'price' => $price,
                     'duration_unit' => $durationUnit,
                     'duration_interval' => $durationInterval,
+                    'active' => $active,
                     'id' => $id
                 ]);
 
@@ -322,7 +353,7 @@ class BillingHelper {
                 // 1. Insert into CiviCRM first to generate the membership type ID
                 $insertCivi = $civiDb->prepare("
                     INSERT INTO civicrm_membership_type (domain_id, name, title, frontend_title, description, member_of_contact_id, financial_type_id, minimum_fee, duration_unit, duration_interval, period_type, is_active, visibility) 
-                    VALUES (1, :name, :title, :frontend_title, :description, 1, 2, :price, :duration_unit, :duration_interval, 'rolling', 1, 'Public')
+                    VALUES (1, :name, :title, :frontend_title, :description, 1, 2, :price, :duration_unit, :duration_interval, 'rolling', :is_active, 'Public')
                 ");
                 $insertCivi->execute([
                     'name' => $name,
@@ -331,14 +362,15 @@ class BillingHelper {
                     'description' => $description,
                     'price' => $price,
                     'duration_unit' => $durationUnit,
-                    'duration_interval' => $durationInterval
+                    'duration_interval' => $durationInterval,
+                    'is_active' => $active === 'active' ? 1 : 0
                 ]);
                 $civiTypeId = (int)$civiDb->lastInsertId();
 
                 // 2. Insert into Local table
                 $insertLocal = $appDb->prepare("
-                    INSERT INTO tgg_subscription_plans (name, description, price, duration_unit, duration_interval, civicrm_membership_type_id) 
-                    VALUES (:name, :description, :price, :duration_unit, :duration_interval, :civicrm_membership_type_id)
+                    INSERT INTO tgg_subscription_plans (name, description, price, duration_unit, duration_interval, civicrm_membership_type_id, active) 
+                    VALUES (:name, :description, :price, :duration_unit, :duration_interval, :civicrm_membership_type_id, :active)
                 ");
                 $insertLocal->execute([
                     'name' => $name,
@@ -346,10 +378,237 @@ class BillingHelper {
                     'price' => $price,
                     'duration_unit' => $durationUnit,
                     'duration_interval' => $durationInterval,
-                    'civicrm_membership_type_id' => $civiTypeId
+                    'civicrm_membership_type_id' => $civiTypeId,
+                    'active' => $active
                 ]);
             }
 
+            $appDb->commit();
+            $civiDb->commit();
+            return true;
+
+        } catch (Exception $e) {
+            if ($appDb->inTransaction()) {
+                $appDb->rollBack();
+            }
+            if ($civiDb->inTransaction()) {
+                $civiDb->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * Process an offline/manual membership renewal or extension
+     * @param int $contactId
+     * @param int $planId
+     * @param string $paymentMethod 'cash', 'check', 'complimentary', 'volunteer credit'
+     * @param string $action 'join' or 'renew'
+     * @param string $levelChangeMode 'extend_current' or 'change_level'
+     * @return bool True if successful
+     * @throws Exception
+     */
+    public static function processOfflineRenewal(
+        int $contactId,
+        int $planId,
+        string $paymentMethod,
+        string $action = 'renew',
+        string $levelChangeMode = 'extend_current',
+        string $durationMode = 'standard',
+        string $customDate = null,
+        float $customAmount = null
+    ): bool {
+        $appDb = Database::getAppConnection();
+        $civiDb = Database::getCiviConnection();
+
+        // Validate payment method
+        $validMethods = ['cash', 'check', 'complimentary', 'volunteer credit'];
+        if (!in_array(strtolower($paymentMethod), $validMethods)) {
+            throw new Exception("Invalid offline payment method: " . htmlspecialchars($paymentMethod));
+        }
+
+        // Get local plan details
+        $planStmt = $appDb->prepare("SELECT * FROM tgg_subscription_plans WHERE id = :id LIMIT 1");
+        $planStmt->execute(['id' => $planId]);
+        $plan = $planStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$plan) {
+            throw new Exception("Local plan ID {$planId} not found.");
+        }
+
+        // Generate custom identifiers
+        $paymentMethodLabel = ucwords($paymentMethod);
+        $uniqueId = uniqid('offline_', true);
+        $paymentIntentId = 'offline_' . str_replace(' ', '_', strtolower($paymentMethod)) . '_' . time();
+        $amountTotal = ($customAmount !== null) ? $customAmount : (($durationMode === 'standard') ? (float)$plan['price'] : 0.00);
+        $currency = 'usd';
+
+        $appDb->beginTransaction();
+        $civiDb->beginTransaction();
+
+        try {
+            // A. Log transaction locally in tgg_billing_ledger
+            // Mark stripe_session_id with the offline identifier
+            $insertLedger = $appDb->prepare("
+                INSERT INTO tgg_billing_ledger (contact_id, plan_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type)
+                VALUES (:contact_id, :plan_id, :stripe_session_id, :payment_intent_id, :amount, :currency, 'paid', :action_type)
+            ");
+            $insertLedger->execute([
+                'contact_id' => $contactId,
+                'plan_id' => $planId, // Keep original selected plan ID for ledger
+                'stripe_session_id' => $uniqueId,
+                'payment_intent_id' => $paymentIntentId,
+                'amount' => $amountTotal,
+                'currency' => $currency,
+                'action_type' => $action
+            ]);
+
+            // Query existing local subscription
+            $subStmt = $appDb->prepare("SELECT plan_id, join_date, end_date FROM tgg_subscriptions WHERE contact_id = :contact_id LIMIT 1");
+            $subStmt->execute(['contact_id' => $contactId]);
+            $existingSub = $subStmt->fetch(PDO::FETCH_ASSOC);
+
+            // Fetch CiviCRM membership first for resolution and sync
+            $memberQuery = $civiDb->prepare("SELECT id, membership_type_id, end_date FROM civicrm_membership WHERE contact_id = :contact_id LIMIT 1");
+            $memberQuery->execute(['contact_id' => $contactId]);
+            $existingCiviMembership = $memberQuery->fetch(PDO::FETCH_ASSOC);
+
+            // Resolve final plan ID and CiviCRM membership type ID based on levelChangeMode
+            $finalPlanId = $planId;
+            $finalCiviMembershipTypeId = (int)$plan['civicrm_membership_type_id'];
+
+            $isCustomDuration = in_array($durationMode, ['1_month', '1_year', 'custom_date']);
+            $resolvedChangeMode = $isCustomDuration ? 'extend_current' : $levelChangeMode;
+
+            if ($resolvedChangeMode === 'extend_current') {
+                if ($existingSub) {
+                    $finalPlanId = (int)$existingSub['plan_id'];
+                    $stmt = $appDb->prepare("SELECT civicrm_membership_type_id FROM tgg_subscription_plans WHERE id = :id LIMIT 1");
+                    $stmt->execute(['id' => $finalPlanId]);
+                    $finalCiviMembershipTypeId = (int)($stmt->fetchColumn() ?: $finalCiviMembershipTypeId);
+                } elseif ($existingCiviMembership) {
+                    $finalCiviMembershipTypeId = (int)$existingCiviMembership['membership_type_id'];
+                    $stmt = $appDb->prepare("SELECT id FROM tgg_subscription_plans WHERE civicrm_membership_type_id = :civi_id LIMIT 1");
+                    $stmt->execute(['civi_id' => $finalCiviMembershipTypeId]);
+                    $finalPlanId = (int)($stmt->fetchColumn() ?: $planId);
+                }
+            }
+
+            $today = date('Y-m-d');
+            $startDate = $today;
+
+            if ($existingSub && $action === 'renew') {
+                $existingEndDate = $existingSub['end_date'];
+                // If existing subscription is still active, start renewal from day after current expiry
+                if (strtotime($existingEndDate) >= strtotime($today)) {
+                    $startDate = date('Y-m-d', strtotime($existingEndDate . ' +1 day'));
+                }
+            }
+
+            if ($durationMode === '1_month') {
+                $endDate = date('Y-m-d', strtotime($startDate . " +1 month"));
+            } elseif ($durationMode === '1_year') {
+                $endDate = date('Y-m-d', strtotime($startDate . " +1 year"));
+            } elseif ($durationMode === 'custom_date') {
+                $endDate = date('Y-m-d', strtotime($customDate));
+            } else {
+                $durationInterval = (int)$plan['duration_interval'];
+                $durationUnit = strtolower($plan['duration_unit']);
+                if ($durationUnit === 'day') {
+                    // Daily payment should never change the expiration date
+                    $existingEndDate = null;
+                    if ($existingSub) {
+                        $existingEndDate = $existingSub['end_date'];
+                    } elseif ($existingCiviMembership && !empty($existingCiviMembership['end_date'])) {
+                        $existingEndDate = $existingCiviMembership['end_date'];
+                    }
+                    $endDate = $existingEndDate ? $existingEndDate : $today;
+                } else {
+                    $unitString = $durationUnit;
+                    if (!in_array($unitString, ['month', 'year'])) {
+                        $unitString = 'year';
+                    }
+                    $endDate = date('Y-m-d', strtotime($startDate . " +{$durationInterval} {$unitString}"));
+                }
+            }
+
+            // C. Insert or update local subscription
+            if ($existingSub) {
+                $updateSub = $appDb->prepare("
+                    UPDATE tgg_subscriptions 
+                    SET plan_id = :plan_id, status = 'active', start_date = :start_date, end_date = :end_date 
+                    WHERE contact_id = :contact_id
+                ");
+                $updateSub->execute([
+                    'plan_id' => $finalPlanId,
+                    'start_date' => $startDate,
+                    'end_date' => $endDate,
+                    'contact_id' => $contactId
+                ]);
+            } else {
+                $joinDate = $today;
+                if ($action === 'renew') {
+                    // Try to fetch existing join_date from CiviCRM
+                    $civiMemStmt = $civiDb->prepare("SELECT join_date FROM civicrm_membership WHERE contact_id = :contact_id LIMIT 1");
+                    $civiMemStmt->execute(['contact_id' => $contactId]);
+                    $civiMemRow = $civiMemStmt->fetch(PDO::FETCH_ASSOC);
+                    if ($civiMemRow && !empty($civiMemRow['join_date'])) {
+                        $joinDate = $civiMemRow['join_date'];
+                    }
+                }
+
+                $insertSub = $appDb->prepare("
+                    INSERT INTO tgg_subscriptions (contact_id, plan_id, status, join_date, start_date, end_date)
+                    VALUES (:contact_id, :plan_id, 'active', :join_date, :start_date, :end_date)
+                ");
+                $insertSub->execute([
+                    'contact_id' => $contactId,
+                    'plan_id' => $finalPlanId,
+                    'join_date' => $joinDate,
+                    'start_date' => $startDate,
+                    'end_date' => $endDate
+                ]);
+            }
+
+            // D. Sync to local CiviCRM Contribution Table for app compatibility
+            $insertContribution = $civiDb->prepare("
+                INSERT INTO civicrm_contribution (contact_id, financial_type_id, receive_date, total_amount, trxn_id, contribution_status_id, source) 
+                VALUES (:contact_id, 1, NOW(), :total_amount, :trxn_id, 1, :source)
+            ");
+            $insertContribution->execute([
+                'contact_id' => $contactId,
+                'total_amount' => $amountTotal,
+                'trxn_id' => $paymentIntentId,
+                'source' => 'Offline: ' . $paymentMethodLabel
+            ]);
+
+            // E. Sync to local CiviCRM Membership Table for app compatibility
+            if ($existingCiviMembership) {
+                $updateMembership = $civiDb->prepare("
+                    UPDATE civicrm_membership 
+                    SET membership_type_id = :membership_type_id, start_date = :start_date, end_date = :end_date, status_id = 2 
+                    WHERE id = :id
+                ");
+                $updateMembership->execute([
+                    'membership_type_id' => $finalCiviMembershipTypeId,
+                    'start_date' => $startDate,
+                    'end_date' => $endDate,
+                    'id' => (int)$existingCiviMembership['id']
+                ]);
+            } else {
+                $insertMembership = $civiDb->prepare("
+                    INSERT INTO civicrm_membership (contact_id, membership_type_id, join_date, start_date, end_date, status_id) 
+                    VALUES (:contact_id, :membership_type_id, :join_date, :start_date, :end_date, 2)
+                ");
+                $insertMembership->execute([
+                    'contact_id' => $contactId,
+                    'membership_type_id' => $finalCiviMembershipTypeId,
+                    'join_date' => $today,
+                    'start_date' => $startDate,
+                    'end_date' => $endDate
+                ]);
+            }
+
+            // Commit both transactions
             $appDb->commit();
             $civiDb->commit();
             return true;

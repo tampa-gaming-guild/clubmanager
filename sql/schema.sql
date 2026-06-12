@@ -61,15 +61,17 @@ CREATE TABLE IF NOT EXISTS `tgg_subscription_plans` (
   `duration_unit` VARCHAR(20) NOT NULL DEFAULT 'year', -- 'month' or 'year'
   `duration_interval` INT NOT NULL DEFAULT 1,
   `civicrm_membership_type_id` INT NOT NULL,
+  `active` VARCHAR(20) NOT NULL DEFAULT 'active',
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB;
 
 -- Seed default local subscription plans (options) matching mock CiviCRM membership types
-INSERT INTO `tgg_subscription_plans` (`id`, `name`, `description`, `price`, `duration_unit`, `duration_interval`, `civicrm_membership_type_id`) VALUES
-(1, 'Monthly Member', 'Monthly membership subscription', 15.00, 'month', 1, 1),
-(2, 'Annual Standard', 'Yearly standard individual membership', 120.00, 'year', 1, 2),
-(3, 'Annual Premium', 'Yearly premium member support', 250.00, 'year', 1, 3)
-ON DUPLICATE KEY UPDATE `name`=VALUES(`name`), `description`=VALUES(`description`), `price`=VALUES(`price`), `duration_unit`=VALUES(`duration_unit`), `duration_interval`=VALUES(`duration_interval`), `civicrm_membership_type_id`=VALUES(`civicrm_membership_type_id`);
+INSERT INTO `tgg_subscription_plans` (`id`, `name`, `description`, `price`, `duration_unit`, `duration_interval`, `civicrm_membership_type_id`, `active`) VALUES
+(1, 'Monthly Member', 'Monthly membership subscription', 15.00, 'month', 1, 1, 'active'),
+(2, 'Annual Standard', 'Yearly standard individual membership', 120.00, 'year', 1, 2, 'active'),
+(3, 'Annual Premium', 'Yearly premium member support', 250.00, 'year', 1, 3, 'active'),
+(5, 'Daily', 'Daily membership level', 10.00, 'day', 1, 9, 'active')
+ON DUPLICATE KEY UPDATE `name`=VALUES(`name`), `description`=VALUES(`description`), `price`=VALUES(`price`), `duration_unit`=VALUES(`duration_unit`), `duration_interval`=VALUES(`duration_interval`), `civicrm_membership_type_id`=VALUES(`civicrm_membership_type_id`), `active`=VALUES(`active`);
 
 -- 6. Billing Transaction Ledger
 CREATE TABLE IF NOT EXISTS `tgg_billing_ledger` (

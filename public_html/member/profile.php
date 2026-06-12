@@ -179,6 +179,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
     <div class="app-container">
         <header class="navbar">
             <div class="logo">TGG Members</div>
+            <?php if (has_role('admin')): ?>
+                <form action="<?php echo rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/admin/dashboard.php'; ?>" method="GET" class="navbar-search-form" style="margin: 0 20px; flex-grow: 1; max-width: 380px; position: relative;">
+                    <input type="text" name="search" placeholder="Search members by name..." 
+                        value="<?php echo isset($_GET['search']) ? e($_GET['search']) : ''; ?>"
+                        style="width: 100%; padding: 8px 15px 8px 35px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; color: #fff; font-size: 0.85rem; outline: none; transition: all 0.2s ease;">
+                    <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: rgba(255, 255, 255, 0.4); font-size: 0.9rem;">🔍</span>
+                </form>
+            <?php endif; ?>
             <nav class="nav-links">
                 <?php if (Auth::check()): ?>
                     <a href="index.php" class="<?php echo $isOwner ? 'active' : ''; ?>">Dashboard</a>
@@ -263,7 +271,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
                                         <tr>
                                             <td></td>
                                             <td>
-                                                <a href="renew.php" class="btn btn-warning btn-small" style="margin-top: 5px; display: inline-block;">Renew/Extend Membership</a>
+                                                <a href="renew.php?contact_id=<?php echo $profileId; ?>" class="btn btn-warning btn-small" style="margin-top: 5px; display: inline-block;">Renew/Extend Membership</a>
                                             </td>
                                         </tr>
                                         <?php endif; ?>
@@ -276,7 +284,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
                                         <tr>
                                             <td></td>
                                             <td>
-                                                <a href="renew.php" class="btn btn-primary btn-small" style="margin-top: 5px; display: inline-block;">Purchase Membership</a>
+                                                <a href="renew.php?contact_id=<?php echo $profileId; ?>" class="btn btn-primary btn-small" style="margin-top: 5px; display: inline-block;">Purchase Membership</a>
                                             </td>
                                         </tr>
                                         <?php endif; ?>
@@ -340,17 +348,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
                                                 </thead>
                                                 <tbody>
                                                     <?php foreach ($transactions as $tx): ?>
-                                                        <tr>
-                                                            <td style="padding: 8px 10px;"><span class="table-datetime"><?php echo date('Y-m-d', strtotime($tx['created_at'])); ?></span></td>
-                                                            <td style="padding: 8px 10px;"><strong><?php echo e($tx['plan_name']); ?></strong></td>
-                                                            <td style="padding: 8px 10px;">$<?php echo number_format($tx['amount'], 2); ?></td>
-                                                            <td style="padding: 8px 10px;">
-                                                                <span class="badge <?php echo $tx['payment_status'] === 'paid' ? 'badge-active' : 'badge-expired'; ?>" style="font-size: 0.75rem; padding: 2px 6px; display: inline-block;">
-                                                                    <?php echo e(ucfirst($tx['payment_status'])); ?>
-                                                                </span>
-                                                            </td>
-                                                        </tr>
-                                                    <?php endforeach; ?>
+                                                         <?php
+                                                         $badgeClass = 'badge-expired';
+                                                         $badgeLabel = ucfirst($tx['payment_status']);
+                                                         if ($tx['payment_status'] === 'paid') {
+                                                             $trxnId = $tx['trxn_id'] ?? '';
+                                                             if (strpos($trxnId, 'offline_volunteer_credit_') === 0) {
+                                                                 $badgeClass = 'badge-volunteer';
+                                                                 $badgeLabel = 'Volunteer';
+                                                             } elseif (strpos($trxnId, 'offline_complimentary_') === 0) {
+                                                                 $badgeClass = 'badge-free';
+                                                                 $badgeLabel = 'Free';
+                                                             } elseif (strpos($trxnId, 'offline_cash_') === 0) {
+                                                                 $badgeClass = 'badge-active';
+                                                                 $badgeLabel = 'Paid (Cash)';
+                                                             } elseif (strpos($trxnId, 'offline_check_') === 0) {
+                                                                 $badgeClass = 'badge-active';
+                                                                 $badgeLabel = 'Paid (Check)';
+                                                             } else {
+                                                                 $badgeClass = 'badge-active';
+                                                                 $badgeLabel = 'Paid (Credit Card)';
+                                                             }
+                                                         }
+                                                         ?>
+                                                         <tr>
+                                                             <td style="padding: 8px 10px;"><span class="table-datetime"><?php echo date('Y-m-d', strtotime($tx['created_at'])); ?></span></td>
+                                                             <td style="padding: 8px 10px;"><strong><?php echo e($tx['plan_name']); ?></strong></td>
+                                                             <td style="padding: 8px 10px;">$<?php echo number_format($tx['amount'], 2); ?></td>
+                                                             <td style="padding: 8px 10px;">
+                                                                 <span class="badge <?php echo $badgeClass; ?>" style="font-size: 0.75rem; padding: 2px 6px; display: inline-block;">
+                                                                     <?php echo e($badgeLabel); ?>
+                                                                 </span>
+                                                             </td>
+                                                         </tr>
+                                                     <?php endforeach; ?>
                                                 </tbody>
                                             </table>
                                         </div>

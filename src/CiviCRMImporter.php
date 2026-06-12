@@ -99,7 +99,7 @@ class CiviCRMImporter {
 
                 // Sync CiviCRM membership details to local tgg_subscriptions
                 $memQuery = $civiDb->prepare("
-                    SELECT membership_type_id, join_date, start_date, end_date, is_active
+                    SELECT membership_type_id, join_date, start_date, end_date, s.is_current_member as is_active
                     FROM civicrm_membership m
                     INNER JOIN civicrm_membership_status s ON m.status_id = s.id
                     WHERE m.contact_id = :contact_id
@@ -186,7 +186,7 @@ class CiviCRMImporter {
         $civiDb = Database::getCiviConnection();
         $query = "SELECT m.id as membership_id, m.join_date, m.start_date, m.end_date,
                          t.name as membership_name, t.minimum_fee,
-                         s.name as status_name, s.label as status_label, s.is_active
+                         s.name as status_name, s.label as status_label, s.is_current_member as is_active
                   FROM civicrm_membership m
                   INNER JOIN civicrm_membership_type t ON m.membership_type_id = t.id
                   INNER JOIN civicrm_membership_status s ON m.status_id = s.id
@@ -210,7 +210,7 @@ class CiviCRMImporter {
         $query = "SELECT c.id, c.display_name, e.email, p.phone,
                          m.join_date, m.start_date, m.end_date,
                          t.name as membership_name,
-                         s.label as status_label, s.is_active
+                         s.label as status_label, s.is_current_member as is_active
                   FROM civicrm_contact c
                   INNER JOIN civicrm_email e ON e.contact_id = c.id AND e.is_primary = 1
                   LEFT JOIN civicrm_phone p ON p.contact_id = c.id AND p.is_primary = 1

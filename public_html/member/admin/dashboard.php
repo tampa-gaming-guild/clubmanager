@@ -32,7 +32,13 @@ try {
 
     // 1. Fetch Tiers & Statuses first for pivot matrix layout & dropdowns
     $tiers = CiviCRMImporter::getMembershipTiers();
-    $statuses = $civiDb->query("SELECT id, name, label FROM civicrm_membership_status ORDER BY id ASC")->fetchAll();
+    $statuses = $civiDb->query("
+        SELECT id, name, label 
+        FROM civicrm_membership_status 
+        WHERE label NOT IN ('Deceased', 'Current Renewed', 'Future Start')
+          AND name NOT IN ('Deceased', 'Current Renewed', 'Future Start')
+        ORDER BY id ASC
+    ")->fetchAll();
 
     // 2. Initialize matrix with all membership levels and statuses
     $matrix = [];
@@ -159,6 +165,14 @@ try {
     <div class="app-container">
         <header class="navbar">
             <div class="logo">TGG Members</div>
+            <?php if (has_role('admin')): ?>
+                <form action="<?php echo rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/admin/dashboard.php'; ?>" method="GET" class="navbar-search-form" style="margin: 0 20px; flex-grow: 1; max-width: 380px; position: relative;">
+                    <input type="text" name="search" placeholder="Search members by name..." 
+                        value="<?php echo isset($_GET['search']) ? e($_GET['search']) : ''; ?>"
+                        style="width: 100%; padding: 8px 15px 8px 35px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; color: #fff; font-size: 0.85rem; outline: none; transition: all 0.2s ease;">
+                    <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: rgba(255, 255, 255, 0.4); font-size: 0.9rem;">🔍</span>
+                </form>
+            <?php endif; ?>
             <nav class="nav-links">
                 <a href="../index.php">Dashboard</a>
                 <a href="../calendar.php">Calendar</a>
@@ -176,18 +190,23 @@ try {
                 <aside class="admin-sidebar glass-panel">
                     <h3>Admin Controls</h3>
                     <ul class="admin-menu">
-                        <li><a href="dashboard.php" class="active">Control Hub</a></li>
+                        <li><a href="dashboard.php" class="active">Dashboard</a></li>
                         <li><a href="scheduler.php">Event Scheduler</a></li>
                         <li><a href="import.php">CiviCRM Importer</a></li>
                         <li><a href="memberships.php">Memberships</a></li>
-                        <li><a href="reports.php">Reports & Analytics</a></li>
+                        <li><a href="reports.php" class="<?php echo in_array(basename($_SERVER['PHP_SELF']), ['reports.php', 'payments.php', 'attendance.php']) ? 'active' : ''; ?>">Reports & Analytics</a>
+                            <ul class="admin-submenu" style="list-style-type: none; padding-left: 15px; margin-top: 5px; display: flex; flex-direction: column; gap: 4px;">
+                                <li><a href="payments.php" class="<?php echo (basename($_SERVER['PHP_SELF']) === 'payments.php') ? 'active' : ''; ?>" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Payments Log</a></li>
+                                <li><a href="attendance.php" class="<?php echo (basename($_SERVER['PHP_SELF']) === 'attendance.php') ? 'active' : ''; ?>" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Attendance Log</a></li>
+                            </ul>
+                        </li>
                     </ul>
                 </aside>
 
                 <!-- Work Area: Control Hub -->
                 <section class="admin-workspace">
-                    <h2>Control Hub Dashboard</h2>
-                    <p class="description-text">Real-time overview of members, check-ins, and payments.</p>
+                    <h2>Admin Dashboard</h2>
+                    <p class="description-text" style="margin-bottom: 25px;">Real-time overview of members, check-ins, and payments.</p>
 
                     <?php if ($errorMsg): ?>
                         <div class="alert alert-danger"><?php echo e($errorMsg); ?></div>
@@ -230,24 +249,71 @@ try {
                                         <?php foreach ($statuses as $stat): ?>
                                             <th style="padding: 6px 8px; text-align: right; white-space: nowrap;"><?php echo e($stat['label']); ?></th>
                                         <?php endforeach; ?>
+                                        <th style="padding: 6px 8px; text-align: right; white-space: nowrap;">Total</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <?php foreach ($matrix as $lvl => $stats): ?>
+                                    <?php 
+                                    $colTotals = [];
+                                    $grandTotal = 0;
+                                    foreach ($statuses as $stat) {
+                                        $colTotals[$stat['label']] = 0;
+                                    }
+                                    
+                                    foreach ($matrix as $lvl => $stats): 
+                                        $rowTotal = 0;
+                                    ?>
                                         <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
-                                            <td style="padding: 6px 8px; font-weight: 500; color: #fff; white-space: nowrap;"><?php echo e($lvl); ?></td>
+                                            <td style="padding: 6px 8px; font-weight: 500; color: #fff; white-space: nowrap;"><a href="dashboard.php?level=<?php echo urlencode($lvl); ?>" style="color: var(--color-primary); text-decoration: none; font-weight: 600;"><?php echo e($lvl); ?></a></td>
                                             <?php foreach ($statuses as $stat): 
                                                 $count = $stats[$stat['label']] ?? 0;
+                                                $rowTotal += $count;
+                                                $colTotals[$stat['label']] += $count;
                                                 $color = $count > 0 ? ($stat['label'] === 'Current' || $stat['label'] === 'New' ? 'var(--color-success)' : ($stat['label'] === 'Expired' ? 'var(--color-danger)' : '#fff')) : 'rgba(255,255,255,0.15)';
                                                 $weight = $count > 0 ? '700' : '400';
                                             ?>
                                                 <td style="padding: 6px 8px; text-align: right; font-weight: <?php echo $weight; ?>; color: <?php echo $color; ?>;">
-                                                    <?php echo $count; ?>
+                                                    <?php if ($count > 0): ?>
+                                                        <a href="dashboard.php?level=<?php echo urlencode($lvl); ?>&status=<?php echo urlencode($stat['label']); ?>" style="color: inherit; text-decoration: none;"><?php echo $count; ?></a>
+                                                    <?php else: ?>
+                                                        <?php echo $count; ?>
+                                                    <?php endif; ?>
                                                 </td>
                                             <?php endforeach; ?>
+                                            <td style="padding: 6px 8px; text-align: right; font-weight: 700; color: #fff;">
+                                                <?php if ($rowTotal > 0): ?>
+                                                    <a href="dashboard.php?level=<?php echo urlencode($lvl); ?>&status=" style="color: inherit; text-decoration: none;"><?php echo $rowTotal; ?></a>
+                                                <?php else: ?>
+                                                    <?php echo $rowTotal; ?>
+                                                <?php endif; ?>
+                                                <?php $grandTotal += $rowTotal; ?>
+                                            </td>
                                         </tr>
                                     <?php endforeach; ?>
                                 </tbody>
+                                <tfoot>
+                                    <tr style="border-top: 2px solid rgba(255,255,255,0.15); font-weight: 700; color: #fff;">
+                                        <td style="padding: 8px; font-weight: 700;">Total</td>
+                                        <?php foreach ($statuses as $stat): 
+                                            $colVal = $colTotals[$stat['label']];
+                                        ?>
+                                            <td style="padding: 8px; text-align: right; font-weight: 700;">
+                                                <?php if ($colVal > 0): ?>
+                                                    <a href="dashboard.php?level=&status=<?php echo urlencode($stat['label']); ?>" style="color: inherit; text-decoration: none;"><?php echo $colVal; ?></a>
+                                                <?php else: ?>
+                                                    <?php echo $colVal; ?>
+                                                <?php endif; ?>
+                                            </td>
+                                        <?php endforeach; ?>
+                                        <td style="padding: 8px; text-align: right; font-weight: 700;">
+                                            <?php if ($grandTotal > 0): ?>
+                                                <a href="dashboard.php?level=&status=" style="color: inherit; text-decoration: none;"><?php echo $grandTotal; ?></a>
+                                            <?php else: ?>
+                                                <?php echo $grandTotal; ?>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                </tfoot>
                             </table>
                         </div>
                     </div>
@@ -260,24 +326,43 @@ try {
                             <!-- Search & Filter Controls -->
                             <div class="filter-controls">
                                 <div class="search-bar">
-                                    <input type="text" id="member-search" placeholder="Search by name/email..." onkeyup="filterMembersTable()">
+                                    <input type="text" id="member-search" placeholder="Search by name/email..." onkeyup="filterMembersTable()" value="<?php echo isset($_GET['search']) ? e($_GET['search']) : ''; ?>">
                                 </div>
                                 <div class="filter-select">
                                     <select id="filter-level" onchange="filterMembersTable()">
-                                        <option value="">All Levels</option>
-                                        <?php foreach ($tiers as $tier): ?>
-                                            <option value="<?php echo e($tier['name']); ?>"><?php echo e($tier['name']); ?></option>
+                                        <option value="" <?php echo (!isset($_GET['level']) || $_GET['level'] === '') ? 'selected' : ''; ?>>All Levels</option>
+                                        <?php foreach ($tiers as $tier): 
+                                            $selected = (isset($_GET['level']) && $_GET['level'] === $tier['name']) ? 'selected' : '';
+                                        ?>
+                                            <option value="<?php echo e($tier['name']); ?>" <?php echo $selected; ?>><?php echo e($tier['name']); ?></option>
                                         <?php endforeach; ?>
                                     </select>
                                 </div>
                                 <div class="filter-select">
                                     <select id="filter-status" onchange="filterMembersTable()">
-                                        <option value="">All Statuses</option>
-                                        <?php foreach ($statuses as $stat): ?>
-                                            <option value="<?php echo e($stat['label']); ?>" <?php echo $stat['label'] === 'Current' ? 'selected' : ''; ?>><?php echo e($stat['label']); ?></option>
+                                        <?php
+                                        $allStatusesSelected = false;
+                                        if (isset($_GET['status']) && $_GET['status'] === '') {
+                                            $allStatusesSelected = true;
+                                        } elseif (!isset($_GET['status']) && (isset($_GET['level']) || isset($_GET['search']))) {
+                                            $allStatusesSelected = true;
+                                        }
+                                        ?>
+                                        <option value="" <?php echo $allStatusesSelected ? 'selected' : ''; ?>>All Statuses</option>
+                                        <?php foreach ($statuses as $stat): 
+                                            $selected = '';
+                                            if (isset($_GET['status'])) {
+                                                if ($_GET['status'] === $stat['label']) {
+                                                    $selected = 'selected';
+                                                }
+                                            } elseif (!isset($_GET['search']) && !isset($_GET['level']) && $stat['label'] === 'Current') {
+                                                $selected = 'selected';
+                                            }
+                                        ?>
+                                            <option value="<?php echo e($stat['label']); ?>" <?php echo $selected; ?>><?php echo e($stat['label']); ?></option>
                                         <?php endforeach; ?>
-                                    </select>
-                                </div>
+                                       </select>
+                                   </div>
                             </div>
                         </div>
 
@@ -353,19 +438,19 @@ try {
                 let statusTd = trs[i].getElementsByTagName('td')[3];
                 
                 if (nameTd && emailTd && levelTd && statusTd) {
-                    let nameTxt = (nameTd.textContent || nameTd.innerText).toLowerCase();
-                    let emailTxt = (emailTd.textContent || emailTd.innerText).toLowerCase();
-                    let levelTxt = (levelTd.textContent || levelTd.innerText).toLowerCase();
-                    let statusTxt = (statusTd.textContent || statusTd.innerText).toLowerCase();
+                    let nameTxt = (nameTd.textContent || nameTd.innerText).trim().toLowerCase();
+                    let emailTxt = (emailTd.textContent || emailTd.innerText).trim().toLowerCase();
+                    let levelTxt = (levelTd.textContent || levelTd.innerText).trim().toLowerCase();
+                    let statusTxt = (statusTd.textContent || statusTd.innerText).trim().toLowerCase();
                     
                     // Match Search Text
                     const matchesSearch = nameTxt.indexOf(searchFilter) > -1 || emailTxt.indexOf(searchFilter) > -1;
                     
                     // Match Level
-                    const matchesLevel = levelFilter === "" || levelTxt.indexOf(levelFilter) > -1;
+                    const matchesLevel = levelFilter === "" || levelTxt === levelFilter;
                     
                     // Match Status
-                    const matchesStatus = statusFilter === "" || statusTxt.indexOf(statusFilter) > -1;
+                    const matchesStatus = statusFilter === "" || statusTxt === statusFilter;
                     
                     if (matchesSearch && matchesLevel && matchesStatus) {
                         trs[i].style.display = "";
