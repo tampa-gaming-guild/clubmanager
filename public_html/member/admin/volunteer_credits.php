@@ -14,6 +14,131 @@ Auth::requireAdmin();
 $errorMsg = null;
 $successMsg = null;
 
+/**
+ * Recalculate member credit totals (earned, applied, expired, available) and sync database.
+ */
+function updateMemberCredits($appDb, $contactId, $expirationDays) {
+    // 1. Fetch all transactions for this member
+    $stmt = $appDb->prepare("
+        SELECT id, volunteer_date, credits_earned, credits_applied 
+        FROM tgg_volunteer_credit_transactions 
+        WHERE contact_id = :contact_id 
+        ORDER BY volunteer_date ASC, id ASC
+    ");
+    $stmt->execute(['contact_id' => $contactId]);
+    $transactions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    $earned = [];
+    $applied = [];
+    
+    $totalEarned = 0.0;
+    $totalApplied = 0.0;
+    
+    foreach ($transactions as $tx) {
+        $valEarned = (float)$tx['credits_earned'];
+        $valApplied = (float)$tx['credits_applied'];
+        if ($valEarned > 0.0) {
+            $earned[] = [
+                'id' => $tx['id'],
+                'date' => $tx['volunteer_date'],
+                'amount' => $valEarned,
+                'remaining' => $valEarned
+            ];
+            $totalEarned += $valEarned;
+        }
+        if ($valApplied > 0.0) {
+            $applied[] = [
+                'id' => $tx['id'],
+                'date' => $tx['volunteer_date'],
+                'amount' => $valApplied
+            ];
+            $totalApplied += $valApplied;
+        }
+    }
+    
+    $totalExpired = 0.0;
+    
+    if ($expirationDays > 0.0) {
+        // Match applications to earned credits using FIFO
+        foreach ($applied as $appTx) {
+            $appDate = $appTx['date'];
+            $appAmount = $appTx['amount'];
+            
+            foreach ($earned as &$earnTx) {
+                if ($earnTx['remaining'] <= 0.0) {
+                    continue;
+                }
+                
+                // Check if this earned transaction was expired AT the time of this application
+                $earnDate = $earnTx['date'];
+                $expireDate = date('Y-m-d', strtotime($earnDate . " + " . (int)$expirationDays . " days"));
+                if ($expireDate < $appDate) {
+                    continue; // Skip expired
+                }
+                
+                if ($appAmount >= $earnTx['remaining']) {
+                    $appAmount -= $earnTx['remaining'];
+                    $earnTx['remaining'] = 0.0;
+                } else {
+                    $earnTx['remaining'] -= $appAmount;
+                    $appAmount = 0.0;
+                    break; // Application fully allocated
+                }
+            }
+            unset($earnTx);
+        }
+        
+        // Count expired unapplied credits as of today
+        $today = date('Y-m-d');
+        foreach ($earned as $earnTx) {
+            if ($earnTx['remaining'] > 0.0) {
+                $earnDate = $earnTx['date'];
+                $expireDate = date('Y-m-d', strtotime($earnDate . " + " . (int)$expirationDays . " days"));
+                if ($expireDate < $today) {
+                    $totalExpired += $earnTx['remaining'];
+                }
+            }
+        }
+    } else {
+        $totalExpired = 0.0;
+    }
+    
+    // Update or Insert into tgg_member_settings
+    $stmtSelect = $appDb->prepare("SELECT contact_id FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1");
+    $stmtSelect->execute(['contact_id' => $contactId]);
+    if ($stmtSelect->fetch()) {
+        $stmtUpdate = $appDb->prepare("
+            UPDATE tgg_member_settings 
+            SET credits_earned = :earned, credits_applied = :applied, expired_credits = :expired 
+            WHERE contact_id = :contact_id
+        ");
+        $stmtUpdate->execute([
+            'earned' => $totalEarned,
+            'applied' => $totalApplied,
+            'expired' => $totalExpired,
+            'contact_id' => $contactId
+        ]);
+    } else {
+        $stmtInsert = $appDb->prepare("
+            INSERT INTO tgg_member_settings (contact_id, password_hash, role, credits_earned, credits_applied, expired_credits)
+            VALUES (:contact_id, '', 'member', :earned, :applied, :expired)
+        ");
+        $stmtInsert->execute([
+            'contact_id' => $contactId,
+            'earned' => $totalEarned,
+            'applied' => $totalApplied,
+            'expired' => $totalExpired
+        ]);
+    }
+    
+    return [
+        'credits_earned' => $totalEarned,
+        'credits_applied' => $totalApplied,
+        'expired_credits' => $totalExpired,
+        'available_credits' => max(0.0, $totalEarned - $totalApplied - $totalExpired)
+    ];
+}
+
 // POST Handler: Update settings or process conversions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
@@ -67,6 +192,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Fetch all credit configs into key-value map
                 $configsStmt = $appDb->query("SELECT credit_key, credits FROM tgg_volunteer_credits");
                 $creditsMap = $configsStmt->fetchAll(PDO::FETCH_KEY_PAIR);
+                $expirationDays = (float)($creditsMap['credit_expiration_days'] ?? 365.0);
                 
                 $appDb->beginTransaction();
                 $civiDb->beginTransaction();
@@ -77,14 +203,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $insertTrans = $appDb->prepare("
                     INSERT INTO tgg_volunteer_credit_transactions (contact_id, event_id, volunteer_date, shift, credits_earned, credits_applied)
                     VALUES (:contact_id, :event_id, :volunteer_date, :shift, :credits_earned, 0.0)
-                ");
-                
-                // Fetch member settings or insert statement
-                $selectSettings = $appDb->prepare("SELECT credits_earned, credits_applied FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1");
-                $updateSettings = $appDb->prepare("
-                    UPDATE tgg_member_settings 
-                    SET credits_earned = :credits_earned, credits_applied = :credits_applied 
-                    WHERE contact_id = :contact_id
                 ");
                 
                 foreach ($selectedMembers as $cid) {
@@ -112,7 +230,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         continue;
                     }
                     
-                    $earnedInPeriod = 0.0;
                     foreach ($newShifts as $shift) {
                         $role = $shift['role'];
                         $isSunday = (date('w', strtotime($shift['start_time'])) == 0);
@@ -128,7 +245,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                         
                         $earned = (float)($creditsMap[$key] ?? 0.0);
-                        $earnedInPeriod += $earned;
                         
                         // Log shifts transaction
                         $insertTrans->execute([
@@ -140,34 +256,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         ]);
                     }
                     
-                    // Fetch current settings
-                    $selectSettings->execute(['contact_id' => $cid]);
-                    $currSettings = $selectSettings->fetch();
+                    // Recalculate member credits including the newly logged transactions
+                    $details = updateMemberCredits($appDb, $cid, $expirationDays);
                     
-                    if ($currSettings) {
-                        $creditsEarned = (float)$currSettings['credits_earned'] + $earnedInPeriod;
-                        $creditsApplied = (float)$currSettings['credits_applied'];
-                    } else {
-                        $creditsEarned = $earnedInPeriod;
-                        $creditsApplied = 0.0;
-                        
-                        // Insert standard record if missing
-                        $insertSettings = $appDb->prepare("
-                            INSERT INTO tgg_member_settings (contact_id, password_hash, role, credits_earned, credits_applied)
-                            VALUES (:contact_id, '', 'member', :credits_earned, 0.0)
-                        ");
-                        $insertSettings->execute([
-                            'contact_id' => $cid,
-                            'credits_earned' => $creditsEarned
-                        ]);
-                    }
-                    
-                    $unapplied = $creditsEarned - $creditsApplied;
-                    $monthsToExtend = (int)floor($unapplied / $conversionRate);
+                    $monthsToExtend = (int)floor($details['available_credits'] / $conversionRate);
                     
                     if ($monthsToExtend > 0) {
                         $appliedDiff = $monthsToExtend * $conversionRate;
-                        $creditsApplied += $appliedDiff;
                         
                         // Log extension transaction
                         $insertExtension = $appDb->prepare("
@@ -248,14 +343,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 'end_date' => $newEndDate
                             ]);
                         }
+                        
+                        // Recalculate and write final values (including applied credits) to settings
+                        updateMemberCredits($appDb, $cid, $expirationDays);
                     }
-                    
-                    // Save updated member settings
-                    $updateSettings->execute([
-                        'credits_earned' => $creditsEarned,
-                        'credits_applied' => $creditsApplied,
-                        'contact_id' => $cid
-                    ]);
                 }
                 
                 $appDb->commit();
@@ -296,6 +387,7 @@ if (!empty($startDate) && !empty($endDate)) {
         $creditsMap = $configsStmt->fetchAll(PDO::FETCH_KEY_PAIR);
         $conversionRate = (float)($creditsMap['credits_per_month'] ?? 4.0);
         if ($conversionRate <= 0) $conversionRate = 4.0;
+        $expirationDays = (float)($creditsMap['credit_expiration_days'] ?? 365.0);
         
         // Fetch all unprocessed signups during the time range
         $stmtSignups = $appDb->prepare("
@@ -328,13 +420,10 @@ if (!empty($startDate) && !empty($endDate)) {
             $stmtNames->execute(array_values($contactIds));
             $namesMap = $stmtNames->fetchAll(PDO::FETCH_KEY_PAIR);
             
-            // Fetch member settings (current credits_earned & credits_applied)
-            $stmtSettings = $appDb->prepare("SELECT contact_id, credits_earned, credits_applied FROM tgg_member_settings WHERE contact_id IN ({$placeholders})");
-            $stmtSettings->execute(array_values($contactIds));
-            $settingsRaw = $stmtSettings->fetchAll();
+            // Recalculate member settings (current credits_earned & credits_applied & expired_credits)
             $settingsMap = [];
-            foreach ($settingsRaw as $row) {
-                $settingsMap[$row['contact_id']] = $row;
+            foreach ($contactIds as $cid) {
+                $settingsMap[$cid] = updateMemberCredits($appDb, (int)$cid, $expirationDays);
             }
             
             // Fetch current expiration dates
@@ -363,13 +452,13 @@ if (!empty($startDate) && !empty($endDate)) {
                     $val = (float)($creditsMap[$key] ?? 0.0);
                     $newCredits += $val;
                     
-                    $shiftDetails[] = date('M d', strtotime($shift['start_time'])) . ' (' . $role . ' - ' . $val . ' cr)';
+                    $valFormatted = ($val == (int)$val) ? (int)$val : $val;
+                    $shiftDetails[] = date('M j', strtotime($shift['start_time'])) . ' ' . $valFormatted;
                 }
                 
-                $currEarned = (float)($settingsMap[$cid]['credits_earned'] ?? 0.0);
-                $currApplied = (float)($settingsMap[$cid]['credits_applied'] ?? 0.0);
+                $currAvailableBefore = (float)($settingsMap[$cid]['available_credits'] ?? 0.0);
                 
-                $totalUnapplied = ($currEarned - $currApplied) + $newCredits;
+                $totalUnapplied = $currAvailableBefore + $newCredits;
                 $monthsToExtend = (int)floor($totalUnapplied / $conversionRate);
                 
                 $currEnd = $subsMap[$cid] ?? null;
@@ -386,9 +475,10 @@ if (!empty($startDate) && !empty($endDate)) {
                 $eligibleMembers[] = [
                     'contact_id' => $cid,
                     'display_name' => $namesMap[$cid] ?? "Member #{$cid}",
-                    'shift_list' => implode(', ', $shiftDetails),
+                    'shift_list' => implode("\n", $shiftDetails),
                     'new_credits' => $newCredits,
                     'unapplied_credits' => $totalUnapplied,
+                    'expired_credits' => $settingsMap[$cid]['expired_credits'] ?? 0.0,
                     'current_end_date' => $currEnd ?: 'No active membership',
                     'extension_months' => $monthsToExtend,
                     'proposed_end_date' => $proposedEnd
@@ -535,7 +625,9 @@ if (!empty($startDate) && !empty($endDate)) {
                                             </td>
                                         </tr>
                                     <?php else: ?>
-                                        <?php foreach ($creditSettings as $setting): ?>
+                                        <?php foreach ($creditSettings as $setting): 
+                                            $isDays = ($setting['credit_key'] === 'credit_expiration_days');
+                                        ?>
                                             <tr>
                                                 <td style="font-weight: 600; color: #fff;">
                                                     <?php echo e($setting['credit_label']); ?>
@@ -544,8 +636,8 @@ if (!empty($startDate) && !empty($endDate)) {
                                                     <input type="number" 
                                                         class="credits-input" 
                                                         name="credits[<?php echo e($setting['credit_key']); ?>]" 
-                                                        value="<?php echo (float)$setting['credits']; ?>" 
-                                                        step="0.1" 
+                                                        value="<?php echo $isDays ? (int)$setting['credits'] : (float)$setting['credits']; ?>" 
+                                                        step="<?php echo $isDays ? '1' : '0.1'; ?>" 
                                                         min="0" 
                                                         required>
                                                 </td>
@@ -619,10 +711,15 @@ if (!empty($startDate) && !empty($endDate)) {
                                                     </td>
                                                     <td style="font-weight: 600; color: #fff;">
                                                         <?php echo e($member['display_name']); ?>
-                                                        <span style="display: block; font-size: 0.75rem; color: var(--color-text-secondary); font-weight: normal;">ID: <?php echo e($member['contact_id']); ?></span>
+                                                        <span style="display: block; font-size: 0.75rem; color: var(--color-text-secondary); font-weight: normal;">
+                                                            ID: <?php echo e($member['contact_id']); ?>
+                                                            <?php if ($member['expired_credits'] > 0.0): ?>
+                                                                | Expired: <?php echo (float)$member['expired_credits']; ?>
+                                                            <?php endif; ?>
+                                                        </span>
                                                     </td>
                                                     <td style="font-size: 0.8rem; color: var(--color-text-secondary); line-height: 1.4;">
-                                                        <?php echo e($member['shift_list']); ?>
+                                                        <?php echo nl2br(e($member['shift_list'])); ?>
                                                     </td>
                                                     <td style="text-align: center; font-weight: bold; color: var(--color-primary);">
                                                         +<?php echo number_format($member['new_credits'], 1); ?>

@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS `tgg_member_settings` (
   `public_fields` TEXT NULL, -- JSON formatted array of fields allowed to be public (e.g. ["display_name", "join_date"])
   `credits_earned` FLOAT NOT NULL DEFAULT 0.0,
   `credits_applied` FLOAT NOT NULL DEFAULT 0.0,
+  `expired_credits` FLOAT NOT NULL DEFAULT 0.0,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`contact_id`)
@@ -124,7 +125,8 @@ INSERT INTO `tgg_volunteer_credits` (`id`, `credit_key`, `credit_label`, `credit
 (4, 'sunday_close', 'Sunday Close', 2.0),
 (5, 'credits_per_month', 'Credits required for 1 month free membership', 4.0),
 (6, 'weekday_greeter', 'Weekday Greeter', 0.0),
-(7, 'sunday_greeter', 'Sunday Greeter', 0.0)
+(7, 'sunday_greeter', 'Sunday Greeter', 0.0),
+(8, 'credit_expiration_days', 'Credit Expiration (Days)', 365.0)
 ON DUPLICATE KEY UPDATE `credit_label`=VALUES(`credit_label`), `credits`=VALUES(`credits`);
 
 -- 9. Volunteer Credit Transactions Ledger (Single-precision floats)
