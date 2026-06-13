@@ -8,6 +8,7 @@ require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 use App\Database;
 use App\CiviCRMImporter;
 use App\Auth;
+use App\MailHelper;
 
 $errorMsg = null;
 $successMsg = null;
@@ -342,22 +343,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
             }
         }
 
-        // B. Handle Password Change (Only owner or admin)
-        if (isset($_POST['password_update'])) {
-            $newPassword = $_POST['new_password'] ?? '';
-            $confirmPassword = $_POST['confirm_password'] ?? '';
-
-            if (empty($newPassword) || strlen($newPassword) < 8) {
-                $errorMsg = "New password must be at least 8 characters.";
-            } elseif ($newPassword !== $confirmPassword) {
-                $errorMsg = "Passwords do not match.";
-            } else {
-                try {
-                    Auth::registerPassword($profileId, $newPassword, $settings['role']);
-                    $successMsg = "Password updated successfully.";
-                } catch (Exception $e) {
-                    $errorMsg = "Failed to update password: " . $e->getMessage();
+        // B. Handle Trigger Password Reset (Only owner or admin)
+        if (isset($_POST['trigger_password_reset'])) {
+            try {
+                $email = trim(strtolower($contact['email'] ?? ''));
+                if (empty($email)) {
+                    throw new Exception("This member does not have a registered email address.");
                 }
+
+                // 1. Generate secure token
+                $rawToken = bin2hex(random_bytes(32));
+                $hashedToken = hash('sha256', $rawToken);
+                $expiresAt = date('Y-m-d H:i:s', strtotime('+1 hour'));
+
+                // 2. Save to password resets table
+                $stmtReset = $appDb->prepare("
+                    INSERT INTO tgg_password_resets (email, token, expires_at)
+                    VALUES (:email, :token, :expires_at)
+                    ON DUPLICATE KEY UPDATE token = :token2, expires_at = :expires_at2
+                ");
+                $stmtReset->execute([
+                    'email' => $email,
+                    'token' => $hashedToken,
+                    'expires_at' => $expiresAt,
+                    'token2' => $hashedToken,
+                    'expires_at2' => $expiresAt
+                ]);
+
+                // 3. Send Email using Template
+                $resetLink = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/reset-password.php?token=' . $rawToken;
+                $placeholders = [
+                    'display_name' => $displayNameToPublic,
+                    'reset_link' => $resetLink,
+                    'expires_in' => '1 hour'
+                ];
+
+                MailHelper::sendTemplate($email, 'password_reset_link', $placeholders, $profileId, $_SESSION['user']['contact_id'] ?? null);
+
+                $successMsg = "A secure password reset email has been sent. Please check your email to complete the process. If you do not receive the email, please contact the club for help.";
+
+            } catch (Exception $e) {
+                $errorMsg = "Failed to send password reset: " . $e->getMessage();
             }
         }
     }
@@ -621,22 +647,15 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                     </form>
                                 </div>
 
-                                <!-- Password Change Panel -->
+                                <!-- Password Reset Panel -->
                                 <div class="management-card mt-20">
-                                    <h4>Change Portal Password</h4>
-                                    <form action="profile.php?id=<?php echo $profileId; ?>" method="POST" class="settings-form">
+                                    <h4>Portal Password Reset</h4>
+                                    <p style="font-size: 0.85rem; color: rgba(255, 255, 255, 0.75); margin-bottom: 15px; line-height: 1.4;">
+                                        To change your portal password, click the button below to receive a secure password reset link at your registered email address (<strong><?php echo e($contact['email']); ?></strong>).
+                                    </p>
+                                    <form action="profile.php?id=<?php echo $profileId; ?>" method="POST">
                                         <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
-                                        
-                                        <div class="form-group">
-                                            <label for="new_password">New Password (min 8 chars)</label>
-                                            <input type="password" id="new_password" name="new_password" required>
-                                        </div>
-                                        <div class="form-group">
-                                            <label for="confirm_password">Confirm New Password</label>
-                                            <input type="password" id="confirm_password" name="confirm_password" required>
-                                        </div>
-
-                                        <button type="submit" name="password_update" class="btn btn-success btn-block mt-10">Update Password</button>
+                                        <button type="submit" name="trigger_password_reset" class="btn btn-warning btn-block">Send Password Reset Email</button>
                                     </form>
                                 </div>
                             </div>
