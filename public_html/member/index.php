@@ -215,6 +215,7 @@ if (Auth::check()) {
 
                     <div class="auth-footer">
                         <p>Not a member yet? <a href="join.php">Join the club today</a></p>
+                        <p>Forgot password? <a href="forgot-password.php">Reset it here</a></p>
                         <p>Need to check-in? <a href="checkin.php">Check-In Portal</a></p>
                     </div>
                 </div>

@@ -122,11 +122,13 @@ try {
                         <li><a href="volunteer_credits.php">Volunteer Credits</a></li>
                         <li><a href="import.php">CiviCRM Importer</a></li>
                         <li><a href="memberships.php">Memberships</a></li>
+                        <li><a href="email_templates.php">Email Templates</a></li>
                         <li>
                             <a href="reports.php" class="active">Reports & Analytics</a>
                             <ul class="admin-submenu" style="list-style-type: none; padding-left: 15px; margin-top: 5px; display: flex; flex-direction: column; gap: 4px;">
                                 <li><a href="payments.php" class="active" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Payments Log</a></li>
                                 <li><a href="attendance.php" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Attendance Log</a></li>
+                                <li><a href="email_log.php" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Email Log</a></li>
                             </ul>
                         </li>
                     </ul>

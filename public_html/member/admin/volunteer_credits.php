@@ -8,6 +8,7 @@ require_once dirname(dirname(dirname(__DIR__))) . '/config/bootstrap.php';
 
 use App\Auth;
 use App\Database;
+use App\MailHelper;
 
 Auth::requireAdmin();
 
@@ -198,6 +199,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $civiDb->beginTransaction();
                 
                 $todayStr = date('Y-m-d');
+                $emailsToSend = [];
                 
                 // Insert transaction statement
                 $insertTrans = $appDb->prepare("
@@ -346,11 +348,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         
                         // Recalculate and write final values (including applied credits) to settings
                         updateMemberCredits($appDb, $cid, $expirationDays);
+
+                        $emailsToSend[] = [
+                            'contact_id' => $cid,
+                            'credits_used' => $appliedDiff,
+                            'months_extended' => $monthsToExtend,
+                            'new_end_date' => $newEndDate
+                        ];
                     }
                 }
                 
                 $appDb->commit();
                 $civiDb->commit();
+
+                // Send credit conversion notification emails
+                foreach ($emailsToSend as $mailInfo) {
+                    try {
+                        $contactQuery = $civiDb->prepare("SELECT c.display_name, e.email FROM civicrm_contact c INNER JOIN civicrm_email e ON e.contact_id = c.id AND e.is_primary = 1 WHERE c.id = :contact_id LIMIT 1");
+                        $contactQuery->execute(['contact_id' => $mailInfo['contact_id']]);
+                        $contact = $contactQuery->fetch(PDO::FETCH_ASSOC);
+
+                        if ($contact && !empty($contact['email'])) {
+                            $placeholders = [
+                                'display_name' => $contact['display_name'] ?? 'Member',
+                                'credits_used' => number_format($mailInfo['credits_used'], 1),
+                                'months_extended' => $mailInfo['months_extended'],
+                                'new_end_date' => $mailInfo['new_end_date']
+                            ];
+                            MailHelper::sendTemplate($contact['email'], 'credits_converted', $placeholders, $mailInfo['contact_id'], $_SESSION['user']['contact_id']);
+                        }
+                    } catch (Exception $mailEx) {
+                        error_log("Failed to send volunteer credits conversion email: " . $mailEx->getMessage());
+                    }
+                }
                 
                 $successMsg = "Successfully processed volunteer credits and extended memberships for selected members.";
             } catch (Exception $e) {
@@ -581,10 +611,11 @@ if (!empty($startDate) && !empty($endDate)) {
                         <li><a href="volunteer_credits.php" class="active">Volunteer Credits</a></li>
                         <li><a href="import.php">CiviCRM Importer</a></li>
                         <li><a href="memberships.php">Memberships</a></li>
-                        <li><a href="reports.php" class="<?php echo in_array(basename($_SERVER['PHP_SELF']), ['reports.php', 'payments.php', 'attendance.php']) ? 'active' : ''; ?>">Reports & Analytics</a>
+                        <li><a href="reports.php" class="<?php echo in_array(basename($_SERVER['PHP_SELF']), ['reports.php', 'payments.php', 'attendance.php', 'email_log.php']) ? 'active' : ''; ?>">Reports & Analytics</a>
                             <ul class="admin-submenu" style="list-style-type: none; padding-left: 15px; margin-top: 5px; display: flex; flex-direction: column; gap: 4px;">
                                 <li><a href="payments.php" class="<?php echo (basename($_SERVER['PHP_SELF']) === 'payments.php') ? 'active' : ''; ?>" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Payments Log</a></li>
                                 <li><a href="attendance.php" class="<?php echo (basename($_SERVER['PHP_SELF']) === 'attendance.php') ? 'active' : ''; ?>" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Attendance Log</a></li>
+                                <li><a href="email_log.php" class="<?php echo (basename($_SERVER['PHP_SELF']) === 'email_log.php') ? 'active' : ''; ?>" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Email Log</a></li>
                             </ul>
                         </li>
                     </ul>

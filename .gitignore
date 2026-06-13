@@ -1,6 +1,7 @@
 # Local Database and PHP servers (binary folders)
 mariadb/
 php/
+mailpit/
 scratch/
 
 # Environments and Secrets

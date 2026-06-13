@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS `tgg_volunteer_signups` (
   `role` VARCHAR(100) NOT NULL, -- e.g., 'Open', 'Close', 'Greeter'
   `signed_up_at` DATETIME NOT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uq_event_contact` (`event_id`, `contact_id`),
+  UNIQUE KEY `uq_event_contact_role` (`event_id`, `contact_id`, `role`),
   CONSTRAINT `fk_volunteer_event` FOREIGN KEY (`event_id`) REFERENCES `tgg_events` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
@@ -143,5 +143,50 @@ CREATE TABLE IF NOT EXISTS `tgg_volunteer_credit_transactions` (
   UNIQUE KEY `uq_event_contact_shift` (`event_id`,`contact_id`,`shift`),
   KEY `idx_contact_credits` (`contact_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 10. Email Templates Table
+CREATE TABLE IF NOT EXISTS `tgg_email_templates` (
+  `template_key` VARCHAR(50) NOT NULL,
+  `subject` VARCHAR(255) NOT NULL,
+  `body` TEXT NOT NULL,
+  `description` VARCHAR(255) NULL,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`template_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Seed default email templates
+INSERT INTO `tgg_email_templates` (`template_key`, `subject`, `body`, `description`) VALUES
+('signup', 'Welcome to TGG Club!', '<h2>Welcome, {display_name}!</h2><p>Thank you for signing up for the TGG Membership Portal. Your account has been registered with the email <strong>{email}</strong>.</p><p>If you have not done so already, please complete your checkout to activate your subscription.</p><p>You can access the portal and complete any pending payments by logging in here: <a href=\"{login_url}\">{login_url}</a></p><p>Best regards,<br>TGG Club Team</p>', 'Welcome email sent immediately after a user registers their account details.'),
+('payment_received', 'Receipt: Your TGG Membership is Active!', '<h2>Hello, {display_name}!</h2><p>Thank you for your payment of <strong>${amount}</strong>.</p><p>Your subscription to the <strong>{tier_name}</strong> plan is now active!</p><p><strong>Membership Details:</strong></p><ul><li><strong>Start Date:</strong> {start_date}</li><li><strong>Expiration Date:</strong> {end_date}</li></ul><p>You can now log in to your account dashboard at: <a href=\"{login_url}\">{login_url}</a></p><p>Best regards,<br>TGG Club Team</p>', 'Payment confirmation receipt sent upon successful checkout session completion.'),
+('credits_converted', 'Membership Extended: Volunteer Credits Redeemed!', '<h2>Hello, {display_name}!</h2><p>Congratulations! You have successfully redeemed <strong>{credits_used}</strong> volunteer credits.</p><p>As a result, your membership has been extended by <strong>{months_extended} month(s)</strong> free of charge.</p><p>Your new membership expiration date is <strong>{new_end_date}</strong>.</p><p>Thank you for volunteering and contributing your time to the club!</p><p>Best regards,<br>TGG Club Team</p>', 'Notification sent when an admin applies volunteer credits to extend a user\'s membership.'),
+('password_reset_link', 'Reset Your TGG Portal Password', '<h2>Password Reset Request</h2><p>Hello, {display_name},</p><p>We received a request to reset the password for your TGG Membership Portal account.</p><p>To reset your password, please click the link below or copy and paste it into your browser:</p><p><a href=\"{reset_link}\">{reset_link}</a></p><p>This link is secure and will expire in <strong>{expires_in}</strong>.</p><p>If you did not request a password reset, you can safely ignore this email.</p><p>Best regards,<br>TGG Club Team</p>', 'Sent when a user requests a password reset link.'),
+('password_reset_completed', 'Password Reset Successful', '<h2>Password Reset Successful</h2><p>Hello, {display_name},</p><p>Your password for the TGG Membership Portal has been reset successfully.</p><p>You can now log in to the portal using your new password here: <a href=\"{login_url}\">{login_url}</a></p><p>If you did not initiate this password reset, please contact an administrator immediately.</p><p>Best regards,<br>TGG Club Team</p>', 'Sent to confirm that a user has successfully changed their password after a reset request.')
+ON DUPLICATE KEY UPDATE `subject`=VALUES(`subject`), `body`=VALUES(`body`), `description`=VALUES(`description`);
+
+-- 11. Password Resets Table
+CREATE TABLE IF NOT EXISTS `tgg_password_resets` (
+  `email` VARCHAR(255) NOT NULL,
+  `token` VARCHAR(64) NOT NULL,
+  `expires_at` DATETIME NOT NULL,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`email`),
+  KEY `idx_reset_token` (`token`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 12. Email Log Table
+CREATE TABLE IF NOT EXISTS `tgg_email_log` (
+  `id` INT AUTO_INCREMENT NOT NULL,
+  `recipient_id` INT NULL,
+  `sender_id` INT NULL,
+  `recipient` VARCHAR(255) NOT NULL,
+  `subject` VARCHAR(255) NOT NULL,
+  `body` TEXT NOT NULL,
+  `sent_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_recipient_id` (`recipient_id`),
+  KEY `idx_sender_id` (`sender_id`),
+  KEY `idx_sent_at` (`sent_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 
 

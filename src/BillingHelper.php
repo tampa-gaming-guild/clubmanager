@@ -252,6 +252,35 @@ class BillingHelper {
             // Commit both transactions
             $appDb->commit();
             $civiDb->commit();
+
+            // Send confirmation email
+            try {
+                $contactQuery = $civiDb->prepare("
+                    SELECT c.display_name, e.email 
+                    FROM civicrm_contact c
+                    INNER JOIN civicrm_email e ON e.contact_id = c.id AND e.is_primary = 1
+                    WHERE c.id = :contact_id LIMIT 1
+                ");
+                $contactQuery->execute(['contact_id' => $contactId]);
+                $contact = $contactQuery->fetch(PDO::FETCH_ASSOC);
+
+                if ($contact && !empty($contact['email'])) {
+                    $loginUrl = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/index.php';
+                    $placeholders = [
+                        'display_name' => $contact['display_name'] ?? 'Member',
+                        'tier_name' => $plan['name'] ?? 'Membership Tier',
+                        'amount' => number_format($amountTotal, 2),
+                        'start_date' => $startDate,
+                        'end_date' => $endDate,
+                        'login_url' => $loginUrl
+                    ];
+                    MailHelper::sendTemplate($contact['email'], 'payment_received', $placeholders, $contactId, null);
+                }
+            } catch (Exception $mailEx) {
+                // Log mail exception but do not interrupt the checkout flow
+                error_log("Failed to send activation email: " . $mailEx->getMessage());
+            }
+
             return true;
 
         } catch (Exception $e) {
@@ -611,6 +640,37 @@ class BillingHelper {
             // Commit both transactions
             $appDb->commit();
             $civiDb->commit();
+
+            // Send confirmation email for offline renewal
+            try {
+                $contactQuery = $civiDb->prepare("
+                    SELECT c.display_name, e.email 
+                    FROM civicrm_contact c
+                    INNER JOIN civicrm_email e ON e.contact_id = c.id AND e.is_primary = 1
+                    WHERE c.id = :contact_id LIMIT 1
+                ");
+                $contactQuery->execute(['contact_id' => $contactId]);
+                $contact = $contactQuery->fetch(PDO::FETCH_ASSOC);
+
+                if ($contact && !empty($contact['email'])) {
+                    $loginUrl = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/index.php';
+                    $placeholders = [
+                        'display_name' => $contact['display_name'] ?? 'Member',
+                        'tier_name' => $plan['name'] ?? 'Membership Tier',
+                        'amount' => number_format($amountTotal, 2),
+                        'start_date' => $startDate,
+                        'end_date' => $endDate,
+                        'login_url' => $loginUrl
+                    ];
+                    
+                    $senderId = $_SESSION['user']['contact_id'] ?? null;
+                    MailHelper::sendTemplate($contact['email'], 'payment_received', $placeholders, $contactId, $senderId);
+                }
+            } catch (Exception $mailEx) {
+                // Log mail exception but do not interrupt the renewal success
+                error_log("Failed to send offline renewal receipt email: " . $mailEx->getMessage());
+            }
+
             return true;
 
         } catch (Exception $e) {

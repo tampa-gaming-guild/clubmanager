@@ -10,6 +10,7 @@ use App\CiviCRMImporter;
 use App\StripeHelper;
 use App\Auth;
 use App\BillingHelper;
+use App\MailHelper;
 
 $tiers = [];
 $errorMsg = null;
@@ -119,6 +120,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                         // Commit both transactions
                         $civiDb->commit();
                         $appDb->commit();
+
+                        // Send welcome email on registration signup
+                        try {
+                            $loginUrl = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/index.php';
+                            $placeholders = [
+                                'display_name' => $displayName,
+                                'email' => $email,
+                                'login_url' => $loginUrl
+                            ];
+                            MailHelper::sendTemplate($email, 'signup', $placeholders, $contactId, null);
+                        } catch (Exception $mailEx) {
+                            // Log mail error and allow user to continue to Stripe checkout
+                            error_log("Failed to send welcome email: " . $mailEx->getMessage());
+                        }
 
                         // F. Create Stripe Session and Redirect
                         $session = StripeHelper::createCheckoutSession($contactId, $tierId, $civicrmTypeId, $tierName, $fee, 'join');

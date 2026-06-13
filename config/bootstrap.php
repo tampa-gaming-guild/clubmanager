@@ -44,6 +44,11 @@ function loadEnv($dir) {
 }
 loadEnv(dirname(__DIR__));
 
+// Load Composer Autoloader if it exists
+if (file_exists(dirname(__DIR__) . '/vendor/autoload.php')) {
+    require_once dirname(__DIR__) . '/vendor/autoload.php';
+}
+
 // 3. PSR-4 Autoloader
 spl_autoload_register(function ($class) {
     $prefix = 'App\\';
