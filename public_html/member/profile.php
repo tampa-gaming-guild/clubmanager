@@ -103,6 +103,151 @@ if ($hasPrivateAccess && $appDb) {
     }
 }
 
+// Fetch Volunteer Credits details if Viewer has Private Access
+$expirationDays = 365.0; // Default
+$volunteerTx = [];
+$totalEarned = 0.0;
+$totalApplied = 0.0;
+$totalExpired = 0.0;
+$availableCredits = 0.0;
+$nextExpirationDate = 'Never';
+$nextExpirationCredits = 0.0;
+
+if ($hasPrivateAccess && $appDb) {
+    try {
+        // Fetch expiration days setting
+        $configsStmt = $appDb->query("SELECT credit_key, credits FROM tgg_volunteer_credits");
+        $creditsMap = $configsStmt->fetchAll(PDO::FETCH_KEY_PAIR);
+        $expirationDays = (float)($creditsMap['credit_expiration_days'] ?? 365.0);
+
+        // Fetch all transactions
+        $stmtTx = $appDb->prepare("
+            SELECT t.id, t.volunteer_date, t.shift, t.credits_earned, t.credits_applied, e.title as event_title
+            FROM tgg_volunteer_credit_transactions t
+            LEFT JOIN tgg_events e ON t.event_id = e.id
+            WHERE t.contact_id = :contact_id
+            ORDER BY t.volunteer_date ASC, t.id ASC
+        ");
+        $stmtTx->execute(['contact_id' => $profileId]);
+        $allTx = $stmtTx->fetchAll();
+        
+        $earned = [];
+        $applied = [];
+        
+        foreach ($allTx as $tx) {
+            $valEarned = (float)$tx['credits_earned'];
+            $valApplied = (float)$tx['credits_applied'];
+            if ($valEarned > 0.0) {
+                $earned[] = [
+                    'id' => $tx['id'],
+                    'date' => $tx['volunteer_date'],
+                    'amount' => $valEarned,
+                    'remaining' => $valEarned,
+                    'shift' => $tx['shift'],
+                    'event_title' => $tx['event_title']
+                ];
+                $totalEarned += $valEarned;
+                $volunteerTx[] = $tx;
+            }
+            if ($valApplied > 0.0) {
+                $applied[] = [
+                    'id' => $tx['id'],
+                    'date' => $tx['volunteer_date'],
+                    'amount' => $valApplied
+                ];
+                $totalApplied += $valApplied;
+            }
+        }
+        
+        // Reverse volunteerTx for reverse-chronological display (newest first)
+        $volunteerTx = array_reverse($volunteerTx);
+        
+        if ($expirationDays > 0.0) {
+            // FIFO simulation to match applications to earned credits
+            foreach ($applied as $appTx) {
+                $appDate = $appTx['date'];
+                $appAmount = $appTx['amount'];
+                
+                foreach ($earned as &$earnTx) {
+                    if ($earnTx['remaining'] <= 0.0) {
+                        continue;
+                    }
+                    
+                    $earnDate = $earnTx['date'];
+                    $expireDate = date('Y-m-d', strtotime($earnDate . " + " . (int)$expirationDays . " days"));
+                    if ($expireDate < $appDate) {
+                        continue; // Expired before applied
+                    }
+                    
+                    if ($appAmount >= $earnTx['remaining']) {
+                        $appAmount -= $earnTx['remaining'];
+                        $earnTx['remaining'] = 0.0;
+                    } else {
+                        $earnTx['remaining'] -= $appAmount;
+                        $appAmount = 0.0;
+                        break;
+                    }
+                }
+                unset($earnTx);
+            }
+            
+            $today = date('Y-m-d');
+            $expiringCandidates = [];
+            
+            foreach ($earned as $earnTx) {
+                if ($earnTx['remaining'] > 0.0) {
+                    $earnDate = $earnTx['date'];
+                    $expireDate = date('Y-m-d', strtotime($earnDate . " + " . (int)$expirationDays . " days"));
+                    if ($expireDate < $today) {
+                        $totalExpired += $earnTx['remaining'];
+                    } else {
+                        $expiringCandidates[] = [
+                            'expire_date' => $expireDate,
+                            'amount' => $earnTx['remaining']
+                        ];
+                    }
+                }
+            }
+            
+            // Find next expiration date and amount
+            if (!empty($expiringCandidates)) {
+                usort($expiringCandidates, function($a, $b) {
+                    return strcmp($a['expire_date'], $b['expire_date']);
+                });
+                
+                $nextExpirationDate = $expiringCandidates[0]['expire_date'];
+                $nextExpirationCredits = 0.0;
+                foreach ($expiringCandidates as $cand) {
+                    if ($cand['expire_date'] === $nextExpirationDate) {
+                        $nextExpirationCredits += $cand['amount'];
+                    }
+                }
+            }
+        }
+        
+        $availableCredits = max(0.0, $totalEarned - $totalApplied - $totalExpired);
+        
+        // Dynamically update db settings to avoid drift
+        $stmtSelect = $appDb->prepare("SELECT contact_id FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1");
+        $stmtSelect->execute(['contact_id' => $profileId]);
+        if ($stmtSelect->fetch()) {
+            $stmtUpdate = $appDb->prepare("
+                UPDATE tgg_member_settings 
+                SET credits_earned = :earned, credits_applied = :applied, expired_credits = :expired 
+                WHERE contact_id = :contact_id
+            ");
+            $stmtUpdate->execute([
+                'earned' => $totalEarned,
+                'applied' => $totalApplied,
+                'expired' => $totalExpired,
+                'contact_id' => $profileId
+            ]);
+        }
+    } catch (Exception $e) {
+        $errorMsg = ($errorMsg ? $errorMsg . " | " : "") . "Failed to load volunteer credits: " . $e->getMessage();
+    }
+}
+
 // 4. Handle Settings Updates (Only owner or admin)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
@@ -345,6 +490,77 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                     <p class="private-locked-msg">You do not have permission to view private details (Email, Phone, Dates).</p>
                                 <?php endif; ?>
                             </div>
+
+                            <!-- VOLUNTEERING & CREDITS SECTION -->
+                            <?php if ($hasPrivateAccess): ?>
+                                <div class="detail-section private-detail-section mt-20">
+                                    <div class="section-header">
+                                        <h3 class="section-title">Volunteering & Credits</h3>
+                                        <span class="private-badge">🔒 Owner & Admins Only</span>
+                                    </div>
+                                    
+                                    <div class="volunteer-summary-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 20px; background: rgba(255, 255, 255, 0.02); padding: 15px; border-radius: 8px; border: 1px solid var(--border-glass);">
+                                        <div>
+                                            <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-secondary);">Lifetime Earned:</p>
+                                            <h4 style="margin: 5px 0 0 0; color: #fff; font-size: 1.2rem;"><?php echo number_format($totalEarned, 1); ?></h4>
+                                        </div>
+                                        <div>
+                                            <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-secondary);">Lifetime Applied:</p>
+                                            <h4 style="margin: 5px 0 0 0; color: #fff; font-size: 1.2rem;"><?php echo number_format($totalApplied, 1); ?></h4>
+                                        </div>
+                                        <div>
+                                            <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-secondary);">Outstanding Balance:</p>
+                                            <h4 style="margin: 5px 0 0 0; color: var(--color-success); font-size: 1.2rem;"><?php echo number_format($availableCredits, 1); ?></h4>
+                                        </div>
+                                        <div>
+                                            <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-secondary);">Expired Credits:</p>
+                                            <h4 style="margin: 5px 0 0 0; color: var(--color-danger); font-size: 1.2rem;"><?php echo number_format($totalExpired, 1); ?></h4>
+                                        </div>
+                                    </div>
+
+                                    <div style="margin-bottom: 20px; background: rgba(255, 255, 255, 0.02); padding: 12px 15px; border-radius: 8px; border: 1px solid var(--border-glass);">
+                                        <p style="margin: 0 0 5px 0; font-size: 0.85rem; color: var(--color-text-secondary);">Next Expiration:</p>
+                                        <strong style="color: #fff;">
+                                            <?php if ($nextExpirationDate === 'Never'): ?>
+                                                Never
+                                            <?php else: ?>
+                                                <?php echo date('F j, Y', strtotime($nextExpirationDate)); ?> 
+                                                <span style="color: var(--color-danger); font-weight: normal; font-size: 0.85rem; margin-left: 10px;">
+                                                    (<?php echo number_format($nextExpirationCredits, 1); ?> credit<?php echo $nextExpirationCredits > 1 ? 's' : ''; ?> will expire)
+                                                </span>
+                                            <?php endif; ?>
+                                        </strong>
+                                    </div>
+
+                                    <h4 style="margin: 20px 0 10px 0; color: #fff; font-size: 0.95rem;">Completed Shifts</h4>
+                                    <?php if (empty($volunteerTx)): ?>
+                                        <p class="private-locked-msg">No completed shifts found.</p>
+                                    <?php else: ?>
+                                        <div class="admin-table-container" style="max-height: 250px; overflow-y: auto;">
+                                            <table class="admin-table" style="font-size: 0.85rem; width: 100%;">
+                                                <thead>
+                                                    <tr>
+                                                        <th style="padding: 8px 10px;">Date</th>
+                                                        <th style="padding: 8px 10px;">Event</th>
+                                                        <th style="padding: 8px 10px;">Shift</th>
+                                                        <th style="padding: 8px 10px; text-align: center;">Credits</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <?php foreach ($volunteerTx as $tx): ?>
+                                                        <tr>
+                                                            <td style="padding: 8px 10px;"><span class="table-datetime"><?php echo date('Y-m-d', strtotime($tx['volunteer_date'])); ?></span></td>
+                                                            <td style="padding: 8px 10px; font-weight: bold; color: #fff;"><?php echo e($tx['event_title'] ?: 'Volunteer Event'); ?></td>
+                                                            <td style="padding: 8px 10px;"><?php echo e($tx['shift']); ?></td>
+                                                            <td style="padding: 8px 10px; text-align: center; font-weight: bold; color: var(--color-primary);">+<?php echo (float)$tx['credits_earned']; ?></td>
+                                                        </tr>
+                                                    <?php endforeach; ?>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
+                            <?php endif; ?>
 
                             <!-- BILLING HISTORY SECTION -->
                             <?php if ($hasPrivateAccess): ?>
