@@ -372,8 +372,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
 
                 // 3. Send Email using Template
                 $resetLink = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/reset-password.php?token=' . $rawToken;
+                $displayName = !empty(trim($settings['custom_display_name'] ?? '')) ? trim($settings['custom_display_name']) : $contact['display_name'];
                 $placeholders = [
-                    'display_name' => $displayNameToPublic,
+                    'display_name' => $displayName,
                     'reset_link' => $resetLink,
                     'expires_in' => '1 hour'
                 ];
