@@ -377,6 +377,50 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
     <link rel="apple-touch-icon" href="favicon.png">
     <link rel="manifest" href="manifest.json">
     <link rel="stylesheet" href="assets/css/style.css">
+    <style>
+    /* Tabs Navigation */
+    .profile-tabs {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 25px;
+        border-bottom: 1px solid var(--border-glass);
+        padding-bottom: 10px;
+    }
+    .tab-button {
+        background: transparent;
+        border: none;
+        color: var(--color-text-secondary);
+        font-size: 0.95rem;
+        font-weight: 600;
+        padding: 10px 20px;
+        cursor: pointer;
+        border-radius: 6px;
+        transition: all 0.2s ease;
+        outline: none;
+    }
+    .tab-button:hover {
+        color: #fff;
+        background: rgba(255, 255, 255, 0.05);
+    }
+    .tab-button.active {
+        color: #fff;
+        background: rgba(34, 197, 94, 0.15); /* success tint */
+        border: 1px solid rgba(34, 197, 94, 0.3);
+    }
+
+    /* Tab Contents */
+    .tab-content {
+        display: none;
+    }
+    .tab-content.active {
+        display: block;
+    }
+
+    /* Expanded UI layouts */
+    .full-width-section {
+        width: 100% !important;
+    }
+    </style>
 </head>
 <body>
     <div class="app-container">
@@ -439,6 +483,17 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                         </div>
                     </div>
 
+                    <?php if ($hasPrivateAccess): ?>
+                        <div class="profile-tabs">
+                            <button class="tab-button active" onclick="switchTab('profile')">Profile</button>
+                            <button class="tab-button" onclick="switchTab('volunteering')">Volunteering</button>
+                            <button class="tab-button" onclick="switchTab('billing')">Billing History</button>
+                        </div>
+                    <?php endif; ?>
+
+                    <?php if ($hasPrivateAccess): ?>
+                    <div id="tab-profile" class="tab-content active">
+                    <?php endif; ?>
                     <div class="profile-body-grid">
                         <!-- Left Panel: Profile Details -->
                         <div class="profile-details-column">
@@ -528,163 +583,6 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                     <p class="private-locked-msg">You do not have permission to view private details (Email, Phone, Dates).</p>
                                 <?php endif; ?>
                             </div>
-
-                            <!-- VOLUNTEERING & CREDITS SECTION -->
-                            <?php if ($hasPrivateAccess): ?>
-                                <div class="detail-section private-detail-section mt-20">
-                                    <div class="section-header">
-                                        <h3 class="section-title">Volunteering & Credits</h3>
-                                        <span class="private-badge">🔒 Owner & Admins Only</span>
-                                    </div>
-                                    
-                                    <div class="volunteer-summary-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 20px; background: rgba(255, 255, 255, 0.02); padding: 15px; border-radius: 8px; border: 1px solid var(--border-glass);">
-                                        <div>
-                                            <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-secondary);">Lifetime Earned:</p>
-                                            <h4 style="margin: 5px 0 0 0; color: #fff; font-size: 1.2rem;">
-                                                <?php echo number_format($totalEarned, 1); ?>
-                                                <?php if ($pendingCredits > 0.0): ?>
-                                                    <span style="font-size: 0.8rem; color: var(--color-text-secondary); font-weight: normal;">
-                                                        (+<?php echo number_format($pendingCredits, 1); ?> pending)
-                                                    </span>
-                                                <?php endif; ?>
-                                            </h4>
-                                        </div>
-                                        <div>
-                                            <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-secondary);">Lifetime Applied:</p>
-                                            <h4 style="margin: 5px 0 0 0; color: #fff; font-size: 1.2rem;"><?php echo number_format($totalApplied, 1); ?></h4>
-                                        </div>
-                                        <div>
-                                            <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-secondary);">Outstanding Balance:</p>
-                                            <h4 style="margin: 5px 0 0 0; color: var(--color-success); font-size: 1.2rem;">
-                                                <?php echo number_format($availableCredits, 1); ?>
-                                                <?php if ($pendingCredits > 0.0): ?>
-                                                    <span style="font-size: 0.8rem; color: var(--color-text-secondary); font-weight: normal;">
-                                                        (+<?php echo number_format($pendingCredits, 1); ?> pending)
-                                                    </span>
-                                                <?php endif; ?>
-                                            </h4>
-                                        </div>
-                                        <div>
-                                            <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-secondary);">Expired Credits:</p>
-                                            <h4 style="margin: 5px 0 0 0; color: var(--color-danger); font-size: 1.2rem;"><?php echo number_format($totalExpired, 1); ?></h4>
-                                        </div>
-                                    </div>
-
-                                    <div style="margin-bottom: 20px; background: rgba(255, 255, 255, 0.02); padding: 12px 15px; border-radius: 8px; border: 1px solid var(--border-glass);">
-                                        <p style="margin: 0 0 5px 0; font-size: 0.85rem; color: var(--color-text-secondary);">Next Expiration:</p>
-                                        <strong style="color: #fff;">
-                                            <?php if ($nextExpirationDate === 'Never'): ?>
-                                                Never
-                                            <?php else: ?>
-                                                <?php echo date('F j, Y', strtotime($nextExpirationDate)); ?> 
-                                                <span style="color: var(--color-danger); font-weight: normal; font-size: 0.85rem; margin-left: 10px;">
-                                                    (<?php echo number_format($nextExpirationCredits, 1); ?> credit<?php echo $nextExpirationCredits > 1 ? 's' : ''; ?> will expire)
-                                                </span>
-                                            <?php endif; ?>
-                                        </strong>
-                                    </div>
-
-                                    <h4 style="margin: 20px 0 10px 0; color: #fff; font-size: 0.95rem;">Completed Shifts</h4>
-                                    <?php if (empty($volunteerShifts)): ?>
-                                        <p class="private-locked-msg">No completed shifts found.</p>
-                                    <?php else: ?>
-                                        <div class="admin-table-container" style="max-height: 250px; overflow-y: auto;">
-                                            <table class="admin-table" style="font-size: 0.85rem; width: 100%;">
-                                                <thead>
-                                                    <tr>
-                                                        <th style="padding: 8px 10px;">Date</th>
-                                                        <th style="padding: 8px 10px;">Event</th>
-                                                        <th style="padding: 8px 10px;">Shift</th>
-                                                        <th style="padding: 8px 10px; text-align: center;">Credits</th>
-                                                        <th style="padding: 8px 10px; text-align: center;">Status</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    <?php foreach ($volunteerShifts as $tx): ?>
-                                                        <tr>
-                                                            <td style="padding: 8px 10px;"><span class="table-datetime"><?php echo date('Y-m-d', strtotime($tx['date'])); ?></span></td>
-                                                            <td style="padding: 8px 10px; font-weight: bold; color: #fff;"><?php echo e($tx['event_title'] ?: 'Volunteer Event'); ?></td>
-                                                            <td style="padding: 8px 10px;"><?php echo e($tx['shift']); ?></td>
-                                                            <td style="padding: 8px 10px; text-align: center; font-weight: bold; color: var(--color-primary);">+<?php echo (float)$tx['credits']; ?></td>
-                                                            <td style="padding: 8px 10px; text-align: center;">
-                                                                <?php if ($tx['status'] === 'Processed'): ?>
-                                                                    <span class="badge badge-active" style="font-size: 0.75rem; padding: 2px 6px; display: inline-block;">Processed</span>
-                                                                <?php else: ?>
-                                                                    <span class="badge badge-expired" style="font-size: 0.75rem; padding: 2px 6px; display: inline-block; background: rgba(234, 179, 8, 0.15); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3);">Pending</span>
-                                                                <?php endif; ?>
-                                                            </td>
-                                                        </tr>
-                                                    <?php endforeach; ?>
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    <?php endif; ?>
-                                </div>
-                            <?php endif; ?>
-
-                            <!-- BILLING HISTORY SECTION -->
-                            <?php if ($hasPrivateAccess): ?>
-                                <div class="detail-section private-detail-section mt-20">
-                                    <div class="section-header">
-                                        <h3 class="section-title">Billing History</h3>
-                                        <span class="private-badge">🔒 Owner & Admins Only</span>
-                                    </div>
-                                    
-                                    <?php if (empty($transactions)): ?>
-                                        <p class="private-locked-msg">No billing transactions found.</p>
-                                    <?php else: ?>
-                                        <div class="admin-table-container">
-                                            <table class="admin-table" style="font-size: 0.85rem; width: 100%;">
-                                                <thead>
-                                                    <tr>
-                                                        <th style="padding: 8px 10px;">Date</th>
-                                                        <th style="padding: 8px 10px;">Plan</th>
-                                                        <th style="padding: 8px 10px;">Amount</th>
-                                                        <th style="padding: 8px 10px;">Status</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    <?php foreach ($transactions as $tx): ?>
-                                                         <?php
-                                                         $badgeClass = 'badge-expired';
-                                                         $badgeLabel = ucfirst($tx['payment_status']);
-                                                         if ($tx['payment_status'] === 'paid') {
-                                                             $trxnId = $tx['trxn_id'] ?? '';
-                                                             if (strpos($trxnId, 'offline_volunteer_credit_') === 0) {
-                                                                 $badgeClass = 'badge-volunteer';
-                                                                 $badgeLabel = 'Volunteer';
-                                                             } elseif (strpos($trxnId, 'offline_complimentary_') === 0) {
-                                                                 $badgeClass = 'badge-free';
-                                                                 $badgeLabel = 'Free';
-                                                             } elseif (strpos($trxnId, 'offline_cash_') === 0) {
-                                                                 $badgeClass = 'badge-active';
-                                                                 $badgeLabel = 'Paid (Cash)';
-                                                             } elseif (strpos($trxnId, 'offline_check_') === 0) {
-                                                                 $badgeClass = 'badge-active';
-                                                                 $badgeLabel = 'Paid (Check)';
-                                                             } else {
-                                                                 $badgeClass = 'badge-active';
-                                                                 $badgeLabel = 'Paid (Credit Card)';
-                                                             }
-                                                         }
-                                                         ?>
-                                                         <tr>
-                                                             <td style="padding: 8px 10px;"><span class="table-datetime"><?php echo date('Y-m-d', strtotime($tx['created_at'])); ?></span></td>
-                                                             <td style="padding: 8px 10px;"><strong><?php echo e($tx['plan_name']); ?></strong></td>
-                                                             <td style="padding: 8px 10px;">$<?php echo number_format($tx['amount'], 2); ?></td>
-                                                             <td style="padding: 8px 10px;">
-                                                                 <span class="badge <?php echo $badgeClass; ?>" style="font-size: 0.75rem; padding: 2px 6px; display: inline-block;">
-                                                                     <?php echo e($badgeLabel); ?>
-                                                                 </span>
-                                                             </td>
-                                                         </tr>
-                                                     <?php endforeach; ?>
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    <?php endif; ?>
-                                </div>
-                            <?php endif; ?>
                         </div>
 
                         <!-- Right Panel: Management (Only for Owner or Admin) -->
@@ -744,6 +642,170 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                             </div>
                         <?php endif; ?>
                     </div>
+                    <?php if ($hasPrivateAccess): ?>
+                    </div>
+                    <?php endif; ?>
+
+                    <?php if ($hasPrivateAccess): ?>
+                    <div id="tab-volunteering" class="tab-content">
+                        <!-- VOLUNTEERING & CREDITS SECTION -->
+                        <div class="detail-section private-detail-section full-width-section">
+                            <div class="section-header">
+                                <h3 class="section-title">Volunteering & Credits</h3>
+                                <span class="private-badge">🔒 Owner & Admins Only</span>
+                            </div>
+                            
+                            <div class="volunteer-summary-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 20px; background: rgba(255, 255, 255, 0.02); padding: 15px; border-radius: 8px; border: 1px solid var(--border-glass);">
+                                <div>
+                                    <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-secondary);">Lifetime Earned:</p>
+                                    <h4 style="margin: 5px 0 0 0; color: #fff; font-size: 1.2rem;">
+                                        <?php echo number_format($totalEarned, 1); ?>
+                                        <?php if ($pendingCredits > 0.0): ?>
+                                            <span style="font-size: 0.8rem; color: var(--color-text-secondary); font-weight: normal;">
+                                                (+<?php echo number_format($pendingCredits, 1); ?> pending)
+                                            </span>
+                                        <?php endif; ?>
+                                    </h4>
+                                </div>
+                                <div>
+                                    <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-secondary);">Lifetime Applied:</p>
+                                    <h4 style="margin: 5px 0 0 0; color: #fff; font-size: 1.2rem;"><?php echo number_format($totalApplied, 1); ?></h4>
+                                </div>
+                                <div>
+                                    <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-secondary);">Outstanding Balance:</p>
+                                    <h4 style="margin: 5px 0 0 0; color: var(--color-success); font-size: 1.2rem;">
+                                        <?php echo number_format($availableCredits, 1); ?>
+                                        <?php if ($pendingCredits > 0.0): ?>
+                                            <span style="font-size: 0.8rem; color: var(--color-text-secondary); font-weight: normal;">
+                                                (+<?php echo number_format($pendingCredits, 1); ?> pending)
+                                            </span>
+                                        <?php endif; ?>
+                                    </h4>
+                                </div>
+                                <div>
+                                    <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-secondary);">Expired Credits:</p>
+                                    <h4 style="margin: 5px 0 0 0; color: var(--color-danger); font-size: 1.2rem;"><?php echo number_format($totalExpired, 1); ?></h4>
+                                </div>
+                            </div>
+
+                            <div style="margin-bottom: 20px; background: rgba(255, 255, 255, 0.02); padding: 12px 15px; border-radius: 8px; border: 1px solid var(--border-glass);">
+                                <p style="margin: 0 0 5px 0; font-size: 0.85rem; color: var(--color-text-secondary);">Next Expiration:</p>
+                                <strong style="color: #fff;">
+                                    <?php if ($nextExpirationDate === 'Never'): ?>
+                                        Never
+                                    <?php else: ?>
+                                        <?php echo date('F j, Y', strtotime($nextExpirationDate)); ?> 
+                                        <span style="color: var(--color-danger); font-weight: normal; font-size: 0.85rem; margin-left: 10px;">
+                                            (<?php echo number_format($nextExpirationCredits, 1); ?> credit<?php echo $nextExpirationCredits > 1 ? 's' : ''; ?> will expire)
+                                        </span>
+                                    <?php endif; ?>
+                                </strong>
+                            </div>
+
+                            <h4 style="margin: 20px 0 10px 0; color: #fff; font-size: 0.95rem;">Completed Shifts</h4>
+                            <?php if (empty($volunteerShifts)): ?>
+                                <p class="private-locked-msg">No completed shifts found.</p>
+                            <?php else: ?>
+                                <div class="admin-table-container">
+                                    <table class="admin-table" style="font-size: 0.85rem; width: 100%;">
+                                        <thead>
+                                            <tr>
+                                                <th style="padding: 8px 10px;">Date</th>
+                                                <th style="padding: 8px 10px;">Event</th>
+                                                <th style="padding: 8px 10px;">Shift</th>
+                                                <th style="padding: 8px 10px; text-align: center;">Credits</th>
+                                                <th style="padding: 8px 10px; text-align: center;">Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php foreach ($volunteerShifts as $tx): ?>
+                                                <tr>
+                                                    <td style="padding: 8px 10px;"><span class="table-datetime"><?php echo date('Y-m-d', strtotime($tx['date'])); ?></span></td>
+                                                    <td style="padding: 8px 10px; font-weight: bold; color: #fff;"><?php echo e($tx['event_title'] ?: 'Volunteer Event'); ?></td>
+                                                    <td style="padding: 8px 10px;"><?php echo e($tx['shift']); ?></td>
+                                                    <td style="padding: 8px 10px; text-align: center; font-weight: bold; color: var(--color-primary);">+<?php echo (float)$tx['credits']; ?></td>
+                                                    <td style="padding: 8px 10px; text-align: center;">
+                                                        <?php if ($tx['status'] === 'Processed'): ?>
+                                                            <span class="badge badge-active" style="font-size: 0.75rem; padding: 2px 6px; display: inline-block;">Processed</span>
+                                                        <?php else: ?>
+                                                            <span class="badge badge-expired" style="font-size: 0.75rem; padding: 2px 6px; display: inline-block; background: rgba(234, 179, 8, 0.15); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3);">Pending</span>
+                                                        <?php endif; ?>
+                                                    </td>
+                                                </tr>
+                                            <?php endforeach; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+
+                    <?php if ($hasPrivateAccess): ?>
+                    <div id="tab-billing" class="tab-content">
+                        <!-- BILLING HISTORY SECTION -->
+                        <div class="detail-section private-detail-section full-width-section">
+                            <div class="section-header">
+                                <h3 class="section-title">Billing History</h3>
+                                <span class="private-badge">🔒 Owner & Admins Only</span>
+                            </div>
+                            
+                            <?php if (empty($transactions)): ?>
+                                <p class="private-locked-msg">No billing transactions found.</p>
+                            <?php else: ?>
+                                <div class="admin-table-container">
+                                    <table class="admin-table" style="font-size: 0.85rem; width: 100%;">
+                                        <thead>
+                                            <tr>
+                                                <th style="padding: 8px 10px;">Date</th>
+                                                <th style="padding: 8px 10px;">Plan</th>
+                                                <th style="padding: 8px 10px;">Amount</th>
+                                                <th style="padding: 8px 10px;">Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php foreach ($transactions as $tx): ?>
+                                                 <?php
+                                                 $badgeClass = 'badge-expired';
+                                                 $badgeLabel = ucfirst($tx['payment_status']);
+                                                 if ($tx['payment_status'] === 'paid') {
+                                                     $trxnId = $tx['trxn_id'] ?? '';
+                                                     if (strpos($trxnId, 'offline_volunteer_credit_') === 0) {
+                                                         $badgeClass = 'badge-volunteer';
+                                                         $badgeLabel = 'Volunteer';
+                                                     } elseif (strpos($trxnId, 'offline_complimentary_') === 0) {
+                                                         $badgeClass = 'badge-free';
+                                                         $badgeLabel = 'Free';
+                                                     } elseif (strpos($trxnId, 'offline_cash_') === 0) {
+                                                         $badgeClass = 'badge-active';
+                                                         $badgeLabel = 'Paid (Cash)';
+                                                     } elseif (strpos($trxnId, 'offline_check_') === 0) {
+                                                         $badgeClass = 'badge-active';
+                                                         $badgeLabel = 'Paid (Check)';
+                                                     } else {
+                                                         $badgeClass = 'badge-active';
+                                                         $badgeLabel = 'Paid (Credit Card)';
+                                                     }
+                                                 }
+                                                 ?>
+                                                 <tr>
+                                                     <td style="padding: 8px 10px;"><span class="table-datetime"><?php echo date('Y-m-d', strtotime($tx['created_at'])); ?></span></td>
+                                                     <td style="padding: 8px 10px;"><strong><?php echo e($tx['plan_name']); ?></strong></td>
+                                                     <td style="padding: 8px 10px;">$<?php echo number_format($tx['amount'], 2); ?></td>
+                                                     <td style="padding: 8px 10px;">
+                                                         <span class="badge <?php echo $badgeClass; ?>" style="font-size: 0.75rem; padding: 2px 6px; display: inline-block;">
+                                                             <?php echo e($badgeLabel); ?>
+                                                         </span>
+                                                     </td>
+                                                 </tr>
+                                             <?php endforeach; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
                 </div>
             <?php endif; ?>
         </main>
@@ -754,6 +816,17 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
     </div>
 
     <script>
+    function switchTab(tabId) {
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.tab-button').forEach(el => el.classList.remove('active'));
+        
+        const content = document.getElementById('tab-' + tabId);
+        if (content) content.classList.add('active');
+        
+        const btn = document.querySelector(`.tab-button[onclick*="'${tabId}'"]`);
+        if (btn) btn.classList.add('active');
+    }
+
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
             navigator.serviceWorker.register('sw.js')
