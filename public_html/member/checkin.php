@@ -53,7 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!$contactRow) {
                     $errorMsg = "Member not found in database.";
                 } else {
-                    $contactName = $contactRow['display_name'];
+                    $contactName = CiviCRMImporter::getFormattedName($contactId);
 
                     // 3. Verify Active Membership
                     $membership = CiviCRMImporter::getMemberMembershipDetails($contactId);
@@ -102,6 +102,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Member Check-In - Club Entry</title>
+    <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="apple-touch-icon" href="favicon.png">
+    <link rel="manifest" href="manifest.json">
     <link rel="stylesheet" href="assets/css/style.css">
 </head>
 <body class="terminal-body">
@@ -287,6 +291,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
         });
+    </script>
+
+    <script>
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('sw.js')
+                .then(reg => console.log('Service Worker registered'))
+                .catch(err => console.error('Service Worker registration failed', err));
+        });
+    }
     </script>
 </body>
 </html>

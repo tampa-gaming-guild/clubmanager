@@ -148,18 +148,14 @@ class Event {
             return [];
         }
 
-        // Fetch display names from CiviCRM for these contact IDs
+        // Fetch display names from CiviCRM for these contact IDs according to privacy preferences
         $contactIds = array_column($signups, 'contact_id');
-        $placeholders = implode(',', array_fill(0, count($contactIds), '?'));
-        
-        $civiStmt = $civiDb->prepare("SELECT id, display_name FROM civicrm_contact WHERE id IN ({$placeholders})");
-        $civiStmt->execute($contactIds);
-        $contacts = $civiStmt->fetchAll(PDO::FETCH_KEY_PAIR);
+        $formattedNames = CiviCRMImporter::getFormattedNames($contactIds);
 
         // Map names back to signups list
         foreach ($signups as &$signup) {
             $cid = (int)$signup['contact_id'];
-            $signup['display_name'] = $contacts[$cid] ?? "Member #{$cid}";
+            $signup['display_name'] = $formattedNames[$cid] ?? "Member #{$cid}";
         }
 
         return $signups;

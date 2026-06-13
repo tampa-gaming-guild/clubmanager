@@ -233,19 +233,22 @@ select option {
     gap: 15px;
 }
 
-.form-group.checkbox-group {
+.form-group.checkbox-group,
+.form-group.radio-group {
     display: flex;
     align-items: center;
     gap: 10px;
     margin-bottom: 12px;
 }
-.form-group.checkbox-group input {
+.form-group.checkbox-group input,
+.form-group.radio-group input {
     width: 18px;
     height: 18px;
     accent-color: var(--color-primary);
     cursor: pointer;
 }
-.form-group.checkbox-group label {
+.form-group.checkbox-group label,
+.form-group.radio-group label {
     margin-bottom: 0;
     cursor: pointer;
     font-size: 0.9rem;

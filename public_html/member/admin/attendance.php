@@ -111,6 +111,7 @@ try {
                     <ul class="admin-menu">
                         <li><a href="dashboard.php">Dashboard</a></li>
                         <li><a href="scheduler.php">Event Scheduler</a></li>
+                        <li><a href="volunteer_credits.php">Volunteer Credits</a></li>
                         <li><a href="import.php">CiviCRM Importer</a></li>
                         <li><a href="memberships.php">Memberships</a></li>
                         <li>
@@ -133,7 +134,7 @@ try {
                     <?php endif; ?>
 
                     <div class="table-card glass-panel span-full-row">
-
+                        <p class="settings-instruction mb-10" style="padding: 10px 16px 0 16px; margin: 0; font-size: 0.8rem; color: var(--color-text-muted);">Click any column header to sort.</p>
                         <div class="admin-table-container">
                             <table class="admin-table" id="attendance-report-table" data-sort-dir="">
                                 <thead>
@@ -207,3 +208,4 @@ try {
     </script>
 </body>
 </html>
+

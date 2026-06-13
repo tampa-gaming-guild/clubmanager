@@ -207,7 +207,7 @@ class CiviCRMImporter {
      */
     public static function getMembersList(): array {
         $civiDb = Database::getCiviConnection();
-        $query = "SELECT c.id, c.display_name, e.email, p.phone,
+        $query = "SELECT c.id, c.display_name, c.first_name, c.last_name, e.email, p.phone,
                          m.join_date, m.start_date, m.end_date,
                          t.name as membership_name,
                          s.label as status_label, s.is_current_member as is_active
@@ -219,6 +219,73 @@ class CiviCRMImporter {
                   LEFT JOIN civicrm_membership_status s ON m.status_id = s.id
                   WHERE c.is_deleted = 0
                   ORDER BY c.display_name ASC";
-        return $civiDb->query($query)->fetchAll();
+        $members = $civiDb->query($query)->fetchAll();
+        
+        if (empty($members)) {
+            return [];
+        }
+        
+        // Resolve privacy display names
+        $contactIds = array_column($members, 'id');
+        $formattedNames = self::getFormattedNames($contactIds);
+        
+        foreach ($members as &$m) {
+            $cid = (int)$m['id'];
+            $m['display_name'] = $formattedNames[$cid] ?? $m['display_name'];
+        }
+        
+        // Re-sort members by their privacy-aware display name
+        usort($members, function($a, $b) {
+            return strcasecmp($a['display_name'] ?? '', $b['display_name'] ?? '');
+        });
+        
+        return $members;
+    }
+
+    public static function getFormattedNames(array $contactIds): array {
+        $contactIds = array_values(array_unique($contactIds));
+        if (empty($contactIds)) {
+            return [];
+        }
+        
+        $appDb = Database::getAppConnection();
+        $civiDb = Database::getCiviConnection();
+        
+        $placeholders = implode(',', array_fill(0, count($contactIds), '?'));
+        
+        // Fetch CiviCRM names (fallback/billing)
+        $civiStmt = $civiDb->prepare("SELECT id, display_name FROM civicrm_contact WHERE id IN ({$placeholders})");
+        $civiStmt->execute($contactIds);
+        $civiContacts = $civiStmt->fetchAll(PDO::FETCH_UNIQUE);
+        
+        // Fetch custom display names from local settings
+        $settingsStmt = $appDb->prepare("SELECT contact_id, custom_display_name FROM tgg_member_settings WHERE contact_id IN ({$placeholders})");
+        $settingsStmt->execute($contactIds);
+        $localSettings = $settingsStmt->fetchAll(PDO::FETCH_KEY_PAIR);
+        
+        $namesMap = [];
+        foreach ($contactIds as $cid) {
+            $cid = (int)$cid;
+            $customName = $localSettings[$cid] ?? '';
+            if (trim($customName) !== '') {
+                $namesMap[$cid] = trim($customName);
+            } elseif (isset($civiContacts[$cid])) {
+                $namesMap[$cid] = $civiContacts[$cid]['display_name'];
+            } else {
+                $namesMap[$cid] = "Member #{$cid}";
+            }
+        }
+        
+        return $namesMap;
+    }
+
+    /**
+     * Get display name for a single contact ID according to their privacy preferences.
+     * @param int $contactId Contact ID
+     * @return string Formatted display name
+     */
+    public static function getFormattedName(int $contactId): string {
+        $map = self::getFormattedNames([$contactId]);
+        return $map[$contactId] ?? "Member #{$contactId}";
     }
 }

@@ -7,9 +7,51 @@ require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
 use App\Event;
 use App\Auth;
+use App\Database;
+use App\CiviCRMImporter;
 
 $errorMsg = null;
+$successMsg = null;
 $filter = isset($_GET['filter']) ? $_GET['filter'] : 'upcoming';
+$allActiveMembers = [];
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && Auth::check()) {
+    if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
+        $errorMsg = "Invalid security token.";
+    } else {
+        $eventId = (int)($_POST['event_id'] ?? 0);
+        $contactId = (int)($_POST['contact_id'] ?? 0);
+        $role = trim($_POST['role'] ?? '');
+        
+        if (isset($_POST['action_signup'])) {
+            try {
+                if (empty($role)) {
+                    throw new Exception("Role is required.");
+                }
+                if (empty($contactId)) {
+                    throw new Exception("Member selection is required.");
+                }
+                
+                // If not admin, force contactId to the logged-in user
+                if (!has_role('admin')) {
+                    $contactId = $_SESSION['user']['contact_id'];
+                }
+                
+                Event::signupVolunteer($eventId, $contactId, $role);
+                
+                // Fetch member name to display in the success message
+                $civiDb = Database::getCiviConnection();
+                $stmtName = $civiDb->prepare("SELECT display_name FROM civicrm_contact WHERE id = :id LIMIT 1");
+                $stmtName->execute(['id' => $contactId]);
+                $displayName = $stmtName->fetchColumn() ?: "Member #{$contactId}";
+                
+                $successMsg = "Success! Signed up {$displayName} as {$role} volunteer.";
+            } catch (Exception $e) {
+                $errorMsg = "Volunteer signup failed: " . $e->getMessage();
+            }
+        }
+    }
+}
 
 try {
     $allEvents = Event::getEvents();
@@ -18,12 +60,18 @@ try {
     
     foreach ($allEvents as $evt) {
         if ($filter === 'upcoming') {
-            if ($evt['start_time'] >= $today) {
+            $evtDate = date('Y-m-d', strtotime($evt['start_time']));
+            $isHighlighted = isset($_GET['highlight']) && $_GET['highlight'] === $evtDate;
+            if ($evt['start_time'] >= $today || $isHighlighted) {
                 $events[] = $evt;
             }
         } else {
             $events[] = $evt;
         }
+    }
+    
+    if (has_role('admin')) {
+        $allActiveMembers = CiviCRMImporter::getMembersList();
     }
 } catch (Exception $e) {
     $events = [];
@@ -71,6 +119,14 @@ try {
             color: #fff !important;
             border-bottom: 1px solid rgba(255,255,255,0.08) !important;
             padding: 14px 16px !important;
+        }
+        .event-group-header.highlighted {
+            scroll-margin-top: 100px;
+        }
+        .event-group-header.highlighted td {
+            background: rgba(34, 197, 94, 0.15) !important;
+            border-left: 5px solid var(--color-success, #22c55e) !important;
+            border-bottom: 1px solid rgba(34, 197, 94, 0.3) !important;
         }
         .role-subrow td {
             padding: 12px 16px 12px 30px !important;
@@ -135,6 +191,10 @@ try {
                 <div class="alert alert-danger"><?php echo e($errorMsg); ?></div>
             <?php endif; ?>
 
+            <?php if ($successMsg): ?>
+                <div class="alert alert-success"><?php echo e($successMsg); ?></div>
+            <?php endif; ?>
+
             <div class="glass-panel">
                 <div class="filter-toggle-container">
                     <div>
@@ -164,6 +224,7 @@ try {
                                     </td>
                                 </tr>
                             <?php else: ?>
+                                <?php $highlightedAdded = false; ?>
                                 <?php foreach ($events as $evt): ?>
                                     <?php 
                                         $evtId = (int)$evt['id'];
@@ -177,9 +238,18 @@ try {
                                         
                                         $eventDate = date('F d, Y (l)', strtotime($evt['start_time']));
                                         $eventTime = date('g:i A', strtotime($evt['start_time'])) . ' - ' . date('g:i A', strtotime($evt['end_time']));
+                                        
+                                        $evtDateStr = date('Y-m-d', strtotime($evt['start_time']));
+                                        $isHighlighted = isset($_GET['highlight']) && $_GET['highlight'] === $evtDateStr;
+                                        $trClass = 'event-group-header' . ($isHighlighted ? ' highlighted' : '');
+                                        $trIdAttr = '';
+                                        if ($isHighlighted && !$highlightedAdded) {
+                                            $trIdAttr = ' id="highlighted-event"';
+                                            $highlightedAdded = true;
+                                        }
                                     ?>
                                     <!-- Event Header Row -->
-                                    <tr class="event-group-header">
+                                    <tr class="<?php echo $trClass; ?>"<?php echo $trIdAttr; ?>>
                                         <td colspan="3">
                                             📅 <?php echo $eventDate; ?> — <?php echo e($evt['title']); ?>
                                             <span style="font-size: 0.8rem; font-weight: normal; color: var(--color-text-secondary); margin-left: 10px;">
@@ -218,13 +288,51 @@ try {
                                                     </span>
                                                 <?php endif; ?>
                                             </td>
-                                            <td>
+                                             <td>
                                                 <?php if ($hasVol): ?>
                                                     <span style="color: var(--color-text-muted); font-size: 0.85rem;">Filled</span>
                                                 <?php else: ?>
-                                                    <a href="<?php echo $signupLink; ?>" class="btn btn-success btn-small" style="padding: 6px 12px; font-size: 0.8rem;">
-                                                        Sign Up &rarr;
-                                                    </a>
+                                                    <?php if (!Auth::check()): ?>
+                                                        <a href="index.php?action=login" class="btn btn-success btn-small" style="padding: 6px 12px; font-size: 0.8rem;">
+                                                            Log In to Sign Up &rarr;
+                                                        </a>
+                                                    <?php else: ?>
+                                                        <div id="btn-container-<?php echo $evtId; ?>-<?php echo $role; ?>">
+                                                            <button class="btn btn-success btn-small" onclick="showSignupConfirm(<?php echo $evtId; ?>, '<?php echo $role; ?>')" style="padding: 6px 12px; font-size: 0.8rem;">
+                                                                Sign Up &rarr;
+                                                            </button>
+                                                        </div>
+                                                        <div id="confirm-container-<?php echo $evtId; ?>-<?php echo $role; ?>" style="display: none; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-glass); border-radius: 8px; padding: 10px; min-width: 220px; text-align: left;">
+                                                            <?php if (has_role('admin')): ?>
+                                                                <div style="margin-bottom: 8px;">
+                                                                    <label style="font-size: 0.8rem; margin-right: 12px; cursor: pointer; color: #fff;">
+                                                                        <input type="radio" name="signup_type_<?php echo $evtId; ?>_<?php echo $role; ?>" value="self" checked onclick="toggleAdminSignupType(<?php echo $evtId; ?>, '<?php echo $role; ?>', 'self')" style="margin-right: 4px;"> Myself
+                                                                    </label>
+                                                                    <label style="font-size: 0.8rem; cursor: pointer; color: #fff;">
+                                                                        <input type="radio" name="signup_type_<?php echo $evtId; ?>_<?php echo $role; ?>" value="other" onclick="toggleAdminSignupType(<?php echo $evtId; ?>, '<?php echo $role; ?>', 'other')" style="margin-right: 4px;"> Other Member
+                                                                    </label>
+                                                                </div>
+                                                                <div id="admin-search-<?php echo $evtId; ?>-<?php echo $role; ?>" style="display: none; margin-bottom: 8px;">
+                                                                    <input type="text" list="members-list" placeholder="Type member name..." oninput="updateMemberId(this, <?php echo $evtId; ?>, '<?php echo $role; ?>')" style="width: 100%; padding: 6px 10px; font-size: 0.8rem; border-radius: 4px; border: 1px solid var(--border-glass); background: rgba(255, 255, 255, 0.05); color: #fff; outline: none;">
+                                                                </div>
+                                                            <?php endif; ?>
+                                                            <form action="volunteers.php?highlight=<?php echo $evtDateStr; ?><?php echo isset($_GET['filter']) ? '&filter=' . urlencode($_GET['filter']) : ''; ?>" method="POST" style="display: inline;" onsubmit="return validateAdminSignup(this, <?php echo $evtId; ?>, '<?php echo $role; ?>')">
+                                                                <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                                                <input type="hidden" name="event_id" value="<?php echo $evtId; ?>">
+                                                                <input type="hidden" name="role" value="<?php echo e($role); ?>">
+                                                                <input type="hidden" name="contact_id" id="contact-id-<?php echo $evtId; ?>-<?php echo $role; ?>" value="<?php echo $_SESSION['user']['contact_id']; ?>">
+                                                                
+                                                                <?php if (!has_role('admin')): ?>
+                                                                    <span style="font-size: 0.8rem; color: var(--color-text-secondary); display: block; margin-bottom: 8px;">Confirm volunteering?</span>
+                                                                <?php endif; ?>
+                                                                
+                                                                <div style="display: flex; gap: 6px;">
+                                                                    <button type="submit" name="action_signup" class="btn btn-success btn-small" style="padding: 4px 8px; font-size: 0.75rem;">Confirm</button>
+                                                                    <button type="button" class="btn btn-secondary btn-small" onclick="cancelSignup(<?php echo $evtId; ?>, '<?php echo $role; ?>')" style="padding: 4px 8px; font-size: 0.75rem; background: rgba(255,255,255,0.05); color: #fff; border: 1px solid var(--border-glass);">Cancel</button>
+                                                                </div>
+                                                            </form>
+                                                        </div>
+                                                    <?php endif; ?>
                                                 <?php endif; ?>
                                             </td>
                                         </tr>
@@ -241,5 +349,107 @@ try {
             <p>&copy; <?php echo date('Y'); ?> TGG Club Membership System. Secure Public Portal.</p>
         </footer>
     </div>
+
+    <?php if (has_role('admin')): ?>
+        <datalist id="members-list">
+            <?php foreach ($allActiveMembers as $member): ?>
+                <?php 
+                    $displayText = $member['display_name'] . ' (ID: ' . $member['id'] . ')';
+                    if (!empty($member['email'])) {
+                        $displayText .= ' - ' . $member['email'];
+                    }
+                ?>
+                <option value="<?php echo e($displayText); ?>"></option>
+            <?php endforeach; ?>
+        </datalist>
+    <?php endif; ?>
+
+    <script>
+    window.addEventListener('DOMContentLoaded', () => {
+        const el = document.getElementById('highlighted-event');
+        if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    });
+
+    function showSignupConfirm(evtId, role) {
+        document.getElementById('btn-container-' + evtId + '-' + role).style.display = 'none';
+        document.getElementById('confirm-container-' + evtId + '-' + role).style.display = 'block';
+    }
+
+    function cancelSignup(evtId, role) {
+        document.getElementById('confirm-container-' + evtId + '-' + role).style.display = 'none';
+        document.getElementById('btn-container-' + evtId + '-' + role).style.display = 'block';
+        
+        // Reset admin selection if applicable
+        const radioSelf = document.querySelector('input[name="signup_type_' + evtId + '_' + role + '"][value="self"]');
+        if (radioSelf) {
+            radioSelf.checked = true;
+            toggleAdminSignupType(evtId, role, 'self');
+        }
+        const searchInput = document.querySelector('#admin-search-' + evtId + '-' + role + ' input');
+        if (searchInput) {
+            searchInput.value = '';
+        }
+    }
+
+    function toggleAdminSignupType(evtId, role, type) {
+        const searchDiv = document.getElementById('admin-search-' + evtId + '-' + role);
+        const contactIdInput = document.getElementById('contact-id-' + evtId + '-' + role);
+        if (type === 'other') {
+            searchDiv.style.display = 'block';
+            contactIdInput.value = ''; // Clear so they must select
+            const inputField = searchDiv.querySelector('input');
+            if (inputField) {
+                inputField.focus();
+            }
+        } else {
+            searchDiv.style.display = 'none';
+            contactIdInput.value = '<?php echo Auth::check() ? $_SESSION['user']['contact_id'] : 0; ?>';
+        }
+    }
+
+    function updateMemberId(input, evtId, role) {
+        const val = input.value;
+        const match = val.match(/\(ID:\s*(\d+)\)/);
+        const contactIdInput = document.getElementById('contact-id-' + evtId + '-' + role);
+        if (match) {
+            contactIdInput.value = match[1];
+        } else {
+            // Fallback: check if the exact text matches one option's value in the datalist
+            const datalist = document.getElementById('members-list');
+            if (datalist) {
+                let found = false;
+                for (let option of datalist.options) {
+                    if (option.value === val) {
+                        const optMatch = option.value.match(/\(ID:\s*(\d+)\)/);
+                        if (optMatch) {
+                            contactIdInput.value = optMatch[1];
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+                if (!found) {
+                    contactIdInput.value = '';
+                }
+            } else {
+                contactIdInput.value = '';
+            }
+        }
+    }
+
+    function validateAdminSignup(form, evtId, role) {
+        const contactIdInput = document.getElementById('contact-id-' + evtId + '-' + role);
+        const radioOther = document.querySelector('input[name="signup_type_' + evtId + '_' + role + '"][value="other"]');
+        if (radioOther && radioOther.checked) {
+            if (!contactIdInput.value || contactIdInput.value === '<?php echo Auth::check() ? $_SESSION['user']['contact_id'] : 0; ?>') {
+                alert("Please search and select a valid member from the dropdown list.");
+                return false;
+            }
+        }
+        return true;
+    }
+    </script>
 </body>
 </html>

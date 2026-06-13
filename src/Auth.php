@@ -53,13 +53,8 @@ class Auth {
             return false;
         }
 
-        // 4. Fetch the user's display name from CiviCRM
-        $contactQuery = "SELECT display_name FROM civicrm_contact WHERE id = :contact_id AND is_deleted = 0 LIMIT 1";
-        $stmt = $civiDb->prepare($contactQuery);
-        $stmt->execute(['contact_id' => $contactId]);
-        $contactRow = $stmt->fetch();
-
-        $displayName = $contactRow ? $contactRow['display_name'] : 'Member #' . $contactId;
+        // 4. Fetch the user's display name according to privacy preferences
+        $displayName = CiviCRMImporter::getFormattedName($contactId);
 
         // 5. Store in Session
         $_SESSION['user'] = [

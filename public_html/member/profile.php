@@ -48,7 +48,7 @@ try {
         $membership = CiviCRMImporter::getMemberMembershipDetails($profileId);
 
         // C. Fetch Local Settings / Privacy Info
-        $settingsStmt = $appDb->prepare("SELECT role, is_profile_public, public_fields FROM tgg_member_settings WHERE contact_id = :id LIMIT 1");
+        $settingsStmt = $appDb->prepare("SELECT role, is_profile_public, public_fields, custom_display_name FROM tgg_member_settings WHERE contact_id = :id LIMIT 1");
         $settingsStmt->execute(['id' => $profileId]);
         $settings = $settingsStmt->fetch();
     }
@@ -65,7 +65,8 @@ if (!$settings) {
     $settings = [
         'role' => 'member',
         'is_profile_public' => 1,
-        'public_fields' => json_encode(['display_name', 'membership_name', 'status_label'])
+        'public_fields' => json_encode(['display_name', 'membership_name', 'status_label']),
+        'custom_display_name' => $contact['display_name']
     ];
 }
 
@@ -102,7 +103,6 @@ if ($hasPrivateAccess && $appDb) {
     }
 }
 
-
 // 4. Handle Settings Updates (Only owner or admin)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
@@ -112,26 +112,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
         if (isset($_POST['privacy_update'])) {
             $isPublic = isset($_POST['is_profile_public']) ? 1 : 0;
             $allowedFields = $_POST['public_fields'] ?? [];
+            $customDisplayName = trim($_POST['custom_display_name'] ?? '');
             
-            // Re-render display fields
-            $allowedFieldsJSON = json_encode($allowedFields);
-
             try {
+                if (empty($customDisplayName)) {
+                    throw new Exception("Display name is required and cannot be left blank.");
+                }
+                
+                // Keep allowed fields clean
+                $allowedFields = array_diff($allowedFields, ['display_name', 'display_name_initials']);
+                $allowedFieldsJSON = json_encode(array_values($allowedFields));
+
                 // Ensure row exists
                 $check = $appDb->prepare("SELECT contact_id FROM tgg_member_settings WHERE contact_id = :id");
                 $check->execute(['id' => $profileId]);
                 
                 if ($check->fetch()) {
-                    $update = $appDb->prepare("UPDATE tgg_member_settings SET is_profile_public = :is_public, public_fields = :fields WHERE contact_id = :id");
-                    $update->execute(['is_public' => $isPublic, 'fields' => $allowedFieldsJSON, 'id' => $profileId]);
+                    $update = $appDb->prepare("UPDATE tgg_member_settings SET is_profile_public = :is_public, public_fields = :fields, custom_display_name = :custom_name WHERE contact_id = :id");
+                    $update->execute(['is_public' => $isPublic, 'fields' => $allowedFieldsJSON, 'custom_name' => $customDisplayName, 'id' => $profileId]);
                 } else {
-                    $insert = $appDb->prepare("INSERT INTO tgg_member_settings (contact_id, password_hash, role, is_profile_public, public_fields) VALUES (:id, :hash, 'member', :is_public, :fields)");
+                    $insert = $appDb->prepare("INSERT INTO tgg_member_settings (contact_id, password_hash, role, is_profile_public, public_fields, custom_display_name) VALUES (:id, :hash, 'member', :is_public, :fields, :custom_name)");
                     // Default temporary password
                     $insert->execute([
                         'id' => $profileId,
                         'hash' => password_hash('change_me_123', PASSWORD_DEFAULT),
                         'is_public' => $isPublic,
-                        'fields' => $allowedFieldsJSON
+                        'fields' => $allowedFieldsJSON,
+                        'custom_name' => $customDisplayName
                     ]);
                 }
 
@@ -139,10 +146,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
                 // Refresh settings array
                 $settings['is_profile_public'] = $isPublic;
                 $settings['public_fields'] = $allowedFieldsJSON;
+                $settings['custom_display_name'] = $customDisplayName;
                 $publicFields = $allowedFields;
 
+                // Update session display name if the owner updated their settings
+                if ($isOwner) {
+                    $_SESSION['user']['display_name'] = $customDisplayName;
+                }
+
             } catch (Exception $e) {
-                $errorMsg = "Failed to save privacy settings: " . $e->getMessage();
+                $errorMsg = "Failed to save settings: " . $e->getMessage();
             }
         }
 
@@ -166,13 +179,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
         }
     }
 }
+
+// Resolve the custom display name to show
+$displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? trim($settings['custom_display_name']) : $contact['display_name'];
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo e($contact['display_name']); ?> - Member Profile</title>
+    <title><?php echo e($displayNameToPublic); ?> - Member Profile</title>
+    <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="apple-touch-icon" href="favicon.png">
+    <link rel="manifest" href="manifest.json">
     <link rel="stylesheet" href="assets/css/style.css">
 </head>
 <body>
@@ -225,10 +245,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
                 <div class="profile-container glass-panel">
                     <div class="profile-header-section">
                         <div class="avatar-placeholder">
-                            <?php echo strtoupper(substr($contact['first_name'] ?? 'M', 0, 1) . substr($contact['last_name'] ?? '', 0, 1)); ?>
+                            <?php 
+                            $initials = strtoupper(substr($contact['first_name'] ?? 'M', 0, 1) . substr($contact['last_name'] ?? '', 0, 1));
+                            echo e($initials);
+                            ?>
                         </div>
                         <div class="profile-title">
-                            <h2><?php echo e($contact['display_name']); ?></h2>
+                            <h2><?php echo e($displayNameToPublic); ?></h2>
                             <span class="badge badge-role"><?php echo e(ucfirst($settings['role'])); ?></span>
                         </div>
                     </div>
@@ -241,12 +264,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
                             <div class="detail-section">
                                 <h3 class="section-title">Public Status</h3>
                                 <table class="profile-data-table">
-                                    <?php if ($hasPrivateAccess || in_array('display_name', $publicFields)): ?>
                                     <tr>
-                                        <td><strong>Full Name:</strong></td>
-                                        <td><?php echo e($contact['display_name']); ?></td>
+                                        <td><strong>Name:</strong></td>
+                                        <td><?php echo e($displayNameToPublic); ?></td>
                                     </tr>
-                                    <?php endif; ?>
                                     
                                     <?php if ($membership): ?>
                                         <?php if ($hasPrivateAccess || in_array('membership_name', $publicFields)): ?>
@@ -271,7 +292,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
                                         <tr>
                                             <td></td>
                                             <td>
-                                                <a href="renew.php?contact_id=<?php echo $profileId; ?>" class="btn btn-warning btn-small" style="margin-top: 5px; display: inline-block;">Renew/Extend Membership</a>
+                                                <a href="renew.php?contact_id=<?php echo $profileId; ?>" class="btn btn-success btn-small" style="margin-top: 5px; display: inline-block;">Renew/Extend Membership</a>
                                             </td>
                                         </tr>
                                         <?php endif; ?>
@@ -405,12 +426,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
                                             <label for="is_profile_public">Allow public users to find my profile</label>
                                         </div>
 
-                                        <p class="settings-instruction mt-10">Select fields that are visible to the public:</p>
-                                        <div class="form-group checkbox-group">
-                                            <input type="checkbox" id="field_name" name="public_fields[]" value="display_name" 
-                                                <?php echo in_array('display_name', $publicFields) ? 'checked' : ''; ?>>
-                                            <label for="field_name">Show Full Name</label>
+                                        <div class="form-group" style="margin-top: 15px; margin-bottom: 15px;">
+                                            <label for="custom_display_name" style="display: block; font-size: 0.9rem; font-weight: 500; margin-bottom: 5px; color: #fff;">Preferred Display Name (Required)</label>
+                                            <input type="text" id="custom_display_name" name="custom_display_name" value="<?php echo e($settings['custom_display_name'] ?? $contact['display_name']); ?>" required>
                                         </div>
+
+                                        <p class="settings-instruction mt-15">Other public fields:</p>
                                         <div class="form-group checkbox-group">
                                             <input type="checkbox" id="field_tier" name="public_fields[]" value="membership_name" 
                                                 <?php echo in_array('membership_name', $publicFields) ? 'checked' : ''; ?>>
@@ -422,7 +443,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
                                             <label for="field_status">Show Membership Status</label>
                                         </div>
 
-                                        <button type="submit" name="privacy_update" class="btn btn-secondary btn-block mt-15">Save Privacy settings</button>
+                                        <button type="submit" name="privacy_update" class="btn btn-success btn-block mt-15">Save Privacy settings</button>
                                     </form>
                                 </div>
 
@@ -441,7 +462,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
                                             <input type="password" id="confirm_password" name="confirm_password" required>
                                         </div>
 
-                                        <button type="submit" name="password_update" class="btn btn-warning btn-block mt-10">Update Password</button>
+                                        <button type="submit" name="password_update" class="btn btn-success btn-block mt-10">Update Password</button>
                                     </form>
                                 </div>
                             </div>
@@ -455,5 +476,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
             <p>&copy; <?php echo date('Y'); ?> TGG Club Membership System. Secure Public Portal.</p>
         </footer>
     </div>
+
+    <script>
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('sw.js')
+                .then(reg => console.log('Service Worker registered'))
+                .catch(err => console.error('Service Worker registration failed', err));
+        });
+    }
+    </script>
 </body>
 </html>

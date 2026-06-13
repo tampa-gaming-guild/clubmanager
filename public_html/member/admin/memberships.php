@@ -80,6 +80,10 @@ if (isset($_GET['action']) && $_GET['action'] === 'edit' && isset($_GET['id'])) 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Manage Memberships - Admin Panel</title>
+    <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
+    <link rel="icon" type="image/png" href="../favicon.png">
+    <link rel="apple-touch-icon" href="../favicon.png">
+    <link rel="manifest" href="../manifest.json">
     <link rel="stylesheet" href="../assets/css/style.css">
     <style>
         .membership-grid {
@@ -152,6 +156,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'edit' && isset($_GET['id'])) 
                     <ul class="admin-menu">
                         <li><a href="dashboard.php">Dashboard</a></li>
                         <li><a href="scheduler.php">Event Scheduler</a></li>
+                        <li><a href="volunteer_credits.php">Volunteer Credits</a></li>
                         <li><a href="import.php">CiviCRM Importer</a></li>
                         <li><a href="memberships.php" class="active">Memberships</a></li>
                         <li><a href="reports.php" class="<?php echo in_array(basename($_SERVER['PHP_SELF']), ['reports.php', 'payments.php', 'attendance.php']) ? 'active' : ''; ?>">Reports & Analytics</a>
@@ -289,5 +294,15 @@ if (isset($_GET['action']) && $_GET['action'] === 'edit' && isset($_GET['id'])) 
             <p>&copy; <?php echo date('Y'); ?> TGG Club Membership System. Secure Public Portal.</p>
         </footer>
     </div>
+
+    <script>
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('../sw.js')
+                .then(reg => console.log('Service Worker registered'))
+                .catch(err => console.error('Service Worker registration failed', err));
+        });
+    }
+    </script>
 </body>
 </html>

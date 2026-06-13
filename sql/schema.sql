@@ -104,3 +104,21 @@ CREATE TABLE IF NOT EXISTS `tgg_subscriptions` (
   CONSTRAINT `fk_sub_plan` FOREIGN KEY (`plan_id`) REFERENCES `tgg_subscription_plans` (`id`)
 ) ENGINE=InnoDB;
 
+-- 8. Volunteer Credits Settings (Single-precision float weights)
+CREATE TABLE IF NOT EXISTS `tgg_volunteer_credits` (
+  `id` INT AUTO_INCREMENT NOT NULL,
+  `credit_key` VARCHAR(50) NOT NULL UNIQUE,
+  `credit_label` VARCHAR(100) NOT NULL,
+  `credits` FLOAT NOT NULL DEFAULT 1.0,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB;
+
+-- Seed default volunteer credit weights
+INSERT INTO `tgg_volunteer_credits` (`id`, `credit_key`, `credit_label`, `credits`) VALUES
+(1, 'weekday_open', 'Weekday Open', 1.0),
+(2, 'weekday_close', 'Weekday Close', 1.0),
+(3, 'sunday_open', 'Sunday Open', 2.0),
+(4, 'sunday_close', 'Sunday Close', 2.0)
+ON DUPLICATE KEY UPDATE `credit_label`=VALUES(`credit_label`), `credits`=VALUES(`credits`);
+
+

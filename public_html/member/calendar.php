@@ -30,12 +30,7 @@ try {
     $errorMsg = "Unable to load events: " . $e->getMessage();
 }
 
-// Map events to days for quick grid rendering
-$eventsByDay = [];
-foreach ($events as $evt) {
-    $day = (int)date('d', strtotime($evt['start_time']));
-    $eventsByDay[$day][] = $evt;
-}
+// Events-to-days mapping and volunteer pre-fetching are handled below the POST action block
 
 // Handle Volunteer Actions (Sign Up / Cancel)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && Auth::check()) {
@@ -78,6 +73,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && Auth::check()) {
     }
 }
 
+// Map events to days for quick grid rendering (run after potential POST updates)
+$eventsByDay = [];
+foreach ($events as $evt) {
+    $day = (int)date('d', strtotime($evt['start_time']));
+    $eventsByDay[$day][] = $evt;
+}
+
+// Pre-fetch volunteer signups and display names for all events in this month
+$signupsByEvent = [];
+if (!empty($events)) {
+    try {
+        $appDb = App\Database::getAppConnection();
+        $eventIds = array_column($events, 'id');
+        $placeholders = implode(',', array_fill(0, count($eventIds), '?'));
+        
+        $stmt = $appDb->prepare("SELECT event_id, contact_id, role FROM tgg_volunteer_signups WHERE event_id IN ($placeholders)");
+        $stmt->execute($eventIds);
+        $signupsRaw = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        if (!empty($signupsRaw)) {
+            $contactIds = array_unique(array_column($signupsRaw, 'contact_id'));
+            $formattedNames = \App\CiviCRMImporter::getFormattedNames($contactIds);
+            
+            foreach ($signupsRaw as $row) {
+                $evtId = (int)$row['event_id'];
+                $cid = (int)$row['contact_id'];
+                $role = $row['role'];
+                $dispName = $formattedNames[$cid] ?? "Member #{$cid}";
+                $signupsByEvent[$evtId][$role] = $dispName;
+            }
+        }
+    } catch (Exception $e) {
+        // Fallback to empty
+    }
+}
+
 // Calendar Month Grid Parameters
 $firstDayOfWeek = (int)date('w', strtotime($monthStart)); // 0 = Sunday, 6 = Saturday
 $daysInMonth = (int)date('t', strtotime($monthStart));
@@ -97,6 +128,18 @@ if ($nextMonth > 12) { $nextMonth = 1; $nextYear++; }
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Club Calendar - Events & Volunteering</title>
     <link rel="stylesheet" href="assets/css/style.css">
+    <style>
+        .calendar-layout {
+            grid-template-columns: 1fr !important;
+        }
+        .calendar-day {
+            height: 100px !important;
+            padding: 8px !important;
+        }
+        .day-events-dots {
+            bottom: 6px !important;
+        }
+    </style>
 </head>
 <body>
     <div class="app-container">
@@ -184,7 +227,11 @@ if ($nextMonth > 12) { $nextMonth = 1; $nextYear++; }
                                         $dayClass .= ' today-day';
                                     }
 
-                                    echo "<td class='calendar-day {$dayClass}'>";
+                                    $padMonth = str_pad($month, 2, '0', STR_PAD_LEFT);
+                                    $padDay = str_pad($day, 2, '0', STR_PAD_LEFT);
+                                    $dateStr = "{$year}-{$padMonth}-{$padDay}";
+                                    
+                                    echo "<td class='calendar-day {$dayClass}' onclick=\"window.location.href='volunteers.php?highlight={$dateStr}'\" style='cursor: pointer;'>";
                                     echo "<span class='day-num'>{$day}</span>";
                                     
                                     if ($hasEvents) {
@@ -193,6 +240,37 @@ if ($nextMonth > 12) { $nextMonth = 1; $nextYear++; }
                                             echo '<span class="event-dot" title="' . e($evt['title']) . '"></span>';
                                         }
                                         echo '</div>';
+
+                                        // Determine if Open and Close slots are filled
+                                        $openName = '';
+                                        $closeName = '';
+                                        foreach ($eventsByDay[$day] as $evt) {
+                                            $evtId = (int)$evt['id'];
+                                            if (isset($signupsByEvent[$evtId]['Open'])) {
+                                                $openName = $signupsByEvent[$evtId]['Open'];
+                                            }
+                                            if (isset($signupsByEvent[$evtId]['Close'])) {
+                                                $closeName = $signupsByEvent[$evtId]['Close'];
+                                            }
+                                        }
+
+                                        $openColor = !empty($openName) ? 'var(--color-success, #22c55e)' : 'var(--color-danger, #ef4444)';
+                                        $closeColor = !empty($closeName) ? 'var(--color-success, #22c55e)' : 'var(--color-danger, #ef4444)';
+
+                                        echo "<div class='day-slots' style='margin-top: 8px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; font-size: 0.75rem; font-weight: 500; font-family: var(--font-body); line-height: 1.2;'>";
+                                        echo "<div style='white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; text-align: left;'>";
+                                        echo "<span style='color: {$openColor}; font-weight: 700;'>O:</span> ";
+                                        if (!empty($openName)) {
+                                            echo "<span style='color: var(--color-text-primary);' title='" . e($openName) . "'>" . e($openName) . "</span>";
+                                        }
+                                        echo "</div>";
+                                        echo "<div style='white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; text-align: left;'>";
+                                        echo "<span style='color: {$closeColor}; font-weight: 700;'>C:</span> ";
+                                        if (!empty($closeName)) {
+                                            echo "<span style='color: var(--color-text-primary);' title='" . e($closeName) . "'>" . e($closeName) . "</span>";
+                                        }
+                                        echo "</div>";
+                                        echo "</div>";
                                     }
                                     
                                     echo '</td>';
@@ -212,113 +290,7 @@ if ($nextMonth > 12) { $nextMonth = 1; $nextYear++; }
                     </table>
                 </section>
 
-                <!-- Right: Events & Volunteer Signups list -->
-                <section class="calendar-list-section glass-panel">
-                    <h3>Events & Session Schedule</h3>
-                    <p class="description-text">Select a month to see sessions. Support the club by volunteering!</p>
 
-                    <div class="events-list">
-                        <?php if (empty($events)): ?>
-                            <div class="empty-state">
-                                <p>No events scheduled for <?php echo e($monthLabel); ?>.</p>
-                            </div>
-                        <?php else: ?>
-                            <?php foreach ($events as $evt): ?>
-                                <?php 
-                                    $evtId = (int)$evt['id'];
-                                    $vols = Event::getVolunteers($evtId);
-                                    $userRoles = Auth::check() ? Event::getMemberRolesForEvent($evtId, $_SESSION['user']['contact_id']) : [];
-                                    $slotsFilled = count($vols);
-                                    $maxSlots = (int)$evt['max_volunteers'];
-                                ?>
-                                <div class="event-card" id="event-<?php echo $evtId; ?>">
-                                    <div class="event-card-header">
-                                        <h4><?php echo e($evt['title']); ?></h4>
-                                        <span class="event-time">
-                                            ⏰ <?php echo date('M d, g:i A', strtotime($evt['start_time'])); ?> - <?php echo date('g:i A', strtotime($evt['end_time'])); ?>
-                                        </span>
-                                    </div>
-                                    <p class="event-desc"><?php echo e($evt['description']); ?></p>
-
-                                    <!-- Volunteer Slot Meter -->
-                                    <div class="volunteer-status">
-                                        <strong>Volunteers:</strong> 
-                                        <span><?php echo $slotsFilled; ?> of <?php echo $maxSlots > 0 ? $maxSlots : 'Unlimited'; ?> registered</span>
-                                        <div class="progress-bar">
-                                            <div class="progress-fill" style="width: <?php echo $maxSlots > 0 ? min(100, ($slotsFilled / $maxSlots) * 100) : 50; ?>%"></div>
-                                        </div>
-                                    </div>
-
-                                    <!-- Volunteer Roster (Admins can see full list, members can see count) -->
-                                    <?php if (!empty($vols)): ?>
-                                        <div class="volunteer-roster">
-                                            <h5>Roster:</h5>
-                                            <ul>
-                                                <?php foreach ($vols as $vol): ?>
-                                                    <li><?php echo e($vol['display_name']); ?> (<?php echo e($vol['role']); ?>)</li>
-                                                <?php endforeach; ?>
-                                            </ul>
-                                        </div>
-                                    <?php endif; ?>
-
-                                    <!-- Volunteer Action forms -->
-                                    <div class="volunteer-actions-area">
-                                        <?php if (Auth::check()): ?>
-                                            <!-- Display active signups for user with single-role cancel buttons -->
-                                            <?php if (!empty($userRoles)): ?>
-                                                <div class="user-volunteer-status" style="margin-bottom: 15px;">
-                                                    <strong style="font-size: 0.9rem; color: var(--color-text-secondary); display: block; margin-bottom: 5px;">Your Signed Up Roles:</strong>
-                                                    <div style="display: flex; flex-wrap: wrap; gap: 8px;">
-                                                        <?php foreach ($userRoles as $r): ?>
-                                                            <span class="badge badge-active" style="display: inline-flex; align-items: center; gap: 8px; font-size: 0.8rem; padding: 4px 10px;">
-                                                                <?php echo e($r); ?>
-                                                                <form action="calendar.php?month=<?php echo $month; ?>&year=<?php echo $year; ?>" method="POST" style="display: inline;">
-                                                                    <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
-                                                                    <input type="hidden" name="event_id" value="<?php echo $evtId; ?>">
-                                                                    <input type="hidden" name="role" value="<?php echo e($r); ?>">
-                                                                    <button type="submit" name="action_cancel" style="background: none; border: none; color: hsl(350, 89%, 65%); cursor: pointer; padding: 0; font-size: 0.95rem; line-height: 1; font-weight: bold; margin-left: 2px;" title="Cancel role">✕</button>
-                                                                </form>
-                                                            </span>
-                                                        <?php endforeach; ?>
-                                                    </div>
-                                                </div>
-                                            <?php endif; ?>
-
-                                            <?php 
-                                                $allRoles = ['Open', 'Close', 'Greeter'];
-                                                $availableRoles = array_diff($allRoles, $userRoles);
-                                            ?>
-
-                                            <?php if (!empty($availableRoles)): ?>
-                                                <?php if ($maxSlots == 0 || $slotsFilled < $maxSlots): ?>
-                                                    <form action="calendar.php?month=<?php echo $month; ?>&year=<?php echo $year; ?>" method="POST" class="volunteer-signup-form">
-                                                        <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
-                                                        <input type="hidden" name="event_id" value="<?php echo $evtId; ?>">
-                                                        <div class="form-row-inline">
-                                                            <select name="role" required>
-                                                                <option value="" disabled selected><?php echo empty($userRoles) ? '-- Choose Role --' : '-- Sign up for another role --'; ?></option>
-                                                                <?php foreach ($availableRoles as $r): ?>
-                                                                    <option value="<?php echo e($r); ?>"><?php echo e($r); ?></option>
-                                                                <?php endforeach; ?>
-                                                            </select>
-                                                            <button type="submit" name="action_signup" class="btn btn-success">Volunteer</button>
-                                                        </div>
-                                                    </form>
-                                                <?php else: ?>
-                                                    <button class="btn btn-secondary btn-block" disabled>Volunteer Slots Full</button>
-                                                <?php endif; ?>
-                                            <?php else: ?>
-                                                <p class="info-block" style="margin-bottom: 0; text-align: center; background: rgba(34, 197, 94, 0.08); border: 1px solid rgba(34, 197, 94, 0.2); color: var(--color-success);">You have volunteered for all available roles!</p>
-                                            <?php endif; ?>
-                                        <?php else: ?>
-                                            <p class="login-prompt-text"><a href="index.php?action=login">Log in</a> to sign up as a volunteer for this session.</p>
-                                        <?php endif; ?>
-                                    </div>
-                                </div>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
-                    </div>
-                </section>
             </div>
         </main>
 

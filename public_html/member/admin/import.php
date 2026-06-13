@@ -66,6 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <ul class="admin-menu">
                         <li><a href="dashboard.php">Dashboard</a></li>
                         <li><a href="scheduler.php">Event Scheduler</a></li>
+                        <li><a href="volunteer_credits.php">Volunteer Credits</a></li>
                         <li><a href="import.php" class="active">CiviCRM Importer</a></li>
                         <li><a href="memberships.php">Memberships</a></li>
                         <li><a href="reports.php" class="<?php echo in_array(basename($_SERVER['PHP_SELF']), ['reports.php', 'payments.php', 'attendance.php']) ? 'active' : ''; ?>">Reports & Analytics</a>
