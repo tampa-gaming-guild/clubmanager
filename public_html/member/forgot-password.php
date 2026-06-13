@@ -3,7 +3,7 @@
  * Forgot Password Request Page
  * Validates member email, generates secure token, and dispatches reset link.
  */
-require_once dirname(__DIR__) . '/config/bootstrap.php';
+require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
 use App\Database;
 use App\MailHelper;

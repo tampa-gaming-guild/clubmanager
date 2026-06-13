@@ -3,7 +3,7 @@
  * Password Reset Execution Page
  * Validates reset token, processes new password input, updates DB, and notifies user.
  */
-require_once dirname(__DIR__) . '/config/bootstrap.php';
+require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
 use App\Database;
 use App\MailHelper;
