@@ -105,11 +105,12 @@ if ($hasPrivateAccess && $appDb) {
 
 // Fetch Volunteer Credits details if Viewer has Private Access
 $expirationDays = 365.0; // Default
-$volunteerTx = [];
+$volunteerShifts = [];
 $totalEarned = 0.0;
 $totalApplied = 0.0;
 $totalExpired = 0.0;
 $availableCredits = 0.0;
+$pendingCredits = 0.0;
 $nextExpirationDate = 'Never';
 $nextExpirationCredits = 0.0;
 
@@ -120,13 +121,56 @@ if ($hasPrivateAccess && $appDb) {
         $creditsMap = $configsStmt->fetchAll(PDO::FETCH_KEY_PAIR);
         $expirationDays = (float)($creditsMap['credit_expiration_days'] ?? 365.0);
 
-        // Fetch all transactions
+        // 1. Fetch completed shifts from volunteer signups (past events)
+        $stmtShifts = $appDb->prepare("
+            SELECT s.event_id, s.role, e.title as event_title, e.start_time, t.id as processed_id
+            FROM tgg_volunteer_signups s
+            INNER JOIN tgg_events e ON s.event_id = e.id
+            LEFT JOIN tgg_volunteer_credit_transactions t ON t.event_id = s.event_id AND t.contact_id = s.contact_id AND t.shift = s.role
+            WHERE s.contact_id = :contact_id AND e.start_time < :now
+            ORDER BY e.start_time DESC
+        ");
+        $stmtShifts->execute([
+            'contact_id' => $profileId,
+            'now' => date('Y-m-d H:i:s')
+        ]);
+        $completedShifts = $stmtShifts->fetchAll();
+        
+        foreach ($completedShifts as $shift) {
+            $role = $shift['role'];
+            $isSunday = (date('w', strtotime($shift['start_time'])) == 0);
+            
+            if ($role === 'Open') {
+                $key = $isSunday ? 'sunday_open' : 'weekday_open';
+            } elseif ($role === 'Close') {
+                $key = $isSunday ? 'sunday_close' : 'weekday_close';
+            } elseif ($role === 'Greeter') {
+                $key = $isSunday ? 'sunday_greeter' : 'weekday_greeter';
+            } else {
+                $key = 'weekday_open';
+            }
+            
+            $creditsVal = (float)($creditsMap[$key] ?? 0.0);
+            
+            if (!$shift['processed_id']) {
+                $pendingCredits += $creditsVal;
+            }
+            
+            $volunteerShifts[] = [
+                'date' => date('Y-m-d', strtotime($shift['start_time'])),
+                'event_title' => $shift['event_title'],
+                'shift' => $role,
+                'credits' => $creditsVal,
+                'status' => $shift['processed_id'] ? 'Processed' : 'Pending'
+            ];
+        }
+
+        // 2. Fetch all logged transactions (for FIFO calculation of processed totals and expirations)
         $stmtTx = $appDb->prepare("
-            SELECT t.id, t.volunteer_date, t.shift, t.credits_earned, t.credits_applied, e.title as event_title
-            FROM tgg_volunteer_credit_transactions t
-            LEFT JOIN tgg_events e ON t.event_id = e.id
-            WHERE t.contact_id = :contact_id
-            ORDER BY t.volunteer_date ASC, t.id ASC
+            SELECT id, volunteer_date, shift, credits_earned, credits_applied
+            FROM tgg_volunteer_credit_transactions
+            WHERE contact_id = :contact_id
+            ORDER BY volunteer_date ASC, id ASC
         ");
         $stmtTx->execute(['contact_id' => $profileId]);
         $allTx = $stmtTx->fetchAll();
@@ -142,12 +186,9 @@ if ($hasPrivateAccess && $appDb) {
                     'id' => $tx['id'],
                     'date' => $tx['volunteer_date'],
                     'amount' => $valEarned,
-                    'remaining' => $valEarned,
-                    'shift' => $tx['shift'],
-                    'event_title' => $tx['event_title']
+                    'remaining' => $valEarned
                 ];
                 $totalEarned += $valEarned;
-                $volunteerTx[] = $tx;
             }
             if ($valApplied > 0.0) {
                 $applied[] = [
@@ -158,9 +199,6 @@ if ($hasPrivateAccess && $appDb) {
                 $totalApplied += $valApplied;
             }
         }
-        
-        // Reverse volunteerTx for reverse-chronological display (newest first)
-        $volunteerTx = array_reverse($volunteerTx);
         
         if ($expirationDays > 0.0) {
             // FIFO simulation to match applications to earned credits
@@ -396,7 +434,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                             ?>
                         </div>
                         <div class="profile-title">
-                            <h2><?php echo e($displayNameToPublic); ?></h2>
+                            <h2><?php echo e($displayNameToPublic); ?> <span style="font-size: 1.1rem; color: var(--color-text-secondary); font-weight: normal; margin-left: 8px;">(Member ID: <?php echo $profileId; ?>)</span></h2>
                             <span class="badge badge-role"><?php echo e(ucfirst($settings['role'])); ?></span>
                         </div>
                     </div>
@@ -502,7 +540,14 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                     <div class="volunteer-summary-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 20px; background: rgba(255, 255, 255, 0.02); padding: 15px; border-radius: 8px; border: 1px solid var(--border-glass);">
                                         <div>
                                             <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-secondary);">Lifetime Earned:</p>
-                                            <h4 style="margin: 5px 0 0 0; color: #fff; font-size: 1.2rem;"><?php echo number_format($totalEarned, 1); ?></h4>
+                                            <h4 style="margin: 5px 0 0 0; color: #fff; font-size: 1.2rem;">
+                                                <?php echo number_format($totalEarned, 1); ?>
+                                                <?php if ($pendingCredits > 0.0): ?>
+                                                    <span style="font-size: 0.8rem; color: var(--color-text-secondary); font-weight: normal;">
+                                                        (+<?php echo number_format($pendingCredits, 1); ?> pending)
+                                                    </span>
+                                                <?php endif; ?>
+                                            </h4>
                                         </div>
                                         <div>
                                             <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-secondary);">Lifetime Applied:</p>
@@ -510,7 +555,14 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                         </div>
                                         <div>
                                             <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-secondary);">Outstanding Balance:</p>
-                                            <h4 style="margin: 5px 0 0 0; color: var(--color-success); font-size: 1.2rem;"><?php echo number_format($availableCredits, 1); ?></h4>
+                                            <h4 style="margin: 5px 0 0 0; color: var(--color-success); font-size: 1.2rem;">
+                                                <?php echo number_format($availableCredits, 1); ?>
+                                                <?php if ($pendingCredits > 0.0): ?>
+                                                    <span style="font-size: 0.8rem; color: var(--color-text-secondary); font-weight: normal;">
+                                                        (+<?php echo number_format($pendingCredits, 1); ?> pending)
+                                                    </span>
+                                                <?php endif; ?>
+                                            </h4>
                                         </div>
                                         <div>
                                             <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-secondary);">Expired Credits:</p>
@@ -533,7 +585,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                     </div>
 
                                     <h4 style="margin: 20px 0 10px 0; color: #fff; font-size: 0.95rem;">Completed Shifts</h4>
-                                    <?php if (empty($volunteerTx)): ?>
+                                    <?php if (empty($volunteerShifts)): ?>
                                         <p class="private-locked-msg">No completed shifts found.</p>
                                     <?php else: ?>
                                         <div class="admin-table-container" style="max-height: 250px; overflow-y: auto;">
@@ -544,15 +596,23 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                                         <th style="padding: 8px 10px;">Event</th>
                                                         <th style="padding: 8px 10px;">Shift</th>
                                                         <th style="padding: 8px 10px; text-align: center;">Credits</th>
+                                                        <th style="padding: 8px 10px; text-align: center;">Status</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
-                                                    <?php foreach ($volunteerTx as $tx): ?>
+                                                    <?php foreach ($volunteerShifts as $tx): ?>
                                                         <tr>
-                                                            <td style="padding: 8px 10px;"><span class="table-datetime"><?php echo date('Y-m-d', strtotime($tx['volunteer_date'])); ?></span></td>
+                                                            <td style="padding: 8px 10px;"><span class="table-datetime"><?php echo date('Y-m-d', strtotime($tx['date'])); ?></span></td>
                                                             <td style="padding: 8px 10px; font-weight: bold; color: #fff;"><?php echo e($tx['event_title'] ?: 'Volunteer Event'); ?></td>
                                                             <td style="padding: 8px 10px;"><?php echo e($tx['shift']); ?></td>
-                                                            <td style="padding: 8px 10px; text-align: center; font-weight: bold; color: var(--color-primary);">+<?php echo (float)$tx['credits_earned']; ?></td>
+                                                            <td style="padding: 8px 10px; text-align: center; font-weight: bold; color: var(--color-primary);">+<?php echo (float)$tx['credits']; ?></td>
+                                                            <td style="padding: 8px 10px; text-align: center;">
+                                                                <?php if ($tx['status'] === 'Processed'): ?>
+                                                                    <span class="badge badge-active" style="font-size: 0.75rem; padding: 2px 6px; display: inline-block;">Processed</span>
+                                                                <?php else: ?>
+                                                                    <span class="badge badge-expired" style="font-size: 0.75rem; padding: 2px 6px; display: inline-block; background: rgba(234, 179, 8, 0.15); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3);">Pending</span>
+                                                                <?php endif; ?>
+                                                            </td>
                                                         </tr>
                                                     <?php endforeach; ?>
                                                 </tbody>
