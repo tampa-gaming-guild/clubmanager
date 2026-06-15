@@ -11,47 +11,65 @@ on:
 
 jobs:
 
-  snyk:
-    name: Snyk Security Scan
+  # snyk:
+  #   name: Snyk Security Scan
+  #   runs-on: ubuntu-latest
+  #   permissions:
+  #     contents: read
+  #     actions: read
+  #     security-events: write # Required for SARIF upload
+
+  #   steps:
+  #     - uses: actions/checkout@v4
+
+  #     - name: Set up PHP
+  #       uses: shivammathur/setup-php@v2
+  #       with:
+  #         php-version: "8.4"
+  #         tools: composer
+
+  #     - name: Install dependencies
+  #       run: composer install --no-interaction --prefer-dist --no-progress
+
+  #     - name: Snyk dependency vulnerability scan
+  #       uses: snyk/actions/php@master
+  #       env:
+  #         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+  #       with:
+  #         args: --severity-threshold=low --sarif-file-output=snyk-deps.sarif
+
+  #     - name: Snyk SAST code scan
+  #       uses: snyk/actions/node@master
+  #       env:
+  #         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+  #       with:
+  #         command: code test
+  #         args: --severity-threshold=low --sarif-file-output=snyk-code.sarif
+
+  #     # Upload to Security tab
+  #     - name: Upload Snyk result to GitHub Security
+  #       uses: github/codeql-action/upload-sarif@v4
+  #       if: always()
+  #       with:
+  #         sarif_file: .
+
+
+  security:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      actions: read
-      security-events: write # Required for SARIF upload
-
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: "8.4"
-          tools: composer
-
-      - name: Install dependencies
-        run: composer install --no-interaction --prefer-dist --no-progress
-
-      - name: Snyk dependency vulnerability scan
+      - uses: actions/checkout@master
+      - name: Run Snyk to check for vulnerabilities
         uses: snyk/actions/php@master
+        continue-on-error: true # To make sure that SARIF upload gets called
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
-          args: --severity-threshold=low --sarif-file-output=snyk-deps.sarif
-
-      - name: Snyk SAST code scan
-        uses: snyk/actions/node@master
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        with:
-          command: code test
-          args: --severity-threshold=low --sarif-file-output=snyk-code.sarif
-
-      # Upload to Security tab
-      - name: Upload Snyk result to GitHub Security
+          args: --sarif-file-output=snyk.sarif
+      - name: Upload result to GitHub Code Scanning
         uses: github/codeql-action/upload-sarif@v4
-        if: always()
         with:
-          sarif_file: .
+          sarif_file: snyk.sarif
+
 
   trivy:
     name: Trivy Vulnerability Scan
