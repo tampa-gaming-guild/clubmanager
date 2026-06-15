@@ -104,15 +104,18 @@ jobs:
   # ─────────────────────────────────────────────
   # 4. Secret scanning (hardcoded credentials)
   # ─────────────────────────────────────────────
-  gitleaks:
-    name: Secret Scan (Gitleaks)
+  trufflehog:
+    name: Secret Scan (TruffleHog)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0   # Full history needed for accurate secret detection
 
-      - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run TruffleHog
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified
