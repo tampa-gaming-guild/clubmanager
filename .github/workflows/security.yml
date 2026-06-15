@@ -59,9 +59,10 @@ jobs:
         uses: snyk/actions/node@master
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+          SNYK_ORG: ${{ secrets.SNYK_ORG }}
         with:
           command: code test
-          args: --severity-threshold=low --sarif-file-output=snyk-code.sarif --org=${{ secrets.SNYK_ORG }}
+          args: --severity-threshold=low --sarif-file-output=snyk-code.sarif --org=$SNYK_ORG
 
       # Upload to Security tab
       - name: Upload Snyk result to GitHub Security
