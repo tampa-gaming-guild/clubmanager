@@ -16,7 +16,6 @@ env:
 permissions:
   contents: read
   actions: read
-  security-events: write  # Required to upload SARIF results to GitHub Security tab
 
 jobs:
   # ─────────────────────────────────────────────
@@ -31,7 +30,7 @@ jobs:
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: "8.2"
+          php-version: "8.4"
           tools: composer
 
       - name: Install dependencies
@@ -53,7 +52,7 @@ jobs:
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: "8.2"
+          php-version: "8.4"
           tools: composer
 
       - name: Install dependencies
@@ -74,11 +73,14 @@ jobs:
           command: code test
           args: --severity-threshold=high --sarif-file-output=snyk-code.sarif
 
-      - name: Upload Snyk SAST results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v4
+      - name: Upload Snyk artifacts
+        uses: actions/upload-artifact@v4
         if: always()
         with:
-          sarif_file: snyk-code.sarif
+          name: snyk-results
+          path: |
+            synk-deps.json
+            snyk-code.sarif
 
   # ─────────────────────────────────────────────
   # 3. Trivy — filesystem + dependency scan
@@ -100,11 +102,15 @@ jobs:
           # Scan composer.lock, source code, and config files
           scanners: vuln,secret,misconfig
 
-      - name: Upload Trivy results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v4
+      - name: Upload Trivy artifacts
+        uses: actions/upload-artifact@v4
         if: always()
         with:
-          sarif_file: trivy.sarif
+          name: trivy-results
+          path: |
+            trivy.sarif
+            trivy-summary.json
+
 
   # ─────────────────────────────────────────────
   # 4. Secret scanning (hardcoded credentials)
