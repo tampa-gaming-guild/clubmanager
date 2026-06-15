@@ -93,6 +93,7 @@ jobs:
         with:
           sarif_file: trivy.sarif
 
+
   trufflehog:
     name: Secret Scan (TruffleHog)
     runs-on: ubuntu-latest
