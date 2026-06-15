@@ -9,6 +9,11 @@ on:
     # Run weekly on Monday at 08:00 UTC to catch newly disclosed CVEs
     - cron: "0 8 * * 1"
 
+permissions:
+  contents: read
+  actions: read
+  security-events: write
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
