@@ -9,29 +9,7 @@ on:
     - cron: "0 8 * * 1"
   workflow_dispatch:
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
-permissions:
-  contents: read
-  actions: read
-  security-events: write  # Required for uploading SARIF results
-
 jobs:
-  composer-audit:
-    name: Composer Audit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: "8.4"
-          tools: composer
-      - name: Install dependencies
-        run: composer install --no-interaction --prefer-dist --no-progress
-      - name: Run composer audit
-        run: composer audit --format=json --no-interaction
 
   snyk:
     name: Snyk Security Scan
@@ -40,36 +18,40 @@ jobs:
       contents: read
       actions: read
       security-events: write # Required for SARIF upload
+
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
         with:
           php-version: "8.4"
           tools: composer
+
       - name: Install dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
+
       - name: Snyk dependency vulnerability scan
         uses: snyk/actions/php@master
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
-          args: --severity-threshold=low
+          args: --severity-threshold=low --sarif-file-output=snyk-deps.sarif
+
       - name: Snyk SAST code scan
         uses: snyk/actions/node@master
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-          SNYK_ORG: ${{ secrets.SNYK_ORG }}
         with:
           command: code test
-          args: --severity-threshold=low --sarif-file-output=snyk-code.sarif --org=$SNYK_ORG
+          args: --severity-threshold=low --sarif-file-output=snyk-code.sarif
 
       # Upload to Security tab
       - name: Upload Snyk result to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
-          sarif_file: snyk-code.sarif
+          sarif_file: .
 
   trivy:
     name: Trivy Vulnerability Scan
@@ -78,15 +60,19 @@ jobs:
       contents: read
       actions: read
       security-events: write # Required for SARIF upload
+
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
         with:
           php-version: "8.4"
           tools: composer
+
       - name: Install dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
+
       - name: Run Trivy filesystem scan
         uses: aquasecurity/trivy-action@master
         with:
@@ -107,10 +93,12 @@ jobs:
   trufflehog:
     name: Secret Scan (TruffleHog)
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
       - name: Run TruffleHog
         uses: trufflesecurity/trufflehog@main
         with:
