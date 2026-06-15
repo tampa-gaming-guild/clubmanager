@@ -137,7 +137,6 @@ class Event {
      */
     public static function getVolunteers(int $eventId): array {
         $appDb = Database::getAppConnection();
-        $civiDb = Database::getCiviConnection();
 
         // Get volunteer rows from local database
         $stmt = $appDb->prepare("SELECT contact_id, role, signed_up_at FROM tgg_volunteer_signups WHERE event_id = :event_id ORDER BY signed_up_at ASC");
