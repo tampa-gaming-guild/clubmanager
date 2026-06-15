@@ -56,6 +56,10 @@ jobs:
 
   security:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      security-events: write # Required for SARIF upload
     steps:
       - uses: actions/checkout@master
       - name: Run Snyk to check for vulnerabilities
