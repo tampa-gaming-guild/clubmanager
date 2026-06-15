@@ -65,13 +65,12 @@ try {
 
     if (!empty($contactIds)) {
         try {
-            $civiDb = Database::getCiviConnection();
             $placeholders = implode(',', array_fill(0, count($contactIds), '?'));
-            $civiStmt = $civiDb->prepare("SELECT id, display_name FROM civicrm_contact WHERE id IN ($placeholders)");
+            $civiStmt = $appDb->prepare("SELECT id, display_name FROM tgg_contacts WHERE id IN ($placeholders)");
             $civiStmt->execute(array_values($contactIds));
             $namesMap = $civiStmt->fetchAll(PDO::FETCH_KEY_PAIR);
         } catch (Exception $civiEx) {
-            error_log("Failed to load contact names from CiviCRM for email log: " . $civiEx->getMessage());
+            error_log("Failed to load contact names from local contacts for email log: " . $civiEx->getMessage());
         }
     }
 } catch (Exception $e) {

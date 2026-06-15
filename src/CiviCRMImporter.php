@@ -46,15 +46,15 @@ class CiviCRMImporter {
             'contacts_scanned' => 0,
             'settings_created' => 0,
             'settings_updated' => 0,
+            'contributions_synced' => 0,
             'errors' => []
         ];
 
-        // 1. Fetch all non-deleted contacts from CiviCRM who have primary emails
-        $query = "SELECT c.id, c.display_name, e.email, p.phone
+        // 1. Fetch all contacts from CiviCRM (including deleted status and names)
+        $query = "SELECT c.id, c.display_name, c.first_name, c.last_name, e.email, p.phone, c.is_deleted
                   FROM civicrm_contact c
                   INNER JOIN civicrm_email e ON e.contact_id = c.id AND e.is_primary = 1
-                  LEFT JOIN civicrm_phone p ON p.contact_id = c.id AND p.is_primary = 1
-                  WHERE c.is_deleted = 0";
+                  LEFT JOIN civicrm_phone p ON p.contact_id = c.id AND p.is_primary = 1";
         
         $stmt = $civiDb->prepare($query);
         $stmt->execute();
@@ -62,7 +62,20 @@ class CiviCRMImporter {
 
         $stats['contacts_scanned'] = count($contacts);
 
-        // 2. Prepare statements for local checking and insertion
+        // Prepare statements for local contacts insertion/update
+        $insertContactStmt = $appDb->prepare("
+            INSERT INTO tgg_contacts (id, display_name, first_name, last_name, email, phone, is_deleted)
+            VALUES (:id, :display_name, :first_name, :last_name, :email, :phone, :is_deleted)
+            ON DUPLICATE KEY UPDATE
+                display_name = VALUES(display_name),
+                first_name = VALUES(first_name),
+                last_name = VALUES(last_name),
+                email = VALUES(email),
+                phone = VALUES(phone),
+                is_deleted = VALUES(is_deleted)
+        ");
+
+        // Prepare statements for local checking and insertion
         $checkStmt = $appDb->prepare("SELECT contact_id, role FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1");
         $insertStmt = $appDb->prepare("INSERT INTO tgg_member_settings (contact_id, password_hash, role, is_profile_public, public_fields) 
                                        VALUES (:contact_id, :password_hash, :role, 1, :public_fields)");
@@ -76,7 +89,18 @@ class CiviCRMImporter {
             $contactId = (int)$contact['id'];
             
             try {
-                // Check if they already exist locally
+                // A. Sync Contact table details locally
+                $insertContactStmt->execute([
+                    'id' => $contactId,
+                    'display_name' => $contact['display_name'],
+                    'first_name' => $contact['first_name'],
+                    'last_name' => $contact['last_name'],
+                    'email' => strtolower(trim($contact['email'])),
+                    'phone' => $contact['phone'],
+                    'is_deleted' => (int)$contact['is_deleted']
+                ]);
+
+                // B. Sync Credentials Settings record locally
                 $checkStmt->execute(['contact_id' => $contactId]);
                 $localUser = $checkStmt->fetch();
 
@@ -97,7 +121,7 @@ class CiviCRMImporter {
                     $stats['settings_updated']++;
                 }
 
-                // Sync CiviCRM membership details to local tgg_subscriptions
+                // C. Sync CiviCRM membership details to local tgg_subscriptions
                 $memQuery = $civiDb->prepare("
                     SELECT membership_type_id, join_date, start_date, end_date, s.is_current_member as is_active
                     FROM civicrm_membership m
@@ -160,66 +184,129 @@ class CiviCRMImporter {
             }
         }
 
+        // 2. Sync CiviCRM Contributions (Payments) to local tgg_billing_ledger
+        try {
+            // Cache local plans by price
+            $plansRaw = $appDb->query("SELECT id, price FROM tgg_subscription_plans")->fetchAll();
+            $plansByPrice = [];
+            foreach ($plansRaw as $p) {
+                $plansByPrice[(int)round($p['price'])] = (int)$p['id'];
+            }
+
+            // Fetch completed contributions from CiviCRM
+            $contribQuery = $civiDb->prepare("
+                SELECT id, contact_id, receive_date, total_amount, trxn_id
+                FROM civicrm_contribution
+                WHERE contribution_status_id = 1
+                ORDER BY receive_date ASC, id ASC
+            ");
+            $contribQuery->execute();
+            $contributions = $contribQuery->fetchAll();
+
+            $insertLedger = $appDb->prepare("
+                INSERT INTO tgg_billing_ledger (contact_id, plan_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type, created_at)
+                VALUES (:contact_id, :plan_id, :stripe_session_id, :payment_intent_id, :amount, 'usd', 'paid', :action_type, :created_at)
+                ON DUPLICATE KEY UPDATE
+                    amount = VALUES(amount),
+                    created_at = VALUES(created_at)
+            ");
+
+            $contactContribsCount = [];
+
+            foreach ($contributions as $contrib) {
+                $cid = (int)$contrib['contact_id'];
+                $amount = (float)$contrib['total_amount'];
+                $trxnId = $contrib['trxn_id'];
+                $civiId = (int)$contrib['id'];
+
+                // Map contribution amount to closest local plan ID
+                $amountRounded = (int)round($amount);
+                $planId = $plansByPrice[$amountRounded] ?? 1; // Fallback to plan 1
+
+                // Deduce join vs renew action based on order
+                if (!isset($contactContribsCount[$cid])) {
+                    $contactContribsCount[$cid] = 0;
+                }
+                $actionType = ($contactContribsCount[$cid] > 0) ? 'renew' : 'join';
+                $contactContribsCount[$cid]++;
+
+                $stripeSessionId = "civi_contrib_" . $civiId;
+                $paymentIntentId = !empty($trxnId) ? $trxnId : "civi_contrib_" . $civiId;
+
+                $insertLedger->execute([
+                    'contact_id' => $cid,
+                    'plan_id' => $planId,
+                    'stripe_session_id' => $stripeSessionId,
+                    'payment_intent_id' => $paymentIntentId,
+                    'amount' => $amount,
+                    'action_type' => $actionType,
+                    'created_at' => $contrib['receive_date']
+                ]);
+
+                $stats['contributions_synced']++;
+            }
+        } catch (Exception $e) {
+            $stats['errors'][] = "Failed syncing contributions: " . $e->getMessage();
+        }
+
         return $stats;
     }
 
     /**
-     * Get active membership tiers directly from CiviCRM
+     * Get active membership tiers from local subscription plans
      * @return array
      * @throws Exception
      */
     public static function getMembershipTiers(): array {
-        $civiDb = Database::getCiviConnection();
-        $query = "SELECT id, name, description, minimum_fee, duration_unit, duration_interval 
-                  FROM civicrm_membership_type 
-                  ORDER BY minimum_fee ASC";
-        return $civiDb->query($query)->fetchAll();
+        $appDb = Database::getAppConnection();
+        $query = "SELECT civicrm_membership_type_id AS id, name, description, price AS minimum_fee, duration_unit, duration_interval 
+                  FROM tgg_subscription_plans 
+                  ORDER BY price ASC";
+        return $appDb->query($query)->fetchAll();
     }
 
     /**
-     * Get details for a specific contact's membership
+     * Get details for a specific contact's membership from local database
      * @param int $contactId
      * @return array|null
      * @throws Exception
      */
     public static function getMemberMembershipDetails(int $contactId): ?array {
-        $civiDb = Database::getCiviConnection();
-        $query = "SELECT m.id as membership_id, m.join_date, m.start_date, m.end_date,
-                         t.name as membership_name, t.minimum_fee,
-                         s.name as status_name, s.label as status_label, s.is_current_member as is_active
-                  FROM civicrm_membership m
-                  INNER JOIN civicrm_membership_type t ON m.membership_type_id = t.id
-                  INNER JOIN civicrm_membership_status s ON m.status_id = s.id
-                  WHERE m.contact_id = :contact_id
-                  ORDER BY m.end_date DESC
+        $appDb = Database::getAppConnection();
+        $query = "SELECT s.plan_id as membership_id, s.join_date, s.start_date, s.end_date,
+                         p.name as membership_name, p.price as minimum_fee,
+                         CASE WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE()) THEN 'Current' ELSE 'Expired' END as status_label,
+                         CASE WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE()) THEN 'Current' ELSE 'Expired' END as status_name,
+                         CASE WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE()) THEN 1 ELSE 0 END as is_active
+                  FROM tgg_subscriptions s
+                  INNER JOIN tgg_subscription_plans p ON s.plan_id = p.id
+                  WHERE s.contact_id = :contact_id
                   LIMIT 1";
         
-        $stmt = $civiDb->prepare($query);
+        $stmt = $appDb->prepare($query);
         $stmt->execute(['contact_id' => $contactId]);
         $row = $stmt->fetch();
         return $row ?: null;
     }
 
     /**
-     * Get a list of all members with membership status
+     * Get a list of all members with membership status from local database
      * @return array
      * @throws Exception
      */
     public static function getMembersList(): array {
-        $civiDb = Database::getCiviConnection();
-        $query = "SELECT c.id, c.display_name, c.first_name, c.last_name, e.email, p.phone,
-                         m.join_date, m.start_date, m.end_date,
-                         t.name as membership_name,
-                         s.label as status_label, s.is_current_member as is_active
-                  FROM civicrm_contact c
-                  INNER JOIN civicrm_email e ON e.contact_id = c.id AND e.is_primary = 1
-                  LEFT JOIN civicrm_phone p ON p.contact_id = c.id AND p.is_primary = 1
-                  LEFT JOIN civicrm_membership m ON m.contact_id = c.id
-                  LEFT JOIN civicrm_membership_type t ON m.membership_type_id = t.id
-                  LEFT JOIN civicrm_membership_status s ON m.status_id = s.id
+        $appDb = Database::getAppConnection();
+        $query = "SELECT c.id, c.display_name, c.first_name, c.last_name, c.email, c.phone,
+                         s.join_date, s.start_date, s.end_date,
+                         p.name as membership_name,
+                         CASE WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE()) THEN 'Current' ELSE 'Expired' END as status_label,
+                         CASE WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE()) THEN 1 ELSE 0 END as is_active
+                  FROM tgg_contacts c
+                  LEFT JOIN tgg_subscriptions s ON s.contact_id = c.id
+                  LEFT JOIN tgg_subscription_plans p ON s.plan_id = p.id
                   WHERE c.is_deleted = 0
                   ORDER BY c.display_name ASC";
-        $members = $civiDb->query($query)->fetchAll();
+        $members = $appDb->query($query)->fetchAll();
         
         if (empty($members)) {
             return [];
@@ -242,6 +329,11 @@ class CiviCRMImporter {
         return $members;
     }
 
+    /**
+     * Get display names mapping from local contacts according to privacy preferences
+     * @param array $contactIds
+     * @return array
+     */
     public static function getFormattedNames(array $contactIds): array {
         $contactIds = array_values(array_unique($contactIds));
         if (empty($contactIds)) {
@@ -249,12 +341,11 @@ class CiviCRMImporter {
         }
         
         $appDb = Database::getAppConnection();
-        $civiDb = Database::getCiviConnection();
         
         $placeholders = implode(',', array_fill(0, count($contactIds), '?'));
         
-        // Fetch CiviCRM names (fallback/billing)
-        $civiStmt = $civiDb->prepare("SELECT id, display_name FROM civicrm_contact WHERE id IN ({$placeholders})");
+        // Fetch local contact names
+        $civiStmt = $appDb->prepare("SELECT id, display_name FROM tgg_contacts WHERE id IN ({$placeholders})");
         $civiStmt->execute($contactIds);
         $civiContacts = $civiStmt->fetchAll(PDO::FETCH_UNIQUE);
         

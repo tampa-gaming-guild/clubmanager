@@ -15,7 +15,6 @@ $checkinsList = [];
 
 try {
     $appDb = Database::getAppConnection();
-    $civiDb = Database::getCiviConnection();
 
     // Fetch Recent Attendance Log (Attendance Table Report)
     $chkLogStmt = $appDb->query("
@@ -29,7 +28,7 @@ try {
         $contactIds = array_unique(array_column($checkinsRaw, 'contact_id'));
         $placeholders = implode(',', array_fill(0, count($contactIds), '?'));
         
-        $civiContactStmt = $civiDb->prepare("SELECT id, display_name FROM civicrm_contact WHERE id IN ({$placeholders})");
+        $civiContactStmt = $appDb->prepare("SELECT id, display_name FROM tgg_contacts WHERE id IN ({$placeholders})");
         $civiContactStmt->execute(array_values($contactIds));
         $contactsMap = $civiContactStmt->fetchAll(PDO::FETCH_KEY_PAIR);
         

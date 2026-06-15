@@ -28,13 +28,12 @@ try {
     $totalMembers = count($members);
 
     $appDb = Database::getAppConnection();
-    $civiDb = Database::getCiviConnection();
 
     // 1. Fetch Tiers & Statuses first for pivot matrix layout & dropdowns
     $tiers = CiviCRMImporter::getMembershipTiers();
-    $statuses = $civiDb->query("
+    $statuses = $appDb->query("
         SELECT id, name, label 
-        FROM civicrm_membership_status 
+        FROM tgg_membership_statuses 
         WHERE label NOT IN ('Deceased', 'Current Renewed', 'Future Start')
           AND name NOT IN ('Deceased', 'Current Renewed', 'Future Start')
         ORDER BY id ASC

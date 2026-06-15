@@ -53,8 +53,8 @@ if ($isAdmin && isset($_GET['contact_id'])) {
 
 $contactName = null;
 try {
-    $civiDb = Database::getCiviConnection();
-    $nameStmt = $civiDb->prepare("SELECT display_name FROM civicrm_contact WHERE id = :id LIMIT 1");
+    $appDb = Database::getAppConnection();
+    $nameStmt = $appDb->prepare("SELECT display_name FROM tgg_contacts WHERE id = :id LIMIT 1");
     $nameStmt->execute(['id' => $contactId]);
     $contactName = $nameStmt->fetchColumn() ?: "Member #{$contactId}";
 

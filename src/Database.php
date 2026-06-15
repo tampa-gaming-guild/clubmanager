@@ -22,7 +22,7 @@ class Database {
         if (self::$appPdo === null) {
             $host = $_ENV['DB_HOST'] ?? '127.0.0.1';
             $port = $_ENV['DB_PORT'] ?? '3306';
-            $db   = $_ENV['DB_NAME'] ?? 'tgg_membership';
+            $db   = $_ENV['DB_NAME'] ?? 'tgg_members';
             $user = $_ENV['DB_USER'] ?? 'root';
             $pass = $_ENV['DB_PASS'] ?? '';
             $charset = 'utf8mb4';

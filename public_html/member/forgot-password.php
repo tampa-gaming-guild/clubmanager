@@ -23,16 +23,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errorMsg = "Please enter a valid email address.";
         } else {
             try {
-                $civiDb = Database::getCiviConnection();
                 $appDb = Database::getAppConnection();
 
-                // 1. Check if email exists in CiviCRM
-                $stmt = $civiDb->prepare("SELECT contact_id FROM civicrm_email WHERE email = :email LIMIT 1");
+                // 1. Check if email exists in local contacts
+                $stmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE email = :email AND is_deleted = 0 LIMIT 1");
                 $stmt->execute(['email' => $email]);
                 $civiRow = $stmt->fetch();
 
                 if ($civiRow) {
-                    $contactId = (int)$civiRow['contact_id'];
+                    $contactId = (int)$civiRow['id'];
 
                     // 2. Check if local settings account exists for this contact
                     $stmt2 = $appDb->prepare("SELECT contact_id FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1");
@@ -40,8 +39,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $appRow = $stmt2->fetch();
 
                     if ($appRow) {
-                        // Retrieve contact display name
-                        $stmt3 = $civiDb->prepare("SELECT display_name FROM civicrm_contact WHERE id = :contact_id LIMIT 1");
+                        // Retrieve contact display name from local contacts
+                        $stmt3 = $appDb->prepare("SELECT display_name FROM tgg_contacts WHERE id = :contact_id LIMIT 1");
                         $stmt3->execute(['contact_id' => $contactId]);
                         $contactRow = $stmt3->fetch();
                         $displayName = $contactRow['display_name'] ?? 'Member';

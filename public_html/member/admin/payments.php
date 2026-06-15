@@ -15,7 +15,6 @@ $paymentsList = [];
 
 try {
     $appDb = Database::getAppConnection();
-    $civiDb = Database::getCiviConnection();
 
     // Fetch Recent Payments Log (Financial Table Report) from local ledger
     $payLogsRaw = $appDb->query("
@@ -31,7 +30,7 @@ try {
         $contactIds = array_unique(array_column($payLogsRaw, 'contact_id'));
         $placeholders = implode(',', array_fill(0, count($contactIds), '?'));
         
-        $civiContactStmt = $civiDb->prepare("SELECT id, display_name FROM civicrm_contact WHERE id IN ({$placeholders})");
+        $civiContactStmt = $appDb->prepare("SELECT id, display_name FROM tgg_contacts WHERE id IN ({$placeholders})");
         $civiContactStmt->execute(array_values($contactIds));
         $contactsMap = $civiContactStmt->fetchAll(PDO::FETCH_KEY_PAIR);
         

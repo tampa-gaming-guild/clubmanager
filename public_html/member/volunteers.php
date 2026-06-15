@@ -40,8 +40,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && Auth::check()) {
                 Event::signupVolunteer($eventId, $contactId, $role);
                 
                 // Fetch member name to display in the success message
-                $civiDb = Database::getCiviConnection();
-                $stmtName = $civiDb->prepare("SELECT display_name FROM civicrm_contact WHERE id = :id LIMIT 1");
+                $appDb = Database::getAppConnection();
+                $stmtName = $appDb->prepare("SELECT display_name FROM tgg_contacts WHERE id = :id LIMIT 1");
                 $stmtName->execute(['id' => $contactId]);
                 $displayName = $stmtName->fetchColumn() ?: "Member #{$contactId}";
                 

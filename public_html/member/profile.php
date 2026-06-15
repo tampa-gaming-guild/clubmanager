@@ -30,16 +30,13 @@ $membership = null;
 $settings = null;
 
 try {
-    $civiDb = Database::getCiviConnection();
     $appDb = Database::getAppConnection();
 
-    // A. Fetch Contact Info from CiviCRM
-    $contactStmt = $civiDb->prepare("
-        SELECT c.id, c.display_name, c.first_name, c.last_name, e.email, p.phone
-        FROM civicrm_contact c
-        LEFT JOIN civicrm_email e ON e.contact_id = c.id AND e.is_primary = 1
-        LEFT JOIN civicrm_phone p ON p.contact_id = c.id AND p.is_primary = 1
-        WHERE c.id = :id AND c.is_deleted = 0 LIMIT 1
+    // A. Fetch Contact Info from local contacts
+    $contactStmt = $appDb->prepare("
+        SELECT id, display_name, first_name, last_name, email, phone
+        FROM tgg_contacts
+        WHERE id = :id AND is_deleted = 0 LIMIT 1
     ");
     $contactStmt->execute(['id' => $profileId]);
     $contact = $contactStmt->fetch();

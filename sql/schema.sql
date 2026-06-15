@@ -2,8 +2,8 @@
 -- These tables support tracking check-ins, events, volunteer signups, and password/settings info.
 -- Contact details, memberships, and contributions are stored in CiviCRM tables.
 
-CREATE DATABASE IF NOT EXISTS `tgg_membership` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE `tgg_membership`;
+CREATE DATABASE IF NOT EXISTS `tgg_members` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE `tgg_members`;
 
 -- 1. Member settings and credentials (links to civicrm_contact)
 CREATE TABLE IF NOT EXISTS `tgg_member_settings` (
@@ -187,6 +187,41 @@ CREATE TABLE IF NOT EXISTS `tgg_email_log` (
   KEY `idx_sender_id` (`sender_id`),
   KEY `idx_sent_at` (`sent_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 13. Contacts Table (Local storage for CiviCRM contact details)
+CREATE TABLE IF NOT EXISTS `tgg_contacts` (
+  `id` INT NOT NULL,
+  `contact_type` VARCHAR(64) DEFAULT 'Individual',
+  `display_name` VARCHAR(128) NOT NULL,
+  `first_name` VARCHAR(64) NULL,
+  `last_name` VARCHAR(64) NULL,
+  `email` VARCHAR(254) NOT NULL,
+  `phone` VARCHAR(32) NULL,
+  `is_deleted` TINYINT(1) DEFAULT 0,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_email` (`email`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 14. Membership Statuses Table
+CREATE TABLE IF NOT EXISTS `tgg_membership_statuses` (
+  `id` INT NOT NULL,
+  `name` VARCHAR(128) NOT NULL,
+  `label` VARCHAR(128) NOT NULL,
+  `is_active` TINYINT(1) DEFAULT 1,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Seed default membership statuses
+INSERT INTO `tgg_membership_statuses` (`id`, `name`, `label`, `is_active`) VALUES
+(1, 'New', 'New', 1),
+(2, 'Current', 'Current', 1),
+(3, 'Grace', 'Grace Period', 1),
+(4, 'Expired', 'Expired', 0),
+(5, 'Pending', 'Pending', 0)
+ON DUPLICATE KEY UPDATE `name`=VALUES(`name`), `label`=VALUES(`label`), `is_active`=VALUES(`is_active`);
+
 
 
 

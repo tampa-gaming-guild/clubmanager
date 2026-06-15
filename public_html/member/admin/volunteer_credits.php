@@ -181,7 +181,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             try {
                 $appDb = Database::getAppConnection();
-                $civiDb = Database::getCiviConnection();
                 
                 // Fetch conversion rate
                 $rateQuery = $appDb->query("SELECT credits FROM tgg_volunteer_credits WHERE credit_key = 'credits_per_month' LIMIT 1");
@@ -196,7 +195,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $expirationDays = (float)($creditsMap['credit_expiration_days'] ?? 365.0);
                 
                 $appDb->beginTransaction();
-                $civiDb->beginTransaction();
                 
                 $todayStr = date('Y-m-d');
                 $emailsToSend = [];
@@ -318,33 +316,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             ]);
                         }
                         
-                        // Update CiviCRM Membership expiration
-                        $civiStmt = $civiDb->prepare("SELECT id FROM civicrm_membership WHERE contact_id = :contact_id LIMIT 1");
-                        $civiStmt->execute(['contact_id' => $cid]);
-                        $existingCivi = $civiStmt->fetch();
-                        
-                        if ($existingCivi) {
-                            $updateCivi = $civiDb->prepare("
-                                UPDATE civicrm_membership 
-                                SET end_date = :end_date, status_id = 2 
-                                WHERE id = :id
-                            ");
-                            $updateCivi->execute([
-                                'end_date' => $newEndDate,
-                                'id' => (int)$existingCivi['id']
-                            ]);
-                        } else {
-                            $insertCivi = $civiDb->prepare("
-                                INSERT INTO civicrm_membership (contact_id, membership_type_id, join_date, start_date, end_date, status_id)
-                                VALUES (:contact_id, 2, :join_date, :start_date, :end_date, 2)
-                            ");
-                            $insertCivi->execute([
-                                'contact_id' => $cid,
-                                'join_date' => $todayStr,
-                                'start_date' => $todayStr,
-                                'end_date' => $newEndDate
-                            ]);
-                        }
+                        // No CiviCRM Membership updates needed anymore
                         
                         // Recalculate and write final values (including applied credits) to settings
                         updateMemberCredits($appDb, $cid, $expirationDays);
@@ -359,12 +331,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 
                 $appDb->commit();
-                $civiDb->commit();
 
                 // Send credit conversion notification emails
                 foreach ($emailsToSend as $mailInfo) {
                     try {
-                        $contactQuery = $civiDb->prepare("SELECT c.display_name, e.email FROM civicrm_contact c INNER JOIN civicrm_email e ON e.contact_id = c.id AND e.is_primary = 1 WHERE c.id = :contact_id LIMIT 1");
+                        $contactQuery = $appDb->prepare("SELECT display_name, email FROM tgg_contacts WHERE id = :contact_id LIMIT 1");
                         $contactQuery->execute(['contact_id' => $mailInfo['contact_id']]);
                         $contact = $contactQuery->fetch(PDO::FETCH_ASSOC);
 
@@ -385,7 +356,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $successMsg = "Successfully processed volunteer credits and extended memberships for selected members.";
             } catch (Exception $e) {
                 if (isset($appDb) && $appDb->inTransaction()) $appDb->rollBack();
-                if (isset($civiDb) && $civiDb->inTransaction()) $civiDb->rollBack();
                 $errorMsg = "Processing failed: " . $e->getMessage();
             }
         }
@@ -410,7 +380,6 @@ $eligibleMembers = [];
 if (!empty($startDate) && !empty($endDate)) {
     try {
         $appDb = Database::getAppConnection();
-        $civiDb = Database::getCiviConnection();
         
         // Fetch all credits configs
         $configsStmt = $appDb->query("SELECT credit_key, credits FROM tgg_volunteer_credits");
@@ -443,10 +412,10 @@ if (!empty($startDate) && !empty($endDate)) {
                 $groupedSignups[$signup['contact_id']][] = $signup;
             }
             
-            // Fetch contact names from CiviCRM
+            // Fetch contact names from local contacts
             $contactIds = array_keys($groupedSignups);
             $placeholders = implode(',', array_fill(0, count($contactIds), '?'));
-            $stmtNames = $civiDb->prepare("SELECT id, display_name FROM civicrm_contact WHERE id IN ({$placeholders})");
+            $stmtNames = $appDb->prepare("SELECT id, display_name FROM tgg_contacts WHERE id IN ({$placeholders})");
             $stmtNames->execute(array_values($contactIds));
             $namesMap = $stmtNames->fetchAll(PDO::FETCH_KEY_PAIR);
             

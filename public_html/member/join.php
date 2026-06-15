@@ -61,42 +61,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
             $errorMsg = "Password must be at least 8 characters long.";
         } else {
             try {
-                $civiDb = Database::getCiviConnection();
                 $appDb = Database::getAppConnection();
 
-                // Check if email already exists in CiviCRM
-                $checkEmail = $civiDb->prepare("SELECT contact_id FROM civicrm_email WHERE email = :email LIMIT 1");
+                // Check if email already exists in local contacts
+                $checkEmail = $appDb->prepare("SELECT id FROM tgg_contacts WHERE email = :email AND is_deleted = 0 LIMIT 1");
                 $checkEmail->execute(['email' => $email]);
                 if ($checkEmail->fetch()) {
                     $errorMsg = "A user with this email already exists. If you want to renew, please log in and use the renewal portal.";
                 } else {
-                    // Start transaction on both databases to ensure sync integrity
-                    $civiDb->beginTransaction();
+                    // Start transaction to ensure sync integrity
                     $appDb->beginTransaction();
 
                     try {
-                        // A. Create CiviCRM Contact
+                        // A. Create Local Contact
                         $displayName = "{$firstName} {$lastName}";
-                        $insertContact = $civiDb->prepare("INSERT INTO civicrm_contact (contact_type, display_name, first_name, last_name, is_deleted) 
-                                                           VALUES ('Individual', :display_name, :first_name, :last_name, 0)");
+                        $insertContact = $appDb->prepare("INSERT INTO tgg_contacts (contact_type, display_name, first_name, last_name, email, phone, is_deleted) 
+                                                           VALUES ('Individual', :display_name, :first_name, :last_name, :email, :phone, 0)");
                         $insertContact->execute([
                             'display_name' => $displayName,
                             'first_name' => $firstName,
-                            'last_name' => $lastName
+                            'last_name' => $lastName,
+                            'email' => $email,
+                            'phone' => !empty($phone) ? $phone : null
                         ]);
-                        $contactId = (int)$civiDb->lastInsertId();
+                        $contactId = (int)$appDb->lastInsertId();
 
-                        // B. Create CiviCRM Email
-                        $insertEmail = $civiDb->prepare("INSERT INTO civicrm_email (contact_id, email, is_primary) VALUES (:contact_id, :email, 1)");
-                        $insertEmail->execute(['contact_id' => $contactId, 'email' => $email]);
-
-                        // C. Create CiviCRM Phone (if provided)
-                        if (!empty($phone)) {
-                            $insertPhone = $civiDb->prepare("INSERT INTO civicrm_phone (contact_id, phone, is_primary) VALUES (:contact_id, :phone, 1)");
-                            $insertPhone->execute(['contact_id' => $contactId, 'phone' => $phone]);
-                        }
-
-                        // D. Create Local Member Settings / Credentials
+                        // B. Create Local Member Settings / Credentials
                         $passwordHash = password_hash($password, PASSWORD_DEFAULT);
                         $defaultPublicFields = json_encode(['display_name', 'membership_name', 'status_label']);
                         $insertSettings = $appDb->prepare("INSERT INTO tgg_member_settings (contact_id, password_hash, role, is_profile_public, public_fields) 
@@ -107,7 +97,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                             'public_fields' => $defaultPublicFields
                         ]);
 
-                        // E. Find tier fee details
+                        // C. Find tier fee details
                         $tierIndex = array_search($tierId, array_column($tiers, 'id'));
                         if ($tierIndex === false) {
                             throw new Exception("Invalid membership tier selected.");
@@ -117,8 +107,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                         $tierName = $tier['name'];
                         $civicrmTypeId = (int)$tier['civicrm_membership_type_id'];
 
-                        // Commit both transactions
-                        $civiDb->commit();
+                        // Commit transaction
                         $appDb->commit();
 
                         // Send welcome email on registration signup
@@ -135,14 +124,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                             error_log("Failed to send welcome email: " . $mailEx->getMessage());
                         }
 
-                        // F. Create Stripe Session and Redirect
+                        // D. Create Stripe Session and Redirect
                         $session = StripeHelper::createCheckoutSession($contactId, $tierId, $civicrmTypeId, $tierName, $fee, 'join');
                         
                         header("Location: " . $session['url']);
                         exit;
 
                     } catch (Exception $txException) {
-                        if ($civiDb->inTransaction()) $civiDb->rollBack();
                         if ($appDb->inTransaction()) $appDb->rollBack();
                         throw $txException;
                     }

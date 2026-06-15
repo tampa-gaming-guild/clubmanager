@@ -23,7 +23,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errorMsg = "Please enter your Email or Member ID.";
     } else {
         try {
-            $civiDb = Database::getCiviConnection();
             $appDb = Database::getAppConnection();
             $contactId = 0;
             $contactName = '';
@@ -31,11 +30,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // 1. Resolve Contact ID
             if (filter_var($identifier, FILTER_VALIDATE_EMAIL)) {
                 // Resolved via Email
-                $stmt = $civiDb->prepare("SELECT contact_id FROM civicrm_email WHERE email = :email AND is_primary = 1 LIMIT 1");
+                $stmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE email = :email AND is_deleted = 0 LIMIT 1");
                 $stmt->execute(['email' => strtolower($identifier)]);
                 $row = $stmt->fetch();
                 if ($row) {
-                    $contactId = (int)$row['contact_id'];
+                    $contactId = (int)$row['id'];
                 }
             } else if (is_numeric($identifier)) {
                 // Resolved via Contact ID
@@ -46,7 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $errorMsg = "Member not found. Please check your Email or Member ID.";
             } else {
                 // 2. Fetch Contact Name and Expiry Date
-                $contactStmt = $civiDb->prepare("SELECT display_name FROM civicrm_contact WHERE id = :id AND is_deleted = 0 LIMIT 1");
+                $contactStmt = $appDb->prepare("SELECT display_name FROM tgg_contacts WHERE id = :id AND is_deleted = 0 LIMIT 1");
                 $contactStmt->execute(['id' => $contactId]);
                 $contactRow = $contactStmt->fetch();
 

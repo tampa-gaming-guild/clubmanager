@@ -42,9 +42,9 @@ c:\apps\tgg\                  (Keep OUTSIDE the web server document root)
 ## Installation & Deployment
 
 ### 1. Database Configuration
-1. Create a database for the local application (default name: `tgg_membership`) and import the schema:
+1. Create a database for the local application (default name: `tgg_members`) and import the schema:
    ```bash
-   mysql -u your_user -p tgg_membership < sql/schema.sql
+   mysql -u your_user -p tgg_members < sql/schema.sql
    ```
 2. If deploying to a local test environment, create the mock CiviCRM database and seed data:
    ```bash

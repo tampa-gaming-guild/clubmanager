@@ -24,19 +24,18 @@ class Auth {
         }
 
         $appDb = Database::getAppConnection();
-        $civiDb = Database::getCiviConnection();
 
-        // 1. Find the contact ID from CiviCRM using the primary email
-        $emailQuery = "SELECT contact_id FROM civicrm_email WHERE email = :email AND is_primary = 1 LIMIT 1";
-        $stmt = $civiDb->prepare($emailQuery);
+        // 1. Find the contact ID from local contacts using the email
+        $emailQuery = "SELECT id FROM tgg_contacts WHERE email = :email AND is_deleted = 0 LIMIT 1";
+        $stmt = $appDb->prepare($emailQuery);
         $stmt->execute(['email' => $email]);
         $emailRow = $stmt->fetch();
 
         if (!$emailRow) {
-            return false; // Email not found in CiviCRM
+            return false; // Email not found
         }
 
-        $contactId = (int)$emailRow['contact_id'];
+        $contactId = (int)$emailRow['id'];
 
         // 2. Fetch the credentials from local tgg_member_settings
         $authQuery = "SELECT password_hash, role, is_profile_public FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1";

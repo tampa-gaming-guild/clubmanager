@@ -20,7 +20,6 @@ if (empty($rawToken)) {
 } else {
     try {
         $appDb = Database::getAppConnection();
-        $civiDb = Database::getCiviConnection();
 
         // Check if token exists and is not expired
         $stmt = $appDb->prepare("SELECT email, expires_at FROM tgg_password_resets WHERE token = :token LIMIT 1");
@@ -57,23 +56,22 @@ if (empty($rawToken)) {
                 } elseif ($password !== $confirmPassword) {
                     $errorMsg = "Passwords do not match. Please enter them again.";
                 } else {
-                    // Start transaction on both databases to ensure absolute integrity
+                    // Start transaction to ensure absolute integrity
                     $appDb->beginTransaction();
-                    $civiDb->beginTransaction();
 
                     try {
                         // 1. Get contact details
-                        $stmtCivi = $civiDb->prepare("SELECT contact_id FROM civicrm_email WHERE email = :email LIMIT 1");
+                        $stmtCivi = $appDb->prepare("SELECT id as contact_id FROM tgg_contacts WHERE email = :email LIMIT 1");
                         $stmtCivi->execute(['email' => $email]);
                         $civiRow = $stmtCivi->fetch();
 
                         if (!$civiRow) {
-                            throw new Exception("CiviCRM contact associated with this email could not be located.");
+                            throw new Exception("Local contact associated with this email could not be located.");
                         }
                         $contactId = (int)$civiRow['contact_id'];
 
                         // Retrieve display name
-                        $stmtName = $civiDb->prepare("SELECT display_name FROM civicrm_contact WHERE id = :contact_id LIMIT 1");
+                        $stmtName = $appDb->prepare("SELECT display_name FROM tgg_contacts WHERE id = :contact_id LIMIT 1");
                         $stmtName->execute(['contact_id' => $contactId]);
                         $nameRow = $stmtName->fetch();
                         $displayName = $nameRow['display_name'] ?? 'Member';
@@ -91,7 +89,6 @@ if (empty($rawToken)) {
                         $stmtDelete->execute(['email' => $email]);
 
                         $appDb->commit();
-                        $civiDb->commit();
 
                         // 4. Send Confirmation Email
                         $loginUrl = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/index.php';
@@ -106,7 +103,6 @@ if (empty($rawToken)) {
 
                     } catch (Exception $txEx) {
                         if ($appDb->inTransaction()) $appDb->rollBack();
-                        if ($civiDb->inTransaction()) $civiDb->rollBack();
                         throw $txEx;
                     }
                 }
