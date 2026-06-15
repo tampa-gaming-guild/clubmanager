@@ -54,14 +54,14 @@ jobs:
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
-          args: --severity-threshold=high
+          args: --severity-threshold=low
       - name: Snyk SAST code scan
         uses: snyk/actions/node@master
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
           command: code test
-          args: --severity-threshold=low --sarif-file-output=snyk-code.sarif
+          args: --severity-threshold=low --sarif-file-output=snyk-code.sarif --org=${{ secrets.SNYK_ORG }}
 
       # Upload to Security tab
       - name: Upload Snyk result to GitHub Security
@@ -79,6 +79,13 @@ jobs:
       security-events: write # Required for SARIF upload
     steps:
       - uses: actions/checkout@v4
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          tools: composer
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
       - name: Run Trivy filesystem scan
         uses: aquasecurity/trivy-action@master
         with:
