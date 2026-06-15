@@ -8,6 +8,7 @@ on:
   schedule:
     # Run weekly on Monday at 08:00 UTC to catch newly disclosed CVEs
     - cron: "0 8 * * 1"
+  workflow_dispatch:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
