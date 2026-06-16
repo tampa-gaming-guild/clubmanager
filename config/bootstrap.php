@@ -247,3 +247,57 @@ function safe_err($prefix, Exception $e) {
     }
     return rtrim($prefix, ': ') . ". An unexpected error occurred. Please try again or contact support.";
 }
+
+// 7. Impersonation Banner Output Buffering
+if (isset($_SESSION['impersonator'])) {
+    ob_start(function($buffer) {
+        $headers = headers_list();
+        $isHtml = true;
+        foreach ($headers as $header) {
+            if (stripos($header, 'Content-Type:') === 0) {
+                if (stripos($header, 'text/html') === false) {
+                    $isHtml = false;
+                    break;
+                }
+            }
+        }
+        
+        if ($isHtml && stripos($buffer, '<body') !== false) {
+            $displayName = htmlspecialchars($_SESSION['user']['display_name'] ?? 'User');
+            $stopUrl = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/index.php?action=stop_impersonating';
+            
+            $banner = '
+            <div id="impersonation-banner" style="
+                position: fixed;
+                top: 0;
+                left: 0;
+                background-color: #d32f2f;
+                color: #ffffff;
+                font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, Helvetica, Arial, sans-serif;
+                font-size: 0.85rem;
+                font-weight: bold;
+                padding: 6px 15px;
+                z-index: 999999;
+                border-bottom-right-radius: 8px;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.15);
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                pointer-events: auto;
+            ">
+                <span>Logged in as ' . $displayName . '</span>
+                <a href="' . $stopUrl . '" style="
+                    color: #ffffff;
+                    text-decoration: underline;
+                    font-weight: normal;
+                    margin-left: 5px;
+                    transition: opacity 0.2s;
+                " onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1">Return to Admin</a>
+            </div>';
+            
+            // Inject banner right after <body>
+            $buffer = preg_replace('/(<body[^>]*>)/i', '$1' . $banner, $buffer, 1);
+        }
+        return $buffer;
+    });
+}

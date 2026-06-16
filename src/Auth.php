@@ -276,4 +276,98 @@ class Auth {
             $_SESSION['user']['permissions'] = $permissions;
         }
     }
+
+    /**
+     * Impersonate a user by their contact ID.
+     * @param int $targetContactId
+     * @return bool
+     * @throws Exception
+     */
+    public static function impersonate(int $targetContactId): bool {
+        // Only superadmins (original identity) can initiate impersonation
+        $currentOriginalRole = $_SESSION['impersonator']['role'] ?? $_SESSION['user']['role'] ?? '';
+        if ($currentOriginalRole !== 'superadmin') {
+            throw new Exception("Only superadmins can impersonate other users.");
+        }
+
+        // Cannot impersonate oneself
+        $originalContactId = (int)($_SESSION['impersonator']['contact_id'] ?? $_SESSION['user']['contact_id']);
+        if ($targetContactId === $originalContactId) {
+            throw new Exception("You cannot impersonate yourself.");
+        }
+
+        $appDb = Database::getAppConnection();
+
+        // 1. Fetch the target user details from local contacts and settings
+        $contactQuery = "SELECT id, email, display_name FROM tgg_contacts WHERE id = :id AND is_deleted = 0 LIMIT 1";
+        $stmt = $appDb->prepare($contactQuery);
+        $stmt->execute(['id' => $targetContactId]);
+        $contactRow = $stmt->fetch();
+
+        if (!$contactRow) {
+            throw new Exception("Target contact not found.");
+        }
+
+        $authQuery = "SELECT role, is_profile_public FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1";
+        $stmt = $appDb->prepare($authQuery);
+        $stmt->execute(['contact_id' => $targetContactId]);
+        $authRow = $stmt->fetch();
+
+        $roleName = $authRow ? $authRow['role'] : 'member';
+        $isProfilePublic = $authRow ? (int)$authRow['is_profile_public'] : 1;
+
+        // 2. Fetch target user's roles
+        $rolesStmt = $appDb->prepare("SELECT role_name FROM tgg_member_roles WHERE contact_id = :contact_id");
+        $rolesStmt->execute(['contact_id' => $targetContactId]);
+        $roles = $rolesStmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        if (empty($roles)) {
+            $roles = [$roleName];
+        }
+
+        // 3. Fetch target user's permissions
+        $permissions = [];
+        if (!empty($roles)) {
+            $placeholders = implode(',', array_fill(0, count($roles), '?'));
+            $permStmt = $appDb->prepare("
+                SELECT DISTINCT p.name 
+                FROM tgg_permissions p
+                JOIN tgg_role_permissions rp ON rp.permission_id = p.id
+                JOIN tgg_roles r ON r.id = rp.role_id
+                WHERE r.name IN ($placeholders)
+            ");
+            $permStmt->execute($roles);
+            $permissions = $permStmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        }
+
+        // 4. Save original session as impersonator if not already impersonating
+        if (!isset($_SESSION['impersonator'])) {
+            $_SESSION['impersonator'] = $_SESSION['user'];
+        }
+
+        // 5. Overwrite user session with target user details
+        $_SESSION['user'] = [
+            'contact_id' => $targetContactId,
+            'email' => $contactRow['email'],
+            'display_name' => CiviCRMImporter::getFormattedName($targetContactId),
+            'roles' => $roles,
+            'role' => $roles[0] ?? $roleName,
+            'is_profile_public' => $isProfilePublic,
+            'permissions' => $permissions
+        ];
+
+        return true;
+    }
+
+    /**
+     * Stop impersonating another user and restore the original superadmin session.
+     * @return bool True on success, false if not impersonating
+     */
+    public static function stopImpersonating(): bool {
+        if (!isset($_SESSION['impersonator'])) {
+            return false;
+        }
+        $_SESSION['user'] = $_SESSION['impersonator'];
+        unset($_SESSION['impersonator']);
+        return true;
+    }
 }

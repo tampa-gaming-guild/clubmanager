@@ -179,7 +179,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $errorMsg = safe_err("Failed to update member roles: ", $e);
             }
         }
+
+        // 3. Start Impersonating User
+        if (isset($_POST['impersonate_user'])) {
+            $targetContactId = (int)($_POST['contact_id'] ?? 0);
+            try {
+                Auth::impersonate($targetContactId);
+                redirect('index.php');
+            } catch (Exception $e) {
+                $errorMsg = safe_err("Impersonation failed: ", $e);
+            }
+        }
     }
+}
+
+if (isset($_GET['success']) && $_GET['success'] === 'impersonation_stopped') {
+    $successMsg = "Returned to admin session successfully.";
 }
 
 // Fetch all roles & permissions
@@ -536,7 +551,15 @@ $membersList = $stmtMembers->fetchAll();
                                                         </div>
                                                     </td>
                                                     <td style="text-align: center;">
-                                                        <button type="submit" name="update_user_role" class="btn btn-primary btn-sm" style="padding: 6px 12px; font-size: 0.75rem; border-radius: 4px;">Update</button>
+                                                        <div style="display: flex; flex-direction: column; gap: 5px; align-items: center;">
+                                                            <button type="submit" name="update_user_role" class="btn btn-primary btn-sm" style="padding: 6px 12px; font-size: 0.75rem; border-radius: 4px; width: 100%;">Update</button>
+                                                            <?php 
+                                                            $currentOriginalRole = $_SESSION['impersonator']['role'] ?? $_SESSION['user']['role'];
+                                                            if ($currentOriginalRole === 'superadmin' && (int)$member['id'] !== (int)$_SESSION['user']['contact_id']): 
+                                                            ?>
+                                                                <button type="submit" name="impersonate_user" class="btn btn-warning btn-sm" style="padding: 6px 12px; font-size: 0.75rem; border-radius: 4px; width: 100%; border: none;">Login As</button>
+                                                            <?php endif; ?>
+                                                        </div>
                                                     </td>
                                                 </form>
                                             </tr>

@@ -433,6 +433,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
             }
         }
 
+        // A2. Start Impersonating User (Only Superadmin)
+        if (isset($_POST['impersonate_user']) && $isAdmin) {
+            try {
+                Auth::impersonate($profileId);
+                redirect('index.php');
+            } catch (Exception $e) {
+                $errorMsg = safe_err("Impersonation failed: ", $e);
+            }
+        }
+
         // B. Handle Trigger Password Reset (Only owner or user with password resets permission)
         if (isset($_POST['trigger_password_reset'])) {
             try {
@@ -797,6 +807,12 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                             </div>
                                         </div>
                                         <button type="submit" name="role_update" class="btn btn-primary btn-block mt-15">Update Roles</button>
+                                        <?php 
+                                        $currentOriginalRole = $_SESSION['impersonator']['role'] ?? $_SESSION['user']['role'];
+                                        if ($currentOriginalRole === 'superadmin' && $profileId !== (int)$_SESSION['user']['contact_id']): 
+                                        ?>
+                                            <button type="submit" name="impersonate_user" class="btn btn-warning btn-block mt-10">Login As User</button>
+                                        <?php endif; ?>
                                     </form>
                                 </div>
                                 <?php endif; ?>

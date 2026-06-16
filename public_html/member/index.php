@@ -22,6 +22,15 @@ if (isset($_GET['action']) && $_GET['action'] === 'logout') {
     }
 }
 
+// Handle Stop Impersonating Action
+if (isset($_GET['action']) && $_GET['action'] === 'stop_impersonating') {
+    if (Auth::stopImpersonating()) {
+        redirect('admin/roles.php?success=impersonation_stopped');
+    } else {
+        redirect('index.php');
+    }
+}
+
 if (isset($_GET['loggedout'])) {
     $successMsg = "You have been logged out successfully.";
 }
