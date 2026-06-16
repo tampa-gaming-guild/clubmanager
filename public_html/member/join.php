@@ -216,7 +216,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
 
                         <div class="form-group">
                             <label for="password">Create Password (min. 8 characters)</label>
-                            <input type="password" id="password" name="password" required>
+                            <div class="password-toggle-wrapper">
+                                <input type="password" id="password" name="password" required>
+                                <span class="password-toggle-icon" onclick="togglePasswordVisibility('password')">👁️</span>
+                            </div>
                         </div>
 
                         <div class="form-group">
@@ -246,6 +249,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
         </footer>
     </div>
 
+    <script src="assets/js/main.js"></script>
     <script>
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {

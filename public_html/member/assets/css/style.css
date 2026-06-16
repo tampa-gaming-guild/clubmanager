@@ -1105,3 +1105,37 @@ select option {
         grid-template-columns: 1fr;
     }
 }
+
+/* ==========================================================================
+   Password Toggle Utility Styles
+   ========================================================================== */
+.password-toggle-wrapper {
+    position: relative;
+    width: 100%;
+}
+
+.password-toggle-wrapper input[type="password"],
+.password-toggle-wrapper input[type="text"] {
+    padding-right: 40px !important;
+}
+
+.password-toggle-icon {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    cursor: pointer;
+    user-select: none;
+    font-size: 1.15rem;
+    opacity: 0.55;
+    transition: opacity 0.2s ease, transform 0.1s ease;
+    z-index: 10;
+}
+
+.password-toggle-icon:hover {
+    opacity: 0.95;
+}
+
+.password-toggle-icon:active {
+    transform: translateY(-50%) scale(0.9);
+}

@@ -58,3 +58,23 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
+
+/**
+ * Toggle visibility of password input fields
+ * @param {string} fieldId - ID of the password input element
+ */
+function togglePasswordVisibility(fieldId) {
+    const field = document.getElementById(fieldId);
+    if (!field) return;
+
+    const wrapper = field.closest('.password-toggle-wrapper');
+    const toggleIcon = wrapper ? wrapper.querySelector('.password-toggle-icon') : null;
+
+    if (field.type === 'password') {
+        field.type = 'text';
+        if (toggleIcon) toggleIcon.textContent = '🙈';
+    } else {
+        field.type = 'password';
+        if (toggleIcon) toggleIcon.textContent = '👁️';
+    }
+}

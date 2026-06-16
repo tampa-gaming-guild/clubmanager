@@ -220,7 +220,10 @@ if (Auth::check()) {
 
                         <div class="form-group">
                             <label for="password">Password</label>
-                            <input type="password" id="password" name="password" required placeholder="••••••••">
+                            <div class="password-toggle-wrapper">
+                                <input type="password" id="password" name="password" required placeholder="••••••••">
+                                <span class="password-toggle-icon" onclick="togglePasswordVisibility('password')">👁️</span>
+                            </div>
                         </div>
 
                         <button type="submit" name="login_submit" class="btn btn-primary btn-block">Sign In</button>
@@ -240,6 +243,7 @@ if (Auth::check()) {
         </footer>
     </div>
 
+    <script src="assets/js/main.js"></script>
     <script>
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {

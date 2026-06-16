@@ -26,58 +26,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $appDb = Database::getAppConnection();
 
                 // 1. Check if email exists in local contacts
-                $stmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE email = :email AND is_deleted = 0 LIMIT 1");
+                $stmt = $appDb->prepare("SELECT id, display_name FROM tgg_contacts WHERE email = :email AND is_deleted = 0 LIMIT 1");
                 $stmt->execute(['email' => $email]);
                 $civiRow = $stmt->fetch();
 
                 if ($civiRow) {
                     $contactId = (int)$civiRow['id'];
+                    $displayName = $civiRow['display_name'] ?? 'Member';
 
-                    // 2. Check if local settings account exists for this contact
-                    $stmt2 = $appDb->prepare("SELECT contact_id FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1");
-                    $stmt2->execute(['contact_id' => $contactId]);
-                    $appRow = $stmt2->fetch();
+                    // 2. Generate secure token
+                    $rawToken = bin2hex(random_bytes(32));
+                    $hashedToken = hash('sha256', $rawToken);
+                    $expiresAt = date('Y-m-d H:i:s', strtotime('+1 hour'));
 
-                    if ($appRow) {
-                        // Retrieve contact display name from local contacts
-                        $stmt3 = $appDb->prepare("SELECT display_name FROM tgg_contacts WHERE id = :contact_id LIMIT 1");
-                        $stmt3->execute(['contact_id' => $contactId]);
-                        $contactRow = $stmt3->fetch();
-                        $displayName = $contactRow['display_name'] ?? 'Member';
+                    // 3. Save to password resets table
+                    $stmt4 = $appDb->prepare("
+                        INSERT INTO tgg_password_resets (email, token, expires_at)
+                        VALUES (:email, :token, :expires_at)
+                        ON DUPLICATE KEY UPDATE token = :token2, expires_at = :expires_at2
+                    ");
+                    $stmt4->execute([
+                        'email' => $email,
+                        'token' => $hashedToken,
+                        'expires_at' => $expiresAt,
+                        'token2' => $hashedToken,
+                        'expires_at2' => $expiresAt
+                    ]);
 
-                        // 3. Generate secure token
-                        $rawToken = bin2hex(random_bytes(32));
-                        $hashedToken = hash('sha256', $rawToken);
-                        $expiresAt = date('Y-m-d H:i:s', strtotime('+1 hour'));
+                    // 4. Send Email using Template
+                    $resetLink = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/reset-password.php?token=' . $rawToken;
+                    $placeholders = [
+                        'display_name' => $displayName,
+                        'reset_link' => $resetLink,
+                        'reset_code' => $rawToken,
+                        'expires_in' => '1 hour'
+                    ];
 
-                        // 4. Save to password resets table
-                        $stmt4 = $appDb->prepare("
-                            INSERT INTO tgg_password_resets (email, token, expires_at)
-                            VALUES (:email, :token, :expires_at)
-                            ON DUPLICATE KEY UPDATE token = :token2, expires_at = :expires_at2
-                        ");
-                        $stmt4->execute([
-                            'email' => $email,
-                            'token' => $hashedToken,
-                            'expires_at' => $expiresAt,
-                            'token2' => $hashedToken,
-                            'expires_at2' => $expiresAt
-                        ]);
-
-                        // 5. Send Email using Template
-                        $resetLink = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/reset-password.php?token=' . $rawToken;
-                        $placeholders = [
-                            'display_name' => $displayName,
-                            'reset_link' => $resetLink,
-                            'expires_in' => '1 hour'
-                        ];
-
-                        MailHelper::sendTemplate($email, 'password_reset_link', $placeholders, $contactId, null);
-                    }
+                    MailHelper::sendTemplate($email, 'password_reset_link', $placeholders, $contactId, null);
                 }
 
-                // General feedback (does not leak email existence for security)
-                $successMsg = "If the email address is registered in our portal, you will receive a password reset link shortly. Please check your inbox (and spam folder).";
+                // Redirect to code entry page
+                redirect('enter-code.php?sent=1');
 
             } catch (Exception $e) {
                 $errorMsg = safe_err("An error occurred while processing your request: ", $e);
@@ -136,6 +125,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </form>
 
                     <div class="auth-footer">
+                        <p><a href="reset-password.php">Already have a reset code? Enter it manually</a></p>
                         <p><a href="index.php">Back to Sign In</a></p>
                     </div>
                 <?php endif; ?>

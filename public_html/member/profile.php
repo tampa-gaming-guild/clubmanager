@@ -374,12 +374,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
                 $placeholders = [
                     'display_name' => $displayName,
                     'reset_link' => $resetLink,
+                    'reset_code' => $rawToken,
                     'expires_in' => '1 hour'
                 ];
 
                 MailHelper::sendTemplate($email, 'password_reset_link', $placeholders, $profileId, $_SESSION['user']['contact_id'] ?? null);
 
-                $successMsg = "A secure password reset email has been sent. Please check your email to complete the process. If you do not receive the email, please contact the club for help.";
+                // Redirect to code entry page
+                redirect('enter-code.php?sent=1');
 
             } catch (Exception $e) {
                 $errorMsg = safe_err("Failed to send password reset: ", $e);

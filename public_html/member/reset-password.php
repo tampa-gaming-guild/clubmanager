@@ -16,7 +16,7 @@ $rawToken = $_GET['token'] ?? $_POST['token'] ?? '';
 $hashedToken = hash('sha256', $rawToken);
 
 if (empty($rawToken)) {
-    $errorMsg = "Password reset token is missing. Please request a new link.";
+    redirect('enter-code.php');
 } else {
     try {
         $appDb = Database::getAppConnection();
@@ -76,13 +76,34 @@ if (empty($rawToken)) {
                         $nameRow = $stmtName->fetch();
                         $displayName = $nameRow['display_name'] ?? 'Member';
 
-                        // 2. Update password hash in local settings
+                        // 2. Update or insert settings record, resetting failed login attempts and lockout
                         $passwordHash = password_hash($password, PASSWORD_DEFAULT);
-                        $stmtUpdate = $appDb->prepare("UPDATE tgg_member_settings SET password_hash = :hash WHERE contact_id = :contact_id");
-                        $stmtUpdate->execute([
-                            'hash' => $passwordHash,
-                            'contact_id' => $contactId
-                        ]);
+                        
+                        $stmtCheck = $appDb->prepare("SELECT role FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1");
+                        $stmtCheck->execute(['contact_id' => $contactId]);
+                        $exists = $stmtCheck->fetch();
+
+                        if ($exists) {
+                            $stmtUpdate = $appDb->prepare("
+                                UPDATE tgg_member_settings 
+                                SET password_hash = :hash, failed_login_attempts = 0, locked_until = NULL 
+                                WHERE contact_id = :contact_id
+                            ");
+                            $stmtUpdate->execute([
+                                'hash' => $passwordHash,
+                                'contact_id' => $contactId
+                            ]);
+                        } else {
+                            $stmtInsert = $appDb->prepare("
+                                INSERT INTO tgg_member_settings (contact_id, password_hash, role, is_profile_public, public_fields, failed_login_attempts, locked_until)
+                                VALUES (:contact_id, :hash, 'member', 1, :public_fields, 0, NULL)
+                            ");
+                            $stmtInsert->execute([
+                                'contact_id' => $contactId,
+                                'hash' => $passwordHash,
+                                'public_fields' => json_encode(['display_name', 'membership_name', 'status_label'])
+                            ]);
+                        }
 
                         // 3. Delete token
                         $stmtDelete = $appDb->prepare("DELETE FROM tgg_password_resets WHERE email = :email");
@@ -157,21 +178,32 @@ if (empty($rawToken)) {
                         <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
                         <input type="hidden" name="token" value="<?php echo e($rawToken); ?>">
                         
+                        <!-- Hidden read-only email field for browser password managers to associate new password correctly -->
+                        <input type="text" name="email" value="<?php echo e($email ?? ''); ?>" readonly autocomplete="username" style="display: none;">
+
                         <div class="form-group">
                             <label for="password">New Password</label>
-                            <input type="password" id="password" name="password" required placeholder="••••••••" autofocus>
+                            <div class="password-toggle-wrapper">
+                                <input type="password" id="password" name="password" required placeholder="••••••••" autofocus autocomplete="new-password">
+                                <span class="password-toggle-icon" onclick="togglePasswordVisibility('password')">👁️</span>
+                            </div>
                         </div>
 
                         <div class="form-group">
                             <label for="confirm_password">Confirm New Password</label>
-                            <input type="password" id="confirm_password" name="confirm_password" required placeholder="••••••••">
+                            <div class="password-toggle-wrapper">
+                                <input type="password" id="confirm_password" name="confirm_password" required placeholder="••••••••" autocomplete="new-password">
+                                <span class="password-toggle-icon" onclick="togglePasswordVisibility('confirm_password')">👁️</span>
+                            </div>
                         </div>
 
                         <button type="submit" class="btn btn-primary btn-block">Update Password</button>
                     </form>
-                <?php elseif (!$successMsg && !$errorMsg): ?>
+                <?php elseif (!$successMsg): ?>
                     <div class="auth-footer">
-                        <p><a href="forgot-password.php">Request a new reset link</a></p>
+                        <p><a href="enter-code.php" class="btn btn-secondary btn-block">Enter Reset Code Manually</a></p>
+                        <p style="margin-top: 15px;"><a href="forgot-password.php">Request a new reset link/code</a></p>
+                        <p><a href="index.php">Back to Sign In</a></p>
                     </div>
                 <?php endif; ?>
             </div>
@@ -181,5 +213,6 @@ if (empty($rawToken)) {
             <p>&copy; <?php echo date('Y'); ?> TGG Club Membership System. Secure Portal.</p>
         </footer>
     </div>
+    <script src="assets/js/main.js"></script>
 </body>
 </html>

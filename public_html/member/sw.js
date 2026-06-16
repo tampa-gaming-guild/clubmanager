@@ -1,7 +1,6 @@
 // Service Worker for TGG Members PWA
 const CACHE_NAME = 'tgg-members-cache-v1';
 const ASSETS = [
-  'index.php',
   'assets/css/style.css',
   'favicon.png',
   'favicon.ico',
