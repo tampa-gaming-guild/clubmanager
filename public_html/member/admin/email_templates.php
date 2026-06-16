@@ -76,6 +76,12 @@ try {
             $subject = trim($_POST['subject'] ?? '');
             $body = trim($_POST['body'] ?? '');
 
+            // Sanitize template body to remove HTML injection / XSS tags (OWASP A03)
+            $body = preg_replace('/<script\b[^>]*>(.*?)<\/script>/is', "", $body);
+            $body = preg_replace('/\bon[a-z]+\s*=\s*["\'][^"\']*["\']/is', '', $body);
+            $body = preg_replace('/\bon[a-z]+\s*=\s*[^>\s]+/is', '', $body);
+            $body = preg_replace('/href\s*=\s*["\']\s*javascript:[^"\']*["\']/is', 'href="#"', $body);
+
             if (empty($subject) || empty($body)) {
                 $errorMsg = "Subject and Body content cannot be empty.";
             } else {
