@@ -1,4 +1,10 @@
 tgg.test {
     tls internal
+    # Deny web access to sensitive paths in case document root is misconfigured
+    @sensitive {
+        path /.env* /config/* /src/* /sql/* /composer.json /composer.lock /.git/*
+    }
+    respond @sensitive 404
+
     reverse_proxy localhost:8080
 }
