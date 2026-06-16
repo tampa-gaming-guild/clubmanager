@@ -50,7 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_delete'])) {
             $stmt->execute(['id' => $eventId]);
             $successMsg = "Event deleted successfully.";
         } catch (Exception $e) {
-            $errorMsg = "Failed to delete event: " . $e->getMessage();
+            $errorMsg = safe_err("Failed to delete event: ", $e);
         }
     }
 }
@@ -80,7 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_create'])) {
                 // Clear post inputs on success
                 $_POST = [];
             } catch (Exception $e) {
-                $errorMsg = "Scheduling failed: " . $e->getMessage();
+                $errorMsg = safe_err("Scheduling failed: ", $e);
             }
         }
     }
@@ -147,7 +147,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_create_recurri
                 $successMsg = "Successfully scheduled {$insertedCount} recurring events populated 4 months in advance!";
                 $_POST = [];
             } catch (Exception $e) {
-                $errorMsg = "Failed to schedule recurring events: " . $e->getMessage();
+                $errorMsg = safe_err("Failed to schedule recurring events: ", $e);
             }
         }
     }
@@ -158,7 +158,7 @@ try {
     $events = Event::getEvents();
 } catch (Exception $e) {
     $events = [];
-    $errorMsg = "Unable to load events: " . $e->getMessage();
+    $errorMsg = safe_err("Unable to load events: ", $e);
 }
 ?>
 <!DOCTYPE html>

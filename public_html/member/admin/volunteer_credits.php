@@ -168,7 +168,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (isset($appDb) && $appDb->inTransaction()) {
                 $appDb->rollBack();
             }
-            $errorMsg = "Failed to update credits: " . $e->getMessage();
+            $errorMsg = safe_err("Failed to update credits: ", $e);
         }
     } elseif (isset($_POST['action_convert'])) {
         // B. Process credits and extend memberships
@@ -356,7 +356,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $successMsg = "Successfully processed volunteer credits and extended memberships for selected members.";
             } catch (Exception $e) {
                 if (isset($appDb) && $appDb->inTransaction()) $appDb->rollBack();
-                $errorMsg = "Processing failed: " . $e->getMessage();
+                $errorMsg = safe_err("Processing failed: ", $e);
             }
         }
     }
@@ -369,7 +369,7 @@ try {
     $creditSettings = $stmt->fetchAll();
 } catch (Exception $e) {
     $creditSettings = [];
-    $errorMsg = "Unable to retrieve credits: " . $e->getMessage();
+    $errorMsg = safe_err("Unable to retrieve credits: ", $e);
 }
 
 // GET Handler: Load Eligible Unprocessed Signups
@@ -485,7 +485,7 @@ if (!empty($startDate) && !empty($endDate)) {
             }
         }
     } catch (Exception $e) {
-        $errorMsg = "Error loading eligible signups: " . $e->getMessage();
+        $errorMsg = safe_err("Error loading eligible signups: ", $e);
     }
 }
 ?>

@@ -77,7 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
         } catch (Exception $e) {
-            $errorMsg = "Check-in system error: " . $e->getMessage();
+            $errorMsg = safe_err("Check-in system error: ", $e);
         }
     }
 

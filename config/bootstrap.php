@@ -5,8 +5,7 @@
  */
 
 // 1. Error Reporting Configuration (Production should log to file, not display)
-error_reporting(E_ALL);
-ini_set('display_errors', 1); // Set to 0 in production
+// Configured dynamically below after loading environment variables.
 
 // 2. Load Environment Variables from .env
 function loadEnv($dir) {
@@ -43,6 +42,15 @@ function loadEnv($dir) {
     }
 }
 loadEnv(dirname(__DIR__));
+
+// Configure Error Reporting based on Environment
+if (($_ENV['APP_ENV'] ?? 'production') !== 'development') {
+    ini_set('display_errors', 0);
+    error_reporting(0);
+} else {
+    error_reporting(E_ALL);
+    ini_set('display_errors', 1);
+}
 
 // Load Composer Autoloader if it exists
 if (file_exists(dirname(__DIR__) . '/vendor/autoload.php')) {
@@ -157,4 +165,15 @@ function json_response($data, $statusCode = 200) {
     http_response_code($statusCode);
     echo json_encode($data);
     exit;
+}
+
+/**
+ * Safe error message formatter for user-facing exception messages.
+ * Prevents database details, file paths, and SQL queries from being exposed in production.
+ */
+function safe_err($prefix, Exception $e) {
+    if (($_ENV['APP_ENV'] ?? 'production') === 'development') {
+        return $prefix . $e->getMessage();
+    }
+    return rtrim($prefix, ': ') . ". An unexpected error occurred. Please try again or contact support.";
 }

@@ -109,7 +109,7 @@ if (empty($rawToken)) {
             }
         }
     } catch (Exception $e) {
-        $errorMsg = "An error occurred: " . $e->getMessage();
+        $errorMsg = safe_err("An error occurred: ", $e);
     }
 }
 ?>

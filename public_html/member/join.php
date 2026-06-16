@@ -34,7 +34,7 @@ if (isset($_GET['status']) && $_GET['status'] === 'success' && isset($_GET['sess
             $errorMsg = "Your payment is pending. Once completed, your membership will be active.";
         }
     } catch (Exception $e) {
-        $errorMsg = "Could not verify payment status: " . $e->getMessage();
+        $errorMsg = safe_err("Could not verify payment status: ", $e);
     }
 }
 
@@ -136,7 +136,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                     }
                 }
             } catch (Exception $e) {
-                $errorMsg = "Registration failed: " . $e->getMessage();
+                $errorMsg = safe_err("Registration failed: ", $e);
             }
         }
     }

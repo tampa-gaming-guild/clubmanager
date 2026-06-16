@@ -45,7 +45,7 @@ if ($event['type'] === 'checkout.session.completed') {
         echo json_encode(['status' => 'success', 'message' => 'Membership processed successfully']);
     } catch (Exception $e) {
         http_response_code(500);
-        echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
+        echo json_encode(['status' => 'error', 'message' => (($_ENV['APP_ENV'] ?? 'production') === 'development' ? $e->getMessage() : 'An unexpected error occurred')]);
     }
     exit;
 }

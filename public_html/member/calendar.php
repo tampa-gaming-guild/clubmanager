@@ -27,7 +27,7 @@ try {
     $events = Event::getEvents($monthStart, $monthEnd);
 } catch (Exception $e) {
     $events = [];
-    $errorMsg = "Unable to load events: " . $e->getMessage();
+    $errorMsg = safe_err("Unable to load events: ", $e);
 }
 
 // Events-to-days mapping and volunteer pre-fetching are handled below the POST action block
@@ -50,7 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && Auth::check()) {
                 // Refresh events
                 $events = Event::getEvents($monthStart, $monthEnd);
             } catch (Exception $e) {
-                $errorMsg = "Volunteer signup failed: " . $e->getMessage();
+                $errorMsg = safe_err("Volunteer signup failed: ", $e);
             }
         }
         
@@ -67,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && Auth::check()) {
                 // Refresh events
                 $events = Event::getEvents($monthStart, $monthEnd);
             } catch (Exception $e) {
-                $errorMsg = "Failed to cancel volunteer registration: " . $e->getMessage();
+                $errorMsg = safe_err("Failed to cancel volunteer registration: ", $e);
             }
         }
     }

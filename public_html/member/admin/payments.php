@@ -46,7 +46,7 @@ try {
         }
     }
 } catch (Exception $e) {
-    $errorMsg = "Failed to compile financial ledger data: " . $e->getMessage();
+    $errorMsg = safe_err("Failed to compile financial ledger data: ", $e);
 }
 ?>
 <!DOCTYPE html>

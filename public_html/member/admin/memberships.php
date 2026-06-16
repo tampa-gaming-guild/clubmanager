@@ -47,7 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_plan'])) {
             header("Location: memberships.php?success=" . urlencode($successMsg));
             exit;
         } catch (Exception $e) {
-            $errorMsg = "Failed to save plan: " . $e->getMessage();
+            $errorMsg = safe_err("Failed to save plan: ", $e);
         }
     }
 }

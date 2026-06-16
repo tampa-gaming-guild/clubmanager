@@ -34,7 +34,7 @@ if (isset($_GET['status']) && $_GET['status'] === 'success' && isset($_GET['sess
             $errorMsg = "Payment verification is pending.";
         }
     } catch (Exception $e) {
-        $errorMsg = "Verification error: " . $e->getMessage();
+        $errorMsg = safe_err("Verification error: ", $e);
     }
 }
 
@@ -64,7 +64,7 @@ try {
     }
     $tiers = BillingHelper::getSubscriptionPlans(true);
 } catch (Exception $e) {
-    $errorMsg = "Unable to fetch membership details: " . $e->getMessage();
+    $errorMsg = safe_err("Unable to fetch membership details: ", $e);
 }
 
 // 4. Handle Renewal Request Form POST
@@ -134,7 +134,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
 
                     $membership = $updatedMembership;
                 } catch (Exception $e) {
-                    $errorMsg = "Failed to process offline renewal: " . $e->getMessage();
+                    $errorMsg = safe_err("Failed to process offline renewal: ", $e);
                 }
             }
         } else {
@@ -158,7 +158,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                     header("Location: " . $session['url']);
                     exit;
                 } catch (Exception $e) {
-                    $errorMsg = "Failed to process renewal: " . $e->getMessage();
+                    $errorMsg = safe_err("Failed to process renewal: ", $e);
                 }
             }
         }

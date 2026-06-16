@@ -22,7 +22,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $syncResult = CiviCRMImporter::runSync();
         } catch (Exception $e) {
-            $errorMsg = "Import failed: " . $e->getMessage();
+            $errorMsg = safe_err("Import failed: ", $e);
         }
     }
 }

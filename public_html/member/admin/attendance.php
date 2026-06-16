@@ -42,7 +42,7 @@ try {
         }
     }
 } catch (Exception $e) {
-    $errorMsg = "Failed to compile attendance log: " . $e->getMessage();
+    $errorMsg = safe_err("Failed to compile attendance log: ", $e);
 }
 ?>
 <!DOCTYPE html>

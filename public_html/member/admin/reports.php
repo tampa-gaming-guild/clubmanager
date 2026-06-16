@@ -161,7 +161,7 @@ try {
     }
 
 } catch (Exception $e) {
-    $errorMsg = "Failed to compile analytical data: " . $e->getMessage();
+    $errorMsg = safe_err("Failed to compile analytical data: ", $e);
 }
 ?>
 <!DOCTYPE html>

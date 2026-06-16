@@ -51,7 +51,7 @@ try {
         $settings = $settingsStmt->fetch();
     }
 } catch (Exception $e) {
-    $errorMsg = "Database Connection Error: " . $e->getMessage();
+    $errorMsg = safe_err("Database Connection Error: ", $e);
 }
 
 if (!$contact) {
@@ -97,7 +97,7 @@ if ($hasPrivateAccess && $appDb) {
         $transStmt->execute(['contact_id' => $profileId]);
         $transactions = $transStmt->fetchAll();
     } catch (Exception $e) {
-        $errorMsg = ($errorMsg ? $errorMsg . " | " : "") . "Failed to load billing history: " . $e->getMessage();
+        $errorMsg = safe_err(($errorMsg ? $errorMsg . " | " : "") . "Failed to load billing history: ", $e);
     }
 }
 
@@ -280,7 +280,7 @@ if ($hasPrivateAccess && $appDb) {
             ]);
         }
     } catch (Exception $e) {
-        $errorMsg = ($errorMsg ? $errorMsg . " | " : "") . "Failed to load volunteer credits: " . $e->getMessage();
+        $errorMsg = safe_err(($errorMsg ? $errorMsg . " | " : "") . "Failed to load volunteer credits: ", $e);
     }
 }
 
@@ -336,7 +336,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
                 }
 
             } catch (Exception $e) {
-                $errorMsg = "Failed to save settings: " . $e->getMessage();
+                $errorMsg = safe_err("Failed to save settings: ", $e);
             }
         }
 
@@ -381,7 +381,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
                 $successMsg = "A secure password reset email has been sent. Please check your email to complete the process. If you do not receive the email, please contact the club for help.";
 
             } catch (Exception $e) {
-                $errorMsg = "Failed to send password reset: " . $e->getMessage();
+                $errorMsg = safe_err("Failed to send password reset: ", $e);
             }
         }
     }

@@ -80,7 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $successMsg = "If the email address is registered in our portal, you will receive a password reset link shortly. Please check your inbox (and spam folder).";
 
             } catch (Exception $e) {
-                $errorMsg = "An error occurred while processing your request: " . $e->getMessage();
+                $errorMsg = safe_err("An error occurred while processing your request: ", $e);
             }
         }
     }

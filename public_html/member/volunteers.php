@@ -47,7 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && Auth::check()) {
                 
                 $successMsg = "Success! Signed up {$displayName} as {$role} volunteer.";
             } catch (Exception $e) {
-                $errorMsg = "Volunteer signup failed: " . $e->getMessage();
+                $errorMsg = safe_err("Volunteer signup failed: ", $e);
             }
         }
     }
@@ -75,7 +75,7 @@ try {
     }
 } catch (Exception $e) {
     $events = [];
-    $errorMsg = "Unable to load schedule: " . $e->getMessage();
+    $errorMsg = safe_err("Unable to load schedule: ", $e);
 }
 ?>
 <!DOCTYPE html>

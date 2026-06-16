@@ -57,7 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login_submit'])) {
                 $errorMsg = "Invalid email or password. Please check your credentials.";
             }
         } catch (Exception $e) {
-            $errorMsg = "Login system error: " . $e->getMessage();
+            $errorMsg = safe_err("Login system error: ", $e);
         }
     }
 }

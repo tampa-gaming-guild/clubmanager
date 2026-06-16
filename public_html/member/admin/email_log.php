@@ -74,7 +74,7 @@ try {
         }
     }
 } catch (Exception $e) {
-    $errorMsg = "Database Error: " . $e->getMessage();
+    $errorMsg = safe_err("Database Error: ", $e);
 }
 ?>
 <!DOCTYPE html>

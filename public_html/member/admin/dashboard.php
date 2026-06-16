@@ -89,7 +89,7 @@ try {
     ")->fetchColumn();
 
 } catch (Exception $e) {
-    $errorMsg = "Unable to fetch summary metrics: " . $e->getMessage();
+    $errorMsg = safe_err("Unable to fetch summary metrics: ", $e);
 }
 ?>
 <!DOCTYPE html>
