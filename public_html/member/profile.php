@@ -602,8 +602,16 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                         <div class="profile-title">
                             <h2><?php echo e($displayNameToPublic); ?> <span style="font-size: 1.1rem; color: var(--color-text-secondary); font-weight: normal; margin-left: 8px;">(Member ID: <?php echo $profileId; ?>)</span></h2>
                             <span class="badge badge-role"><?php 
+                                $roleHierarchy = ['superadmin', 'admin', 'host', 'member', 'guest'];
+                                usort($memberRoles, function($a, $b) use ($roleHierarchy) {
+                                    $posA = array_search($a, $roleHierarchy, true);
+                                    $posB = array_search($b, $roleHierarchy, true);
+                                    $posA = ($posA === false) ? 999 : $posA;
+                                    $posB = ($posB === false) ? 999 : $posB;
+                                    return $posA <=> $posB;
+                                });
                                 $capitalizedRoles = array_map(function($r) { return ucfirst($r); }, $memberRoles);
-                                echo e(implode(' ', $capitalizedRoles)); 
+                                echo e(implode(', ', $capitalizedRoles)); 
                             ?></span>
                         </div>
                     </div>
