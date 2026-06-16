@@ -126,7 +126,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <form action="import.php" method="POST" class="sync-form">
                                 <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
                                 <div class="info-block">
-                                    <p><strong>Note:</strong> Importing will automatically register CiviCRM contacts into the local tracking database, allowing them to log in to this portal using their CiviCRM emails. New imports default to a password of <code>change_me_123</code> which they must change upon logging in.</p>
+                                    <p><strong>Note:</strong> Importing will automatically register CiviCRM contacts into the local tracking database, allowing them to log in to this portal using their CiviCRM emails. New accounts are initialized with a random secure token. Users must use the <strong>Forgot Password</strong> flow on the login portal to set their password for the first time.</p>
                                 </div>
                                 <button type="submit" class="btn btn-primary btn-large">Start CiviCRM Synchronization</button>
                             </form>

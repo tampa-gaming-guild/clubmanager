@@ -313,10 +313,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
                     $update->execute(['is_public' => $isPublic, 'fields' => $allowedFieldsJSON, 'custom_name' => $customDisplayName, 'id' => $profileId]);
                 } else {
                     $insert = $appDb->prepare("INSERT INTO tgg_member_settings (contact_id, password_hash, role, is_profile_public, public_fields, custom_display_name) VALUES (:id, :hash, 'member', :is_public, :fields, :custom_name)");
-                    // Default temporary password
+                    // Default temporary secure random password
+                    $randomToken = bin2hex(random_bytes(32));
                     $insert->execute([
                         'id' => $profileId,
-                        'hash' => password_hash('change_me_123', PASSWORD_DEFAULT),
+                        'hash' => password_hash($randomToken, PASSWORD_DEFAULT),
                         'is_public' => $isPublic,
                         'fields' => $allowedFieldsJSON,
                         'custom_name' => $customDisplayName

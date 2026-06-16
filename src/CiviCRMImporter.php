@@ -80,9 +80,7 @@ class CiviCRMImporter {
         $insertStmt = $appDb->prepare("INSERT INTO tgg_member_settings (contact_id, password_hash, role, is_profile_public, public_fields) 
                                        VALUES (:contact_id, :password_hash, :role, 1, :public_fields)");
 
-        // We will set a default password of 'change_me_123' if creating new accounts
-        // Users should renew or reset their password on first login
-        $defaultPasswordHash = password_hash('change_me_123', PASSWORD_DEFAULT);
+        // Users must use the forgot password flow to reset their password on first login
         $defaultPublicFields = json_encode(['display_name', 'membership_type', 'membership_status']);
 
         foreach ($contacts as $contact) {
@@ -110,9 +108,13 @@ class CiviCRMImporter {
                     $isAdminCheck = $appDb->query("SELECT COUNT(*) FROM tgg_member_settings WHERE role = 'admin'")->fetchColumn();
                     $role = ($isAdminCheck == 0 && $contactId == 1) ? 'admin' : 'member';
 
+                    // Generate secure random token password
+                    $randomPassword = bin2hex(random_bytes(32));
+                    $securePasswordHash = password_hash($randomPassword, PASSWORD_DEFAULT);
+
                     $insertStmt->execute([
                         'contact_id' => $contactId,
-                        'password_hash' => $defaultPasswordHash,
+                        'password_hash' => $securePasswordHash,
                         'role' => $role,
                         'public_fields' => $defaultPublicFields
                     ]);
