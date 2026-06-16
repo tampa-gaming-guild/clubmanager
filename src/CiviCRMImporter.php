@@ -104,9 +104,7 @@ class CiviCRMImporter {
 
                 if (!$localUser) {
                     // Create local credentials record
-                    // First contact imported will be set as admin automatically if none exist, otherwise member
-                    $isAdminCheck = $appDb->query("SELECT COUNT(*) FROM tgg_member_settings WHERE role = 'admin'")->fetchColumn();
-                    $role = ($isAdminCheck == 0 && $contactId == 1) ? 'admin' : 'member';
+                    $role = 'member';
 
                     // Generate secure random token password
                     $randomPassword = bin2hex(random_bytes(32));
