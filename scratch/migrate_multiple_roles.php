@@ -6,6 +6,75 @@ try {
     $db = Database::getAppConnection();
     echo "Connected to the database successfully.\n";
 
+    // 1. Create tgg_roles table
+    $db->exec("
+        CREATE TABLE IF NOT EXISTS `tgg_roles` (
+          `id` INT AUTO_INCREMENT NOT NULL,
+          `name` VARCHAR(50) NOT NULL UNIQUE,
+          `description` VARCHAR(255) NULL,
+          PRIMARY KEY (`id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    ");
+    echo "Table 'tgg_roles' verified/created.\n";
+
+    // Seed default roles
+    $db->exec("
+        INSERT INTO `tgg_roles` (`name`, `description`) VALUES
+        ('superadmin', 'Super Administrator with full access'),
+        ('admin', 'Administrator with management access'),
+        ('host', 'Event Host with scheduling and check-in access'),
+        ('member', 'Regular Club Member'),
+        ('guest', 'Guest visitor with limited access')
+        ON DUPLICATE KEY UPDATE `description` = VALUES(`description`);
+    ");
+    echo "Default roles seeded.\n";
+
+    // 2. Create tgg_permissions table
+    $db->exec("
+        CREATE TABLE IF NOT EXISTS `tgg_permissions` (
+          `id` INT AUTO_INCREMENT NOT NULL,
+          `name` VARCHAR(50) NOT NULL UNIQUE,
+          `description` VARCHAR(255) NULL,
+          PRIMARY KEY (`id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    ");
+    echo "Table 'tgg_permissions' verified/created.\n";
+
+    // Seed default permissions
+    $db->exec("
+        INSERT INTO `tgg_permissions` (`name`, `description`) VALUES
+        ('all', 'All permissions / full access'),
+        ('process payments', 'View payments ledger and process billing'),
+        ('schedule events', 'Create and edit calendar events'),
+        ('edit checkins', 'Log and edit attendance check-ins'),
+        ('edit volunteer slots', 'Assign or cancel volunteer shifts and credits'),
+        ('password resets', 'Perform password resets for contacts')
+        ON DUPLICATE KEY UPDATE `description` = VALUES(`description`);
+    ");
+    echo "Default permissions seeded.\n";
+
+    // 3. Create tgg_role_permissions table
+    $db->exec("
+        CREATE TABLE IF NOT EXISTS `tgg_role_permissions` (
+          `role_id` INT NOT NULL,
+          `permission_id` INT NOT NULL,
+          PRIMARY KEY (`role_id`, `permission_id`),
+          CONSTRAINT `fk_role_permissions_role` FOREIGN KEY (`role_id`) REFERENCES `tgg_roles` (`id`) ON DELETE CASCADE,
+          CONSTRAINT `fk_role_permissions_permission` FOREIGN KEY (`permission_id`) REFERENCES `tgg_permissions` (`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    ");
+    echo "Table 'tgg_role_permissions' verified/created.\n";
+
+    // Seed default role-permission mappings
+    $db->exec("
+        INSERT IGNORE INTO `tgg_role_permissions` (`role_id`, `permission_id`)
+        SELECT r.id, p.id FROM tgg_roles r, tgg_permissions p 
+        WHERE (r.name = 'superadmin' AND p.name = 'all')
+           OR (r.name = 'admin' AND p.name IN ('process payments', 'schedule events', 'edit checkins', 'edit volunteer slots', 'password resets'))
+           OR (r.name = 'host' AND p.name IN ('schedule events', 'edit checkins', 'edit volunteer slots'));
+    ");
+    echo "Default role-permission mappings seeded.\n";
+
     // Helper to get column details
     $getColumnInfo = function($db, $table, $column) {
         $stmt = $db->query("SHOW FULL COLUMNS FROM `$table` LIKE '$column'");
@@ -29,7 +98,7 @@ try {
     $roleNameType = $roleNameInfo['type'];
     $roleNameCollationStr = !empty($roleNameInfo['collation']) ? " COLLATE " . $roleNameInfo['collation'] : "";
 
-    // 1. Create tgg_member_roles table dynamically matching foreign key fields
+    // 4. Create tgg_member_roles table dynamically matching foreign key fields
     $db->exec("
         CREATE TABLE IF NOT EXISTS `tgg_member_roles` (
           `contact_id` {$contactIdType} NOT NULL,
@@ -41,7 +110,7 @@ try {
     ");
     echo "Table 'tgg_member_roles' verified/created.\n";
 
-    // 2. Create trigger
+    // 5. Create trigger
     $db->exec("DROP TRIGGER IF EXISTS `tgg_member_settings_after_insert`");
     $db->exec("
         CREATE TRIGGER `tgg_member_settings_after_insert`
@@ -55,14 +124,14 @@ try {
     ");
     echo "Trigger 'tgg_member_settings_after_insert' created.\n";
 
-    // 3. Migrate current roles
+    // 6. Migrate current roles
     $insertedCount = $db->exec("
         INSERT IGNORE INTO `tgg_member_roles` (`contact_id`, `role_name`)
         SELECT `contact_id`, `role` FROM `tgg_member_settings`
     ");
     echo "Migrated {$insertedCount} role records into 'tgg_member_roles'.\n";
 
-    // Let's print summary of counts per role in the new table
+    // Print summary of counts per role in the new table
     $summary = $db->query("SELECT role_name, COUNT(*) as count FROM tgg_member_roles GROUP BY role_name")->fetchAll(PDO::FETCH_ASSOC);
     print_r($summary);
 
