@@ -6,6 +6,28 @@ try {
     $db = Database::getAppConnection();
     echo "Connected to the database successfully.\n";
 
+    // 0. Ensure tgg_member_settings has all expected columns
+    $expectedSettingsColumns = [
+        'custom_display_name' => "VARCHAR(255) NULL",
+        'is_profile_public' => "TINYINT(1) NOT NULL DEFAULT 1",
+        'public_fields' => "TEXT NULL",
+        'credits_earned' => "FLOAT NOT NULL DEFAULT 0.0",
+        'credits_applied' => "FLOAT NOT NULL DEFAULT 0.0",
+        'expired_credits' => "FLOAT NOT NULL DEFAULT 0.0",
+        'failed_login_attempts' => "INT NOT NULL DEFAULT 0",
+        'locked_until' => "DATETIME NULL"
+    ];
+
+    $stmt = $db->query("SHOW COLUMNS FROM `tgg_member_settings`");
+    $existingSettingsColumns = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+    foreach ($expectedSettingsColumns as $col => $definition) {
+        if (!in_array($col, $existingSettingsColumns)) {
+            $db->exec("ALTER TABLE `tgg_member_settings` ADD COLUMN `$col` $definition");
+            echo "Added missing column '$col' to 'tgg_member_settings'.\n";
+        }
+    }
+
     // 1. Create tgg_roles table
     $db->exec("
         CREATE TABLE IF NOT EXISTS `tgg_roles` (
