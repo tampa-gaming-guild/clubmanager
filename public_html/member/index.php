@@ -13,8 +13,13 @@ $successMsg = null;
 
 // Handle Logout Action
 if (isset($_GET['action']) && $_GET['action'] === 'logout') {
-    Auth::logout();
-    redirect('index.php?loggedout=1');
+    if (verify_csrf_token($_GET['csrf_token'] ?? '')) {
+        Auth::logout();
+        redirect('index.php?loggedout=1');
+    } else {
+        http_response_code(403);
+        die("CSRF validation failed on logout.");
+    }
 }
 
 if (isset($_GET['loggedout'])) {
@@ -105,7 +110,7 @@ if (Auth::check()) {
                     <?php if (has_role('admin')): ?>
                         <a href="admin/dashboard.php">Admin</a>
                     <?php endif; ?>
-                    <a href="index.php?action=logout" class="btn-logout">Logout</a>
+                    <a href="index.php?action=logout&amp;csrf_token=<?php echo e(get_csrf_token()); ?>" class="btn-logout">Logout</a>
                 <?php else: ?>
                     <a href="index.php" class="active">Login</a>
                     <a href="join.php">Join Us</a>

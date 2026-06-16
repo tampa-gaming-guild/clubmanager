@@ -162,7 +162,7 @@ if ($nextMonth > 12) { $nextMonth = 1; $nextYear++; }
                     <?php if (has_role('admin')): ?>
                         <a href="admin/dashboard.php">Admin</a>
                     <?php endif; ?>
-                    <a href="index.php?action=logout" class="btn-logout">Logout</a>
+                    <a href="index.php?action=logout&amp;csrf_token=<?php echo e(get_csrf_token()); ?>" class="btn-logout">Logout</a>
                 <?php else: ?>
                     <a href="index.php">Login</a>
                     <a href="join.php">Join Us</a>

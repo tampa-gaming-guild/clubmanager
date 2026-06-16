@@ -143,7 +143,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'edit' && isset($_GET['id'])) 
                 <a href="../volunteers.php">Volunteers</a>
                 <a href="../checkin.php">Check-In</a>
                 <a href="dashboard.php" class="active">Admin</a>
-                <a href="../index.php?action=logout" class="btn-logout">Logout</a>
+                <a href="../index.php?action=logout&amp;csrf_token=<?php echo e(get_csrf_token()); ?>" class="btn-logout">Logout</a>
             </nav>
         </header>
 

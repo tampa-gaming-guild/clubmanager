@@ -102,6 +102,9 @@ class Auth {
         // Regenerate session ID to prevent session fixation attacks
         session_regenerate_id(true);
 
+        // Rotate CSRF token on successful login to prevent pre-auth token hijacking
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+
         return $_SESSION['user'];
     }
 
