@@ -150,25 +150,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'edit' && isset($_GET['id'])) 
         <main class="main-content">
             <div class="admin-grid">
                 
-                <!-- Sidebar Admin Navigation -->
-                <aside class="admin-sidebar glass-panel">
-                    <h3>Admin Controls</h3>
-                    <ul class="admin-menu">
-                        <li><a href="dashboard.php">Dashboard</a></li>
-                        <li><a href="scheduler.php">Event Scheduler</a></li>
-                        <li><a href="volunteer_credits.php">Volunteer Credits</a></li>
-                        <li><a href="import.php">CiviCRM Importer</a></li>
-                        <li><a href="memberships.php" class="active">Memberships</a></li>
-                        <li><a href="email_templates.php">Email Templates</a></li>
-                        <li><a href="reports.php" class="<?php echo in_array(basename($_SERVER['PHP_SELF']), ['reports.php', 'payments.php', 'attendance.php', 'email_log.php']) ? 'active' : ''; ?>">Reports & Analytics</a>
-                            <ul class="admin-submenu" style="list-style-type: none; padding-left: 15px; margin-top: 5px; display: flex; flex-direction: column; gap: 4px;">
-                                <li><a href="payments.php" class="<?php echo (basename($_SERVER['PHP_SELF']) === 'payments.php') ? 'active' : ''; ?>" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Payments Log</a></li>
-                                <li><a href="attendance.php" class="<?php echo (basename($_SERVER['PHP_SELF']) === 'attendance.php') ? 'active' : ''; ?>" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Attendance Log</a></li>
-                                <li><a href="email_log.php" class="<?php echo (basename($_SERVER['PHP_SELF']) === 'email_log.php') ? 'active' : ''; ?>" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Email Log</a></li>
-                            </ul>
-                        </li>
-                    </ul>
-                </aside>
+                <?php include 'sidebar.php'; ?>
 
                 <!-- Work Area -->
                 <section class="admin-workspace glass-panel">

@@ -90,13 +90,38 @@ class Auth {
         // 4. Fetch the user's display name according to privacy preferences
         $displayName = CiviCRMImporter::getFormattedName($contactId);
 
+        // Fetch all roles assigned to this contact
+        $rolesStmt = $appDb->prepare("SELECT role_name FROM tgg_member_roles WHERE contact_id = :contact_id");
+        $rolesStmt->execute(['contact_id' => $contactId]);
+        $roles = $rolesStmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        if (empty($roles)) {
+            $roles = [$authRow['role']];
+        }
+
+        // Fetch permissions for these roles (union of permissions)
+        $permissions = [];
+        if (!empty($roles)) {
+            $placeholders = implode(',', array_fill(0, count($roles), '?'));
+            $permStmt = $appDb->prepare("
+                SELECT DISTINCT p.name 
+                FROM tgg_permissions p
+                JOIN tgg_role_permissions rp ON rp.permission_id = p.id
+                JOIN tgg_roles r ON r.id = rp.role_id
+                WHERE r.name IN ($placeholders)
+            ");
+            $permStmt->execute($roles);
+            $permissions = $permStmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        }
+
         // 5. Store in Session
         $_SESSION['user'] = [
             'contact_id' => $contactId,
             'email' => $email,
             'display_name' => $displayName,
-            'role' => $authRow['role'],
-            'is_profile_public' => (int)$authRow['is_profile_public']
+            'roles' => $roles,
+            'role' => $roles[0] ?? $authRow['role'], // for legacy string compatibility
+            'is_profile_public' => (int)$authRow['is_profile_public'],
+            'permissions' => $permissions
         ];
 
         // Regenerate session ID to prevent session fixation attacks
@@ -193,8 +218,62 @@ class Auth {
      */
     public static function requireAdmin(): void {
         self::requireAuth();
-        if ($_SESSION['user']['role'] !== 'admin') {
+        $role = $_SESSION['user']['role'];
+        if ($role !== 'superadmin' && $role !== 'admin' && $role !== 'host') {
             redirect('index.php?error=unauthorized');
+        }
+    }
+
+    /**
+     * Require a specific permission for a page
+     */
+    public static function requirePermission(string $permission): void {
+        self::requireAuth();
+        if (!has_permission($permission)) {
+            redirect('index.php?error=unauthorized');
+        }
+    }
+
+    /**
+     * Refresh the current user's role and permissions in the session
+     */
+    public static function refreshPermissions(): void {
+        if (!self::check()) {
+            return;
+        }
+        $contactId = (int)$_SESSION['user']['contact_id'];
+        $appDb = Database::getAppConnection();
+        
+        $stmt = $appDb->prepare("SELECT role, is_profile_public FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1");
+        $stmt->execute(['contact_id' => $contactId]);
+        $row = $stmt->fetch();
+        if ($row) {
+            // Fetch multiple roles
+            $rolesStmt = $appDb->prepare("SELECT role_name FROM tgg_member_roles WHERE contact_id = :contact_id");
+            $rolesStmt->execute(['contact_id' => $contactId]);
+            $roles = $rolesStmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
+            if (empty($roles)) {
+                $roles = [$row['role']];
+            }
+
+            $_SESSION['user']['roles'] = $roles;
+            $_SESSION['user']['role'] = $roles[0] ?? $row['role']; // for legacy string compatibility
+            $_SESSION['user']['is_profile_public'] = (int)$row['is_profile_public'];
+            
+            $permissions = [];
+            if (!empty($roles)) {
+                $placeholders = implode(',', array_fill(0, count($roles), '?'));
+                $permStmt = $appDb->prepare("
+                    SELECT DISTINCT p.name 
+                    FROM tgg_permissions p
+                    JOIN tgg_role_permissions rp ON rp.permission_id = p.id
+                    JOIN tgg_roles r ON r.id = rp.role_id
+                    WHERE r.name IN ($placeholders)
+                ");
+                $permStmt->execute($roles);
+                $permissions = $permStmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
+            }
+            $_SESSION['user']['permissions'] = $permissions;
         }
     }
 }

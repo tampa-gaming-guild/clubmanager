@@ -5,11 +5,62 @@
 CREATE DATABASE IF NOT EXISTS `tgg_members` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE `tgg_members`;
 
+-- 0a. Roles Table
+CREATE TABLE IF NOT EXISTS `tgg_roles` (
+  `id` INT AUTO_INCREMENT NOT NULL,
+  `name` VARCHAR(50) NOT NULL UNIQUE,
+  `description` VARCHAR(255) NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Seed default roles
+INSERT INTO `tgg_roles` (`name`, `description`) VALUES
+('superadmin', 'Super Administrator with full access'),
+('admin', 'Administrator with management access'),
+('host', 'Event Host with scheduling and check-in access'),
+('member', 'Regular Club Member'),
+('guest', 'Guest visitor with limited access')
+ON DUPLICATE KEY UPDATE `description` = VALUES(`description`);
+
+-- 0b. Permissions Table
+CREATE TABLE IF NOT EXISTS `tgg_permissions` (
+  `id` INT AUTO_INCREMENT NOT NULL,
+  `name` VARCHAR(50) NOT NULL UNIQUE,
+  `description` VARCHAR(255) NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Seed default permissions
+INSERT INTO `tgg_permissions` (`name`, `description`) VALUES
+('all', 'All permissions / full access'),
+('process payments', 'View payments ledger and process billing'),
+('schedule events', 'Create and edit calendar events'),
+('edit checkins', 'Log and edit attendance check-ins'),
+('edit volunteer slots', 'Assign or cancel volunteer shifts and credits'),
+('password resets', 'Perform password resets for contacts')
+ON DUPLICATE KEY UPDATE `description` = VALUES(`description`);
+
+-- 0c. Role Permissions Mapping Table
+CREATE TABLE IF NOT EXISTS `tgg_role_permissions` (
+  `role_id` INT NOT NULL,
+  `permission_id` INT NOT NULL,
+  PRIMARY KEY (`role_id`, `permission_id`),
+  CONSTRAINT `fk_role_permissions_role` FOREIGN KEY (`role_id`) REFERENCES `tgg_roles` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_role_permissions_permission` FOREIGN KEY (`permission_id`) REFERENCES `tgg_permissions` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Seed default mappings
+INSERT IGNORE INTO `tgg_role_permissions` (`role_id`, `permission_id`)
+SELECT r.id, p.id FROM tgg_roles r, tgg_permissions p 
+WHERE (r.name = 'superadmin' AND p.name = 'all')
+   OR (r.name = 'admin' AND p.name IN ('process payments', 'schedule events', 'edit checkins', 'edit volunteer slots', 'password resets'))
+   OR (r.name = 'host' AND p.name IN ('schedule events', 'edit checkins', 'edit volunteer slots'));
+
 -- 1. Member settings and credentials (links to civicrm_contact)
 CREATE TABLE IF NOT EXISTS `tgg_member_settings` (
   `contact_id` INT NOT NULL,
   `password_hash` VARCHAR(255) NOT NULL,
-  `role` VARCHAR(50) NOT NULL DEFAULT 'member', -- 'admin' or 'member'
+  `role` VARCHAR(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'member',
   `custom_display_name` VARCHAR(255) NULL,
   `is_profile_public` TINYINT(1) NOT NULL DEFAULT 1, -- 0 = Private, 1 = Public
   `public_fields` TEXT NULL, -- JSON formatted array of fields allowed to be public (e.g. ["display_name", "join_date"])
@@ -20,8 +71,28 @@ CREATE TABLE IF NOT EXISTS `tgg_member_settings` (
   `locked_until` DATETIME NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`contact_id`)
+  PRIMARY KEY (`contact_id`),
+  CONSTRAINT `fk_member_settings_role` FOREIGN KEY (`role`) REFERENCES `tgg_roles` (`name`) ON UPDATE CASCADE
 ) ENGINE=InnoDB;
+
+-- 1b. Member Roles Mapping Table
+CREATE TABLE IF NOT EXISTS `tgg_member_roles` (
+  `contact_id` INT NOT NULL,
+  `role_name` VARCHAR(50) NOT NULL,
+  PRIMARY KEY (`contact_id`, `role_name`),
+  CONSTRAINT `fk_member_roles_contact` FOREIGN KEY (`contact_id`) REFERENCES `tgg_member_settings` (`contact_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_member_roles_role` FOREIGN KEY (`role_name`) REFERENCES `tgg_roles` (`name`) ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Trigger to automatically assign default role on settings creation
+CREATE TRIGGER IF NOT EXISTS `tgg_member_settings_after_insert`
+AFTER INSERT ON `tgg_member_settings`
+FOR EACH ROW
+BEGIN
+  INSERT INTO `tgg_member_roles` (`contact_id`, `role_name`)
+  VALUES (NEW.contact_id, NEW.role)
+  ON DUPLICATE KEY UPDATE `role_name` = VALUES(`role_name`);
+END;
 
 -- 2. Member Check-ins (Attendance Log)
 CREATE TABLE IF NOT EXISTS `tgg_checkins` (

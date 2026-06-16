@@ -146,7 +146,31 @@ function e($string) {
  * Helper to check role
  */
 function has_role($role) {
-    return isset($_SESSION['user']) && $_SESSION['user']['role'] === $role;
+    if (!isset($_SESSION['user'])) {
+        return false;
+    }
+    $userRoles = $_SESSION['user']['roles'] ?? [];
+    if (empty($userRoles) && isset($_SESSION['user']['role'])) {
+        $userRoles = [$_SESSION['user']['role']];
+    }
+    if ($role === 'admin') {
+        return in_array('admin', $userRoles, true) || in_array('superadmin', $userRoles, true);
+    }
+    return in_array($role, $userRoles, true);
+}
+
+/**
+ * Helper to check permission
+ */
+function has_permission($permission) {
+    if (!isset($_SESSION['user'])) {
+        return false;
+    }
+    $userPermissions = $_SESSION['user']['permissions'] ?? [];
+    if (in_array('all', $userPermissions, true)) {
+        return true;
+    }
+    return in_array($permission, $userPermissions, true);
 }
 
 /**

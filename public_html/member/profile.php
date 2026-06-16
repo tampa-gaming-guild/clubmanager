@@ -41,7 +41,7 @@ try {
     $contactStmt->execute(['id' => $profileId]);
     $contact = $contactStmt->fetch();
 
-    if ($contact) {
+        if ($contact) {
         // B. Fetch Membership Details
         $membership = CiviCRMImporter::getMemberMembershipDetails($profileId);
 
@@ -49,6 +49,9 @@ try {
         $settingsStmt = $appDb->prepare("SELECT role, is_profile_public, public_fields, custom_display_name FROM tgg_member_settings WHERE contact_id = :id LIMIT 1");
         $settingsStmt->execute(['id' => $profileId]);
         $settings = $settingsStmt->fetch();
+
+        // D. Fetch all roles list
+        $rolesList = $appDb->query("SELECT * FROM `tgg_roles` ORDER BY id ASC")->fetchAll();
     }
 } catch (Exception $e) {
     $errorMsg = safe_err("Database Connection Error: ", $e);
@@ -68,11 +71,26 @@ if (!$settings) {
     ];
 }
 
+// Fetch all roles assigned to this member
+$memberRoles = [];
+if ($contact) {
+    try {
+        $rolesStmt = $appDb->prepare("SELECT role_name FROM tgg_member_roles WHERE contact_id = :id");
+        $rolesStmt->execute(['id' => $profileId]);
+        $memberRoles = $rolesStmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    } catch (Exception $e) {
+        // Fallback or ignore
+    }
+}
+if (empty($memberRoles) && isset($settings['role'])) {
+    $memberRoles = [$settings['role']];
+}
+
 $publicFields = json_decode($settings['public_fields'] ?? '[]', true) ?: [];
 
 // 2. Check Viewer Relationship
 $isOwner = Auth::check() && $_SESSION['user']['contact_id'] === $profileId;
-$isAdmin = Auth::check() && $_SESSION['user']['role'] === 'admin';
+$isAdmin = Auth::check() && ($_SESSION['user']['role'] === 'admin' || $_SESSION['user']['role'] === 'superadmin');
 $hasPrivateAccess = $isOwner || $isAdmin;
 
 // 3. Privacy Gate
@@ -341,9 +359,86 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
             }
         }
 
-        // B. Handle Trigger Password Reset (Only owner or admin)
+        // A1. Handle Role Updates (Only Admin/Superadmin)
+        if (isset($_POST['role_update']) && $isAdmin) {
+            $newRoles = $_POST['roles'] ?? [];
+            if (!is_array($newRoles)) {
+                $newRoles = [];
+            }
+            // Sanitize input roles
+            $newRoles = array_map('trim', $newRoles);
+            
+            try {
+                $viewerIsSuperadmin = ($_SESSION['user']['role'] === 'superadmin');
+                $targetHasSuperadmin = in_array('superadmin', $memberRoles, true);
+                
+                // 1. Standard admin cannot modify roles for a superadmin user
+                if ($targetHasSuperadmin && !$viewerIsSuperadmin) {
+                    throw new Exception("Standard admins cannot modify roles for a superadmin user.");
+                }
+                
+                // 2. Only superadmins can assign or remove the superadmin role
+                $newHasSuperadmin = in_array('superadmin', $newRoles, true);
+                if ($newHasSuperadmin !== $targetHasSuperadmin && !$viewerIsSuperadmin) {
+                    throw new Exception("Only superadmins can add or delete the superadmin role.");
+                }
+                
+                // 3. Verify all selected roles exist in tgg_roles
+                if (!empty($newRoles)) {
+                    $placeholders = implode(',', array_fill(0, count($newRoles), '?'));
+                    $checkStmt = $appDb->prepare("SELECT COUNT(*) FROM `tgg_roles` WHERE name IN ($placeholders)");
+                    $checkStmt->execute($newRoles);
+                    $foundCount = (int)$checkStmt->fetchColumn();
+                    if ($foundCount !== count(array_unique($newRoles))) {
+                        throw new Exception("One or more selected roles do not exist.");
+                    }
+                } else {
+                    // Users must have at least one role. Default to 'member'.
+                    $newRoles = ['member'];
+                }
+                
+                // 4. Update the database
+                $appDb->beginTransaction();
+                
+                // Delete existing roles
+                $deleteStmt = $appDb->prepare("DELETE FROM tgg_member_roles WHERE contact_id = :id");
+                $deleteStmt->execute(['id' => $profileId]);
+                
+                // Insert new roles
+                $insertStmt = $appDb->prepare("INSERT INTO tgg_member_roles (contact_id, role_name) VALUES (:id, :role)");
+                foreach ($newRoles as $roleName) {
+                    $insertStmt->execute(['id' => $profileId, 'role' => $roleName]);
+                }
+                
+                // Update legacy column in tgg_member_settings
+                $primaryRole = $newRoles[0] ?? 'member';
+                $updateSettingsStmt = $appDb->prepare("UPDATE tgg_member_settings SET role = :role WHERE contact_id = :id");
+                $updateSettingsStmt->execute(['role' => $primaryRole, 'id' => $profileId]);
+                
+                $appDb->commit();
+                
+                $successMsg = "Member roles updated successfully.";
+                $memberRoles = $newRoles;
+                $settings['role'] = $primaryRole;
+                
+                // Refresh session if self
+                if ($profileId === (int)$_SESSION['user']['contact_id']) {
+                    Auth::refreshPermissions();
+                }
+            } catch (Exception $e) {
+                if ($appDb->inTransaction()) {
+                    $appDb->rollBack();
+                }
+                $errorMsg = safe_err("Failed to update role: ", $e);
+            }
+        }
+
+        // B. Handle Trigger Password Reset (Only owner or user with password resets permission)
         if (isset($_POST['trigger_password_reset'])) {
             try {
+                if (!$isOwner && !has_permission('password resets')) {
+                    throw new Exception("You do not have permission to trigger password resets for other members.");
+                }
                 $email = trim(strtolower($contact['email'] ?? ''));
                 if (empty($email)) {
                     throw new Exception("This member does not have a registered email address.");
@@ -506,7 +601,10 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                         </div>
                         <div class="profile-title">
                             <h2><?php echo e($displayNameToPublic); ?> <span style="font-size: 1.1rem; color: var(--color-text-secondary); font-weight: normal; margin-left: 8px;">(Member ID: <?php echo $profileId; ?>)</span></h2>
-                            <span class="badge badge-role"><?php echo e(ucfirst($settings['role'])); ?></span>
+                            <span class="badge badge-role"><?php 
+                                $capitalizedRoles = array_map(function($r) { return ucfirst($r); }, $memberRoles);
+                                echo e(implode(' ', $capitalizedRoles)); 
+                            ?></span>
                         </div>
                     </div>
 
@@ -658,6 +756,56 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                         <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
                                         <button type="submit" name="trigger_password_reset" class="btn btn-warning btn-block">Send Password Reset Email</button>
                                     </form>
+                                </div>
+
+                                <!-- Admin Role Assignment Card -->
+                                <?php if ($isAdmin): ?>
+                                <div class="management-card mt-20">
+                                    <h4>Portal Role Assignment</h4>
+                                    <form action="profile.php?id=<?php echo $profileId; ?>" method="POST" class="settings-form">
+                                        <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                        <div class="form-group">
+                                            <label style="display: block; font-size: 0.85rem; margin-bottom: 8px; color: rgba(255,255,255,0.85);">Assign Roles</label>
+                                            <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 5px;">
+                                                <?php foreach ($rolesList as $roleOption): 
+                                                    $isSuperadminRole = ($roleOption['name'] === 'superadmin');
+                                                    $targetHasSuperadmin = in_array('superadmin', $memberRoles, true);
+                                                    $viewerIsSuperadmin = ($_SESSION['user']['role'] === 'superadmin');
+                                                    
+                                                    $disabled = '';
+                                                    if ($isSuperadminRole && !$viewerIsSuperadmin) {
+                                                        $disabled = 'disabled';
+                                                    } elseif ($targetHasSuperadmin && !$viewerIsSuperadmin) {
+                                                        $disabled = 'disabled';
+                                                    }
+                                                    
+                                                    $checked = in_array($roleOption['name'], $memberRoles, true) ? 'checked' : '';
+                                                ?>
+                                                    <label style="display: inline-flex; align-items: center; gap: 8px; color: #fff; cursor: <?php echo $disabled ? 'not-allowed' : 'pointer'; ?>; opacity: <?php echo $disabled ? '0.5' : '1'; ?>;">
+                                                        <input type="checkbox" name="roles[]" value="<?php echo e($roleOption['name']); ?>" <?php echo $checked; ?> <?php echo $disabled; ?> style="width: auto;">
+                                                        <?php echo e(ucfirst($roleOption['name'])); ?>
+                                                    </label>
+                                                <?php endforeach; ?>
+                                            </div>
+                                        </div>
+                                        <button type="submit" name="role_update" class="btn btn-primary btn-block mt-15">Update Roles</button>
+                                    </form>
+                                </div>
+                                <?php endif; ?>
+
+                                <!-- Portal Roles Info Card -->
+                                <div class="management-card mt-20">
+                                    <h4>Available Portal Roles</h4>
+                                    <div style="font-size: 0.8rem; line-height: 1.4; color: rgba(255,255,255,0.75);">
+                                        <ul style="list-style-type: none; padding-left: 0; display: flex; flex-direction: column; gap: 8px; margin: 0;">
+                                            <?php foreach ($rolesList as $roleItem): ?>
+                                                <li>
+                                                    <strong style="color: var(--color-primary);"><?php echo e(ucfirst($roleItem['name'])); ?></strong>: 
+                                                    <span><?php echo e($roleItem['description']); ?></span>
+                                                </li>
+                                            <?php endforeach; ?>
+                                        </ul>
+                                    </div>
                                 </div>
                             </div>
                         <?php endif; ?>

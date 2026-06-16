@@ -228,25 +228,7 @@ try {
         <main class="main-content">
             <div class="admin-grid">
                 
-                <!-- Sidebar Admin Navigation -->
-                <aside class="admin-sidebar glass-panel">
-                    <h3>Admin Controls</h3>
-                    <ul class="admin-menu">
-                        <li><a href="dashboard.php">Dashboard</a></li>
-                        <li><a href="scheduler.php">Event Scheduler</a></li>
-                        <li><a href="volunteer_credits.php">Volunteer Credits</a></li>
-                        <li><a href="import.php">CiviCRM Importer</a></li>
-                        <li><a href="memberships.php">Memberships</a></li>
-                        <li><a href="email_templates.php">Email Templates</a></li>
-                        <li><a href="reports.php" class="<?php echo in_array(basename($_SERVER['PHP_SELF']), ['reports.php', 'payments.php', 'attendance.php', 'email_log.php']) ? 'active' : ''; ?>">Reports & Analytics</a>
-                            <ul class="admin-submenu" style="list-style-type: none; padding-left: 15px; margin-top: 5px; display: flex; flex-direction: column; gap: 4px;">
-                                <li><a href="payments.php" class="<?php echo (basename($_SERVER['PHP_SELF']) === 'payments.php') ? 'active' : ''; ?>" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Payments Log</a></li>
-                                <li><a href="attendance.php" class="<?php echo (basename($_SERVER['PHP_SELF']) === 'attendance.php') ? 'active' : ''; ?>" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Attendance Log</a></li>
-                                <li><a href="email_log.php" class="<?php echo (basename($_SERVER['PHP_SELF']) === 'email_log.php') ? 'active' : ''; ?>" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Email Log</a></li>
-                            </ul>
-                        </li>
-                    </ul>
-                </aside>
+                <?php include 'sidebar.php'; ?>
 
                 <!-- Work Area: Reports -->
                 <section class="admin-workspace">
@@ -260,14 +242,17 @@ try {
                     <div class="reports-grid">
                         
                         <!-- 1. Attendance Trend Chart -->
+                        <?php if (has_permission('edit checkins')): ?>
                         <div class="report-chart-card glass-panel">
                             <h3>Attendance (Last 7 Events)</h3>
                             <div class="chart-canvas-container">
                                 <canvas id="attendanceChart"></canvas>
                             </div>
                         </div>
+                        <?php endif; ?>
 
                         <!-- 2. Membership Distribution Chart -->
+                        <?php if (has_permission('process payments')): ?>
                         <div class="report-chart-card glass-panel">
                             <h3>Membership Tier Share</h3>
                             <div class="chart-canvas-container">
@@ -282,8 +267,10 @@ try {
                                 <canvas id="financeChart"></canvas>
                             </div>
                         </div>
+                        <?php endif; ?>
 
                         <!-- 4. Tabular Financial Report -->
+                        <?php if (has_permission('process payments')): ?>
                         <div class="table-card glass-panel span-full-row mt-20">
                             <h3>Recent Payments Log</h3>
 
@@ -342,8 +329,10 @@ try {
                                 </table>
                             </div>
                         </div>
+                        <?php endif; ?>
 
                         <!-- 5. Tabular Attendance Report -->
+                        <?php if (has_permission('edit checkins')): ?>
                         <div class="table-card glass-panel span-full-row mt-20">
                             <h3>Recent Attendance Log</h3>
 
@@ -374,6 +363,7 @@ try {
                                 </table>
                             </div>
                         </div>
+                        <?php endif; ?>
 
                     </div>
                 </section>
