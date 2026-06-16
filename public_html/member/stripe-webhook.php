@@ -22,12 +22,16 @@ if (empty($payload)) {
 }
 
 // 2. Verify Signature
-if (!empty($webhookSecret)) {
-    if (!StripeHelper::verifyWebhookSignature($payload, $sigHeader, $webhookSecret)) {
-        http_response_code(400);
-        echo json_encode(['error' => 'Invalid webhook signature']);
-        exit;
-    }
+if (empty($webhookSecret)) {
+    http_response_code(500);
+    echo json_encode(['error' => 'Webhook secret configuration missing']);
+    exit;
+}
+
+if (!StripeHelper::verifyWebhookSignature($payload, $sigHeader, $webhookSecret)) {
+    http_response_code(400);
+    echo json_encode(['error' => 'Invalid webhook signature']);
+    exit;
 }
 
 // 3. Parse Event
