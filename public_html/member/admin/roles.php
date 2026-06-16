@@ -215,8 +215,9 @@ $countQuery = "
 ";
 $params = [];
 if (!empty($search)) {
-    $countQuery .= " AND (c.display_name LIKE :search OR c.email LIKE :search OR c.id = :exactId)";
-    $params['search'] = "%{$search}%";
+    $countQuery .= " AND (c.display_name LIKE :search_name OR c.email LIKE :search_email OR c.id = :exactId)";
+    $params['search_name'] = "%{$search}%";
+    $params['search_email'] = "%{$search}%";
     $params['exactId'] = is_numeric($search) ? (int)$search : -1;
 }
 $stmtCount = $appDb->prepare($countQuery);
@@ -232,13 +233,14 @@ $memberQuery = "
     WHERE c.is_deleted = 0
 ";
 if (!empty($search)) {
-    $memberQuery .= " AND (c.display_name LIKE :search OR c.email LIKE :search OR c.id = :exactId)";
+    $memberQuery .= " AND (c.display_name LIKE :search_name OR c.email LIKE :search_email OR c.id = :exactId)";
 }
 $memberQuery .= " ORDER BY c.display_name ASC LIMIT :limit OFFSET :offset";
 
 $stmtMembers = $appDb->prepare($memberQuery);
 if (!empty($search)) {
-    $stmtMembers->bindValue(':search', "%{$search}%", PDO::PARAM_STR);
+    $stmtMembers->bindValue(':search_name', "%{$search}%", PDO::PARAM_STR);
+    $stmtMembers->bindValue(':search_email', "%{$search}%", PDO::PARAM_STR);
     $stmtMembers->bindValue(':exactId', is_numeric($search) ? (int)$search : -1, PDO::PARAM_INT);
 }
 $stmtMembers->bindValue(':limit', $limit, PDO::PARAM_INT);
