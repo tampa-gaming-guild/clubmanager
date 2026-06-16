@@ -51,8 +51,8 @@ if (empty($rawToken)) {
 
                 if (empty($password) || empty($confirmPassword)) {
                     $errorMsg = "Both password fields are required.";
-                } elseif (strlen($password) < 8) {
-                    $errorMsg = "Password must be at least 8 characters long.";
+                } elseif (!is_password_complex($password, $compError)) {
+                    $errorMsg = $compError;
                 } elseif ($password !== $confirmPassword) {
                     $errorMsg = "Passwords do not match. Please enter them again.";
                 } else {

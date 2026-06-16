@@ -57,8 +57,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
 
         if (empty($firstName) || empty($lastName) || empty($email) || empty($password) || empty($tierId)) {
             $errorMsg = "All fields except phone number are required.";
-        } elseif (strlen($password) < 8) {
-            $errorMsg = "Password must be at least 8 characters long.";
+        } elseif (!is_password_complex($password, $compError)) {
+            $errorMsg = $compError;
         } else {
             try {
                 $appDb = Database::getAppConnection();

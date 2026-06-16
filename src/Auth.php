@@ -117,8 +117,8 @@ class Auth {
      * @throws Exception
      */
     public static function registerPassword(int $contactId, string $password, string $role = 'member'): bool {
-        if (strlen($password) < 8) {
-            throw new Exception("Password must be at least 8 characters long.");
+        if (!is_password_complex($password, $error)) {
+            throw new Exception($error);
         }
 
         $appDb = Database::getAppConnection();

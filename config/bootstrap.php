@@ -170,10 +170,54 @@ function json_response($data, $statusCode = 200) {
 }
 
 /**
+ * Validate password complexity based on modern security standards (length >= 10, uppercase, lowercase, digit, special char).
+ */
+function is_password_complex(string $password, &$error): bool {
+    if (strlen($password) < 10) {
+        $error = "Password must be at least 10 characters long.";
+        return false;
+    }
+    if (!preg_match('/[A-Z]/', $password)) {
+        $error = "Password must contain at least one uppercase letter.";
+        return false;
+    }
+    if (!preg_match('/[a-z]/', $password)) {
+        $error = "Password must contain at least one lowercase letter.";
+        return false;
+    }
+    if (!preg_match('/[0-9]/', $password)) {
+        $error = "Password must contain at least one number.";
+        return false;
+    }
+    if (!preg_match('/[^A-Za-z0-9]/', $password)) {
+        $error = "Password must contain at least one special character (e.g., !@#$%^&*).";
+        return false;
+    }
+    
+    // Check against common dictionary words or patterns
+    $lowercasePassword = strtolower($password);
+    $commonPasswords = [
+        'password', '12345678', '1234567890', 'qwertyuiop', 'change_me_123', 'changeme123',
+        'tampagamingguild', 'gamingguild', 'clubmanager', 'admin12345'
+    ];
+    foreach ($commonPasswords as $common) {
+        if (strpos($lowercasePassword, $common) !== false) {
+            $error = "Password cannot contain common words or easily guessable patterns.";
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+/**
  * Safe error message formatter for user-facing exception messages.
  * Prevents database details, file paths, and SQL queries from being exposed in production.
  */
 function safe_err($prefix, Exception $e) {
+    // Log exception with full detail
+    error_log($prefix . $e->getMessage() . "\n" . $e->getTraceAsString());
+
     if ($e->getCode() === 423 || ($_ENV['APP_ENV'] ?? 'production') === 'development') {
         return $prefix . $e->getMessage();
     }

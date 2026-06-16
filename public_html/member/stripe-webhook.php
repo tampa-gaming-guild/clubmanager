@@ -44,6 +44,7 @@ if ($event['type'] === 'checkout.session.completed') {
         \App\BillingHelper::processCheckoutSession($session);
         echo json_encode(['status' => 'success', 'message' => 'Membership processed successfully']);
     } catch (Exception $e) {
+        error_log("Stripe Webhook processing failed: " . $e->getMessage() . "\n" . $e->getTraceAsString());
         http_response_code(500);
         echo json_encode(['status' => 'error', 'message' => (($_ENV['APP_ENV'] ?? 'production') === 'development' ? $e->getMessage() : 'An unexpected error occurred')]);
     }
