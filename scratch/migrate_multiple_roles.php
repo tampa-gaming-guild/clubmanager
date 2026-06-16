@@ -6,15 +6,38 @@ try {
     $db = Database::getAppConnection();
     echo "Connected to the database successfully.\n";
 
-    // 1. Create tgg_member_roles table
+    // Helper to get column details
+    $getColumnInfo = function($db, $table, $column) {
+        $stmt = $db->query("SHOW FULL COLUMNS FROM `$table` LIKE '$column'");
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            throw new Exception("Column '$column' not found in table '$table'.");
+        }
+        return [
+            'type' => $row['Type'],
+            'collation' => $row['Collation']
+        ];
+    };
+
+    $contactIdInfo = $getColumnInfo($db, 'tgg_member_settings', 'contact_id');
+    $roleNameInfo = $getColumnInfo($db, 'tgg_roles', 'name');
+
+    echo "Diagnostic - tgg_member_settings.contact_id: Type = {$contactIdInfo['type']}, Collation = " . ($contactIdInfo['collation'] ?? 'N/A') . "\n";
+    echo "Diagnostic - tgg_roles.name: Type = {$roleNameInfo['type']}, Collation = " . ($roleNameInfo['collation'] ?? 'N/A') . "\n";
+
+    $contactIdType = $contactIdInfo['type'];
+    $roleNameType = $roleNameInfo['type'];
+    $roleNameCollationStr = !empty($roleNameInfo['collation']) ? " COLLATE " . $roleNameInfo['collation'] : "";
+
+    // 1. Create tgg_member_roles table dynamically matching foreign key fields
     $db->exec("
         CREATE TABLE IF NOT EXISTS `tgg_member_roles` (
-          `contact_id` INT NOT NULL,
-          `role_name` VARCHAR(50) NOT NULL,
+          `contact_id` {$contactIdType} NOT NULL,
+          `role_name` {$roleNameType}{$roleNameCollationStr} NOT NULL,
           PRIMARY KEY (`contact_id`, `role_name`),
           CONSTRAINT `fk_member_roles_contact` FOREIGN KEY (`contact_id`) REFERENCES `tgg_member_settings` (`contact_id`) ON DELETE CASCADE,
           CONSTRAINT `fk_member_roles_role` FOREIGN KEY (`role_name`) REFERENCES `tgg_roles` (`name`) ON UPDATE CASCADE
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ) ENGINE=InnoDB;
     ");
     echo "Table 'tgg_member_roles' verified/created.\n";
 
