@@ -218,8 +218,7 @@ class Auth {
      */
     public static function requireAdmin(): void {
         self::requireAuth();
-        $role = $_SESSION['user']['role'];
-        if ($role !== 'superadmin' && $role !== 'admin' && $role !== 'host') {
+        if (!has_role('admin') && !has_role('host')) {
             redirect('index.php?error=unauthorized');
         }
     }
@@ -285,8 +284,10 @@ class Auth {
      */
     public static function impersonate(int $targetContactId): bool {
         // Only superadmins (original identity) can initiate impersonation
-        $currentOriginalRole = $_SESSION['impersonator']['role'] ?? $_SESSION['user']['role'] ?? '';
-        if ($currentOriginalRole !== 'superadmin') {
+        $originalRoles = $_SESSION['impersonator']['roles'] ?? $_SESSION['user']['roles'] ?? [];
+        $originalRole = $_SESSION['impersonator']['role'] ?? $_SESSION['user']['role'] ?? '';
+        $isOriginalSuperadmin = in_array('superadmin', $originalRoles, true) || $originalRole === 'superadmin';
+        if (!$isOriginalSuperadmin) {
             throw new Exception("Only superadmins can impersonate other users.");
         }
 

@@ -11,7 +11,7 @@ use App\Database;
 Auth::requireAdmin();
 
 // Only allow superadmin and admin to manage roles and permissions
-if ($_SESSION['user']['role'] !== 'superadmin' && $_SESSION['user']['role'] !== 'admin') {
+if (!has_role('superadmin') && !has_role('admin')) {
     redirect('index.php?error=unauthorized');
 }
 
@@ -27,7 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // 1. Save Role-Permission Matrix
         if (isset($_POST['save_matrix'])) {
             try {
-                $viewerIsSuperadmin = ($_SESSION['user']['role'] === 'superadmin');
+                $viewerIsSuperadmin = has_role('superadmin');
                 
                 // Fetch current 'all' mappings to preserve them if the user is a standard admin
                 $currentAllMappings = [];
@@ -106,7 +106,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $newRoles = array_map('trim', $newRoles);
 
             try {
-                $viewerIsSuperadmin = ($_SESSION['user']['role'] === 'superadmin');
+                $viewerIsSuperadmin = has_role('superadmin');
 
                 // Retrieve target member's current roles first to check permissions
                 $currentRolesStmt = $appDb->prepare("SELECT role_name FROM tgg_member_roles WHERE contact_id = :id");
@@ -453,7 +453,7 @@ $membersList = $stmtMembers->fetchAll();
                                                 </td>
                                                 <?php foreach ($permsList as $perm): 
                                                     $isAllPerm = ($perm['name'] === 'all');
-                                                    $viewerIsSuperadmin = ($_SESSION['user']['role'] === 'superadmin');
+                                                    $viewerIsSuperadmin = has_role('superadmin');
                                                     $disabled = ($isAllPerm && !$viewerIsSuperadmin) ? 'disabled' : '';
                                                 ?>
                                                     <td>
@@ -532,7 +532,7 @@ $membersList = $stmtMembers->fetchAll();
                                                             foreach ($rolesList as $roleOption): 
                                                                 $isSuperadminRole = ($roleOption['name'] === 'superadmin');
                                                                 $targetHasSuperadmin = in_array('superadmin', $memberRoles, true);
-                                                                $viewerIsSuperadmin = ($_SESSION['user']['role'] === 'superadmin');
+                                                                $viewerIsSuperadmin = has_role('superadmin');
                                                                 
                                                                 $disabled = '';
                                                                 if ($isSuperadminRole && !$viewerIsSuperadmin) {
@@ -554,8 +554,10 @@ $membersList = $stmtMembers->fetchAll();
                                                         <div style="display: flex; flex-direction: column; gap: 5px; align-items: center;">
                                                             <button type="submit" name="update_user_role" class="btn btn-primary btn-sm" style="padding: 6px 12px; font-size: 0.75rem; border-radius: 4px; width: 100%;">Update</button>
                                                             <?php 
-                                                            $currentOriginalRole = $_SESSION['impersonator']['role'] ?? $_SESSION['user']['role'];
-                                                            if ($currentOriginalRole === 'superadmin' && (int)$member['id'] !== (int)$_SESSION['user']['contact_id']): 
+                                                            $originalRoles = $_SESSION['impersonator']['roles'] ?? $_SESSION['user']['roles'] ?? [];
+                                                            $originalRole = $_SESSION['impersonator']['role'] ?? $_SESSION['user']['role'] ?? '';
+                                                            $isOriginalSuperadmin = in_array('superadmin', $originalRoles, true) || $originalRole === 'superadmin';
+                                                            if ($isOriginalSuperadmin && (int)$member['id'] !== (int)$_SESSION['user']['contact_id']): 
                                                             ?>
                                                                 <button type="submit" name="impersonate_user" class="btn btn-warning btn-sm" style="padding: 6px 12px; font-size: 0.75rem; border-radius: 4px; width: 100%; border: none;">Login As</button>
                                                             <?php endif; ?>

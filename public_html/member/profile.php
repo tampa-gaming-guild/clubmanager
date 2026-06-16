@@ -90,7 +90,7 @@ $publicFields = json_decode($settings['public_fields'] ?? '[]', true) ?: [];
 
 // 2. Check Viewer Relationship
 $isOwner = Auth::check() && $_SESSION['user']['contact_id'] === $profileId;
-$isAdmin = Auth::check() && ($_SESSION['user']['role'] === 'admin' || $_SESSION['user']['role'] === 'superadmin');
+$isAdmin = Auth::check() && (has_role('admin') || has_role('superadmin'));
 $hasPrivateAccess = $isOwner || $isAdmin;
 
 // 3. Privacy Gate
@@ -369,7 +369,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
             $newRoles = array_map('trim', $newRoles);
             
             try {
-                $viewerIsSuperadmin = ($_SESSION['user']['role'] === 'superadmin');
+                $viewerIsSuperadmin = has_role('superadmin');
                 $targetHasSuperadmin = in_array('superadmin', $memberRoles, true);
                 
                 // 1. Standard admin cannot modify roles for a superadmin user
@@ -788,7 +788,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                                 <?php foreach ($rolesList as $roleOption): 
                                                     $isSuperadminRole = ($roleOption['name'] === 'superadmin');
                                                     $targetHasSuperadmin = in_array('superadmin', $memberRoles, true);
-                                                    $viewerIsSuperadmin = ($_SESSION['user']['role'] === 'superadmin');
+                                                    $viewerIsSuperadmin = has_role('superadmin');
                                                     
                                                     $disabled = '';
                                                     if ($isSuperadminRole && !$viewerIsSuperadmin) {
@@ -808,8 +808,10 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                         </div>
                                         <button type="submit" name="role_update" class="btn btn-primary btn-block mt-15">Update Roles</button>
                                         <?php 
-                                        $currentOriginalRole = $_SESSION['impersonator']['role'] ?? $_SESSION['user']['role'];
-                                        if ($currentOriginalRole === 'superadmin' && $profileId !== (int)$_SESSION['user']['contact_id']): 
+                                        $originalRoles = $_SESSION['impersonator']['roles'] ?? $_SESSION['user']['roles'] ?? [];
+                                        $originalRole = $_SESSION['impersonator']['role'] ?? $_SESSION['user']['role'] ?? '';
+                                        $isOriginalSuperadmin = in_array('superadmin', $originalRoles, true) || $originalRole === 'superadmin';
+                                        if ($isOriginalSuperadmin && $profileId !== (int)$_SESSION['user']['contact_id']): 
                                         ?>
                                             <button type="submit" name="impersonate_user" class="btn btn-warning btn-block mt-10">Login As User</button>
                                         <?php endif; ?>
