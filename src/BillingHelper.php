@@ -74,6 +74,10 @@ class BillingHelper {
             throw new Exception("Invalid checkout session payload: missing ID.");
         }
 
+        if (($session['payment_status'] ?? '') !== 'paid') {
+            throw new Exception("Payment not yet confirmed (status: " . ($session['payment_status'] ?? 'none') . ")");
+        }
+
         $appDb = Database::getAppConnection();
 
         // 1. Check Idempotency - has this session already been logged?

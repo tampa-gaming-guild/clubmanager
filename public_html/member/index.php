@@ -43,7 +43,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login_submit'])) {
                 // Redirect to previous page if set, or homepage
                 $redirectUrl = $_SESSION['redirect_after_login'] ?? 'index.php';
                 unset($_SESSION['redirect_after_login']);
-                header("Location: " . $redirectUrl);
+
+                // Validate the redirect stays on-site (prevent Open Redirect vulnerability)
+                $parsed = parse_url($redirectUrl);
+                $allowedHost = parse_url($_ENV['BASE_URL'] ?? '', PHP_URL_HOST) ?: $_SERVER['HTTP_HOST'];
+                if (empty($parsed['host']) || $parsed['host'] === $allowedHost) {
+                    header("Location: " . $redirectUrl);
+                } else {
+                    header("Location: index.php");
+                }
                 exit;
             } else {
                 $errorMsg = "Invalid email or password. Please check your credentials.";
