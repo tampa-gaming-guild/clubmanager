@@ -611,7 +611,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                     return $posA <=> $posB;
                                 });
                                 $capitalizedRoles = array_map(function($r) { return ucfirst($r); }, $memberRoles);
-                                echo e(implode(', ', $capitalizedRoles)); 
+                                echo e(implode(' | ', $capitalizedRoles)); 
                             ?></span>
                         </div>
                     </div>
