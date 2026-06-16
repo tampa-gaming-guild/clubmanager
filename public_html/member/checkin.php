@@ -15,6 +15,23 @@ $memberDetails = null;
 
 // Handle Check-In POST (Standard & AJAX)
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Basic Origin Validation to prevent CSRF in the absence of a token (kiosk use-case)
+    $referer = $_SERVER['HTTP_REFERER'] ?? '';
+    $host = $_SERVER['HTTP_HOST'] ?? '';
+    if (!empty($referer)) {
+        $refererHost = parse_url($referer, PHP_URL_HOST);
+        $normalizedHost = explode(':', $host)[0];
+        $normalizedRefererHost = explode(':', $refererHost)[0];
+        if ($normalizedRefererHost !== $normalizedHost) {
+            http_response_code(403);
+            if (isset($_POST['ajax']) || (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && $_SERVER['HTTP_X_REQUESTED_WITH'] === 'XMLHttpRequest')) {
+                json_response(['error' => 'Forbidden: Origin validation failed.']);
+            } else {
+                die('Forbidden: Origin validation failed.');
+            }
+        }
+    }
+
     $identifier = trim($_POST['identifier'] ?? '');
     $notes = trim($_POST['notes'] ?? 'Regular Visit');
     $isAjax = isset($_POST['ajax']) || (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && $_SERVER['HTTP_X_REQUESTED_WITH'] === 'XMLHttpRequest');
@@ -222,6 +239,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 });
             });
 
+            function escapeHtml(str) {
+                if (!str) return '';
+                return String(str)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#039;');
+            }
+
             function renderFeedback(success, message, details = null) {
                 feedbackArea.innerHTML = '';
                 const alertDiv = document.createElement('div');
@@ -229,14 +256,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 let detailString = '';
                 if (details) {
-                    detailString = `<span class="subtext">Membership Type: ${details.membership} | Expiration: ${details.expires}</span>`;
+                    detailString = `<span class="subtext">Membership Type: ${escapeHtml(details.membership)} | Expiration: ${escapeHtml(details.expires)}</span>`;
                 }
 
                 alertDiv.innerHTML = `
                     <span class="alert-icon">${success ? '✔️' : '❌'}</span>
                     <div class="alert-text">
                         <strong>${success ? 'Welcome!' : 'Access Denied'}</strong>
-                        <p>${message}</p>
+                        <p>${escapeHtml(message)}</p>
                         ${detailString}
                     </div>
                 `;

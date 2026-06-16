@@ -67,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                 $checkEmail = $appDb->prepare("SELECT id FROM tgg_contacts WHERE email = :email AND is_deleted = 0 LIMIT 1");
                 $checkEmail->execute(['email' => $email]);
                 if ($checkEmail->fetch()) {
-                    $errorMsg = "A user with this email already exists. If you want to renew, please log in and use the renewal portal.";
+                    $errorMsg = safe_err("There was a problem with your registration. Please contact support. ", new Exception("Email already exists"));
                 } else {
                     // Start transaction to ensure sync integrity
                     $appDb->beginTransaction();

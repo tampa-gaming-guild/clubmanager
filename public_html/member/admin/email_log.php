@@ -289,7 +289,7 @@ try {
                 <div><strong>To:</strong> <span id="modal-recipient"></span></div>
             </div>
             <div style="border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; background: white; overflow: hidden;">
-                <iframe id="modal-body-frame" style="width: 100%; height: 400px; border: none; background: white;"></iframe>
+                <iframe id="modal-body-frame" sandbox="" style="width: 100%; height: 400px; border: none; background: white;"></iframe>
             </div>
         </div>
     </div>

@@ -80,6 +80,8 @@ header("X-Frame-Options: DENY");
 header("X-Content-Type-Options: nosniff");
 header("X-XSS-Protection: 1; mode=block");
 header("Referrer-Policy: strict-origin-when-cross-origin");
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://js.stripe.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; frame-src 'self' https://js.stripe.com; img-src 'self' data:;");
+header("Strict-Transport-Security: max-age=31536000; includeSubDomains");
 
 // Detect proxy-terminated HTTPS (e.g., from Caddy reverse proxy)
 if ((isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') ||
@@ -172,7 +174,7 @@ function json_response($data, $statusCode = 200) {
  * Prevents database details, file paths, and SQL queries from being exposed in production.
  */
 function safe_err($prefix, Exception $e) {
-    if (($_ENV['APP_ENV'] ?? 'production') === 'development') {
+    if ($e->getCode() === 423 || ($_ENV['APP_ENV'] ?? 'production') === 'development') {
         return $prefix . $e->getMessage();
     }
     return rtrim($prefix, ': ') . ". An unexpected error occurred. Please try again or contact support.";

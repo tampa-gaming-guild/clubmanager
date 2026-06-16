@@ -38,7 +38,7 @@ class Auth {
         $contactId = (int)$emailRow['id'];
 
         // 2. Fetch the credentials from local tgg_member_settings
-        $authQuery = "SELECT password_hash, role, is_profile_public FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1";
+        $authQuery = "SELECT password_hash, role, is_profile_public, failed_login_attempts, locked_until FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1";
         $stmt = $appDb->prepare($authQuery);
         $stmt->execute(['contact_id' => $contactId]);
         $authRow = $stmt->fetch();
@@ -47,9 +47,44 @@ class Auth {
             return false; // Account settings/password not set for this contact yet
         }
 
+        // Check if account is locked
+        if (!empty($authRow['locked_until'])) {
+            $lockedUntil = strtotime($authRow['locked_until']);
+            if (time() < $lockedUntil) {
+                $secondsLeft = $lockedUntil - time();
+                throw new Exception("Account is temporarily locked due to too many failed login attempts. Please try again in " . ceil($secondsLeft / 60) . " minute(s).", 423);
+            }
+        }
+
         // 3. Verify the password hash
         if (!password_verify($password, $authRow['password_hash'])) {
+            $attempts = (int)$authRow['failed_login_attempts'] + 1;
+            $lockedUntil = null;
+            if ($attempts >= 5) {
+                $lockoutTime = 900; // 15 mins
+                if ($attempts > 5) {
+                    $lockoutTime = 900 * pow(2, min($attempts - 5, 4)); // max 15 mins * 16 = 4 hours
+                }
+                $lockedUntil = date('Y-m-d H:i:s', time() + $lockoutTime);
+            }
+            
+            $updateStmt = $appDb->prepare("UPDATE tgg_member_settings SET failed_login_attempts = :attempts, locked_until = :locked_until WHERE contact_id = :contact_id");
+            $updateStmt->execute([
+                'attempts' => $attempts,
+                'locked_until' => $lockedUntil,
+                'contact_id' => $contactId
+            ]);
+            
+            if ($lockedUntil) {
+                throw new Exception("Incorrect password. Too many failed attempts. Account is now locked for " . ($lockoutTime / 60) . " minutes.", 423);
+            }
             return false;
+        }
+
+        // Reset failed attempts on successful login
+        if ($authRow['failed_login_attempts'] > 0 || $authRow['locked_until'] !== null) {
+            $resetStmt = $appDb->prepare("UPDATE tgg_member_settings SET failed_login_attempts = 0, locked_until = NULL WHERE contact_id = :contact_id");
+            $resetStmt->execute(['contact_id' => $contactId]);
         }
 
         // 4. Fetch the user's display name according to privacy preferences

@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS `tgg_member_settings` (
   `credits_earned` FLOAT NOT NULL DEFAULT 0.0,
   `credits_applied` FLOAT NOT NULL DEFAULT 0.0,
   `expired_credits` FLOAT NOT NULL DEFAULT 0.0,
+  `failed_login_attempts` INT NOT NULL DEFAULT 0,
+  `locked_until` DATETIME NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`contact_id`)
