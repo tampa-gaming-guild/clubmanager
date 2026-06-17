@@ -15,6 +15,7 @@ Auth::requirePermission('edit checkins');
 $errorMsg = null;
 $successMsg = null;
 $checkinsList = [];
+$eventDates = [];
 
 // Determine selected date (defaults to current local date)
 $selectedDate = $_GET['date'] ?? '';
@@ -67,6 +68,9 @@ try {
     $stmt->execute(['date' => $selectedDate]);
     $checkinsList = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
+    // Fetch unique dates with scheduled events
+    $eventDates = $appDb->query("SELECT DISTINCT DATE(start_time) AS event_date FROM tgg_events")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+
 } catch (Exception $e) {
     $errorMsg = safe_err("Error compiling check-in report: ", $e);
 }
@@ -78,6 +82,70 @@ try {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Check-In List - Admin Panel</title>
     <link rel="stylesheet" href="../assets/css/style.css">
+    <!-- Flatpickr Datepicker -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.css">
+    <style>
+        /* Custom styled Flatpickr for dark glassmorphism */
+        .flatpickr-calendar {
+            background: var(--color-surface-glass-solid) !important;
+            border: 1px solid var(--border-glass) !important;
+            box-shadow: var(--shadow-glass) !important;
+            backdrop-filter: blur(12px) !important;
+            -webkit-backdrop-filter: blur(12px) !important;
+        }
+        .flatpickr-months .flatpickr-month,
+        .flatpickr-weekdays,
+        span.flatpickr-weekday {
+            background: transparent !important;
+            color: var(--color-text-primary) !important;
+        }
+        .flatpickr-day {
+            color: var(--color-text-secondary) !important;
+            border-radius: 6px !important;
+            margin: 2px 0 !important;
+        }
+        .flatpickr-day:hover,
+        .flatpickr-day:focus {
+            background: rgba(255, 255, 255, 0.08) !important;
+            color: #fff !important;
+            border-color: rgba(255, 255, 255, 0.15) !important;
+        }
+        .flatpickr-day.selected,
+        .flatpickr-day.selected:hover {
+            background: var(--color-primary) !important;
+            color: #fff !important;
+            border-color: var(--color-primary) !important;
+        }
+        .flatpickr-day.today {
+            border-color: rgba(255, 255, 255, 0.3) !important;
+        }
+        .flatpickr-day.prevMonthDay,
+        .flatpickr-day.nextMonthDay {
+            color: var(--color-text-muted) !important;
+        }
+        
+        /* Highlighted days with events */
+        .flatpickr-day.has-event-day {
+            border: 1px dashed var(--color-primary) !important;
+            position: relative;
+            font-weight: 600;
+        }
+        .flatpickr-day.has-event-day::after {
+            content: '';
+            position: absolute;
+            bottom: 4px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 4px;
+            height: 4px;
+            border-radius: 50%;
+            background-color: var(--color-primary);
+        }
+        .flatpickr-day.has-event-day.selected::after {
+            background-color: #fff;
+        }
+    </style>
 </head>
 <body>
     <div class="app-container">
@@ -120,7 +188,7 @@ try {
                         </div>
                         <form method="GET" action="checkins.php" style="display: inline-flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.05); padding: 8px 15px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);">
                             <label for="date-filter" style="color: var(--color-text-secondary); font-size: 0.85rem; font-weight: 500;">Choose Date:</label>
-                            <input type="date" id="date-filter" name="date" value="<?php echo e($selectedDate); ?>" onchange="this.form.submit()" style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #fff; padding: 5px 10px; font-size: 0.85rem; outline: none; cursor: pointer;">
+                            <input type="text" id="date-filter" name="date" value="<?php echo e($selectedDate); ?>" onchange="this.form.submit()" style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #fff; padding: 5px 10px; font-size: 0.85rem; outline: none; cursor: pointer; width: 120px; text-align: center;">
                         </form>
                     </div>
 
@@ -178,5 +246,33 @@ try {
             </div>
         </main>
     </div>
+    <!-- Flatpickr JS -->
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            const eventDates = <?php echo json_encode($eventDates); ?>;
+            
+            flatpickr("#date-filter", {
+                dateFormat: "Y-m-d",
+                defaultDate: "<?php echo $selectedDate; ?>",
+                disableMobile: true,
+                onDayCreate: function(dObj, dStr, fp, dayElem) {
+                    const date = dayElem.dateObj;
+                    const y = date.getFullYear();
+                    const m = String(date.getMonth() + 1).padStart(2, '0');
+                    const d = String(date.getDate()).padStart(2, '0');
+                    const dateString = `${y}-${m}-${d}`;
+                    
+                    if (eventDates.includes(dateString)) {
+                        dayElem.classList.add("has-event-day");
+                        dayElem.setAttribute("title", "Scheduled Event(s) on this day");
+                    }
+                },
+                onChange: function(selectedDates, dateStr, instance) {
+                    instance.element.form.submit();
+                }
+            });
+        });
+    </script>
 </body>
 </html>
