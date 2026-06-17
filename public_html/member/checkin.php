@@ -229,7 +229,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <label for="identifier">Email Address or Member ID</label>
                         <input type="text" id="identifier" name="identifier" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" required placeholder="Enter Email or ID..." autofocus>
                     </div>
-                    <button type="submit" class="btn btn-primary btn-large btn-block">Submit Check-In</button>
+                    <button type="submit" class="btn btn-primary btn-large btn-block">Check-In</button>
                 </form>
 
                 <div class="terminal-footer">
@@ -266,7 +266,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     const submitBtn = form.querySelector('button[type="submit"]');
                     const originalBtnText = submitBtn.textContent;
                     submitBtn.disabled = true;
-                    submitBtn.textContent = 'Acquiring location...';
+                    submitBtn.textContent = 'Check-In';
 
                     if (!navigator.geolocation) {
                         renderFeedback(false, 'Your browser does not support geolocation, which is required to check in.');
@@ -310,7 +310,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 const originalBtnText = submitBtn.textContent;
                 
                 submitBtn.disabled = true;
-                submitBtn.textContent = 'Submitting...';
+                submitBtn.textContent = 'Check-In';
 
                 const data = new URLSearchParams();
                 data.append('identifier', inputField.value);
