@@ -41,7 +41,7 @@ try {
                 $deleteStmt->execute(['id' => $checkinId]);
                 
                 // Redirect back to same page with date parameter to prevent form resubmission
-                redirect("checkins.php?date=" . urlencode($selectedDate) . "&success=1");
+                redirect("admin/checkins.php?date=" . urlencode($selectedDate) . "&success=1");
             } else {
                 $errorMsg = "Invalid check-in ID.";
             }
