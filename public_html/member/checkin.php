@@ -200,6 +200,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <a href="calendar.php">Calendar</a>
                 <a href="volunteers.php">Volunteers</a>
                 <a href="checkin.php" class="active">Check-In Portal</a>
+                <?php if (has_permission('edit checkins')): ?>
+                    <a href="admin/checkins.php">Check-In List</a>
+                <?php endif; ?>
             </nav>
         </header>
 

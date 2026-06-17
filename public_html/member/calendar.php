@@ -159,6 +159,9 @@ if ($nextMonth > 12) { $nextMonth = 1; $nextYear++; }
                     <a href="calendar.php" class="active">Calendar</a>
                     <a href="volunteers.php">Volunteers</a>
                     <a href="checkin.php">Check-In</a>
+                    <?php if (has_permission('edit checkins')): ?>
+                        <a href="admin/checkins.php">Check-In List</a>
+                    <?php endif; ?>
                     <?php if (has_role('admin')): ?>
                         <a href="admin/dashboard.php">Admin</a>
                     <?php endif; ?>

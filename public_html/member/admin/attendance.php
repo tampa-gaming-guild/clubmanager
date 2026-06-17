@@ -97,6 +97,9 @@ try {
                 <a href="../calendar.php">Calendar</a>
                 <a href="../volunteers.php">Volunteers</a>
                 <a href="../checkin.php">Check-In</a>
+                <?php if (has_permission('edit checkins')): ?>
+                    <a href="checkins.php">Check-In List</a>
+                <?php endif; ?>
                 <a href="dashboard.php" class="active">Admin</a>
                 <a href="../index.php?action=logout&amp;csrf_token=<?php echo e(get_csrf_token()); ?>" class="btn-logout">Logout</a>
             </nav>

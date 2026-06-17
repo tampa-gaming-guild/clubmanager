@@ -572,6 +572,9 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                     <a href="calendar.php">Calendar</a>
                     <a href="volunteers.php">Volunteers</a>
                     <a href="checkin.php">Check-In</a>
+                    <?php if (has_permission('edit checkins')): ?>
+                        <a href="admin/checkins.php">Check-In List</a>
+                    <?php endif; ?>
                     <?php if (has_role('admin')): ?>
                         <a href="admin/dashboard.php">Admin</a>
                     <?php endif; ?>

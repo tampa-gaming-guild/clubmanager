@@ -44,6 +44,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
                     <?php endif; ?>
                     <?php if ($show_attendance): ?>
                         <li><a href="attendance.php" class="<?php echo ($current_page === 'attendance.php') ? 'active' : ''; ?>" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Attendance Log</a></li>
+                        <li><a href="checkins.php" class="<?php echo ($current_page === 'checkins.php') ? 'active' : ''; ?>" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Check-In List</a></li>
                     <?php endif; ?>
                     <?php if ($show_email_log): ?>
                         <li><a href="email_log.php" class="<?php echo ($current_page === 'email_log.php') ? 'active' : ''; ?>" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Email Log</a></li>
