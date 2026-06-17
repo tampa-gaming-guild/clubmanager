@@ -9,9 +9,33 @@ require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 use App\Database;
 use App\CiviCRMImporter;
 
+/**
+ * Calculate physical distance between two GPS coordinates using Haversine formula
+ */
+if (!function_exists('get_distance_meters')) {
+    function get_distance_meters($lat1, $lon1, $lat2, $lon2) {
+        $earthRadius = 6371000; // Earth's radius in meters
+        $latFrom = deg2rad($lat1);
+        $lonFrom = deg2rad($lon1);
+        $latTo = deg2rad($lat2);
+        $lonTo = deg2rad($lon2);
+
+        $latDelta = $latTo - $latFrom;
+        $lonDelta = $lonTo - $lonFrom;
+
+        $angle = 2 * asin(sqrt(pow(sin($latDelta / 2), 2) +
+            cos($latFrom) * cos($latTo) * pow(sin($lonDelta / 2), 2)));
+
+        return $angle * $earthRadius;
+    }
+}
+
 $errorMsg = null;
 $successMsg = null;
 $memberDetails = null;
+
+// Determine if geolocation check is required for the current user
+$isGeoEnabled = ($_ENV['GEOLOCATION_CHECK_ENABLED'] ?? 'false') === 'true' && !has_role('admin') && !has_role('host');
 
 // Handle Check-In POST (Standard & AJAX)
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -41,55 +65,81 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         try {
             $appDb = Database::getAppConnection();
-            $contactId = 0;
-            $contactName = '';
-
-            // 1. Resolve Contact ID
-            if (filter_var($identifier, FILTER_VALIDATE_EMAIL)) {
-                // Resolved via Email
-                $stmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE email = :email AND is_deleted = 0 LIMIT 1");
-                $stmt->execute(['email' => strtolower($identifier)]);
-                $row = $stmt->fetch();
-                if ($row) {
-                    $contactId = (int)$row['id'];
+            
+            // Geolocation Validation
+            $geoValid = true;
+            
+            if ($isGeoEnabled) {
+                $latitude = isset($_POST['latitude']) && is_numeric($_POST['latitude']) ? (float)$_POST['latitude'] : null;
+                $longitude = isset($_POST['longitude']) && is_numeric($_POST['longitude']) ? (float)$_POST['longitude'] : null;
+                
+                if ($latitude === null || $longitude === null) {
+                    $errorMsg = "Location access is required to check in. Please enable location permissions.";
+                    $geoValid = false;
+                } else {
+                    $clubLat = (float)($_ENV['CLUB_LATITUDE'] ?? 27.9506);
+                    $clubLon = (float)($_ENV['CLUB_LONGITUDE'] ?? -82.4572);
+                    $maxDistance = (float)($_ENV['CLUB_MAX_CHECKIN_DISTANCE_METERS'] ?? 100);
+                    
+                    $distance = get_distance_meters($latitude, $longitude, $clubLat, $clubLon);
+                    if ($distance > $maxDistance) {
+                        $errorMsg = "Location check failed. You must be at the club's physical location to check in (Distance: " . round($distance) . " meters away).";
+                        $geoValid = false;
+                    }
                 }
-            } else if (is_numeric($identifier)) {
-                // Resolved via Contact ID
-                $contactId = (int)$identifier;
             }
 
-            if ($contactId <= 0) {
-                $errorMsg = "Member not found. Please check your Email or Member ID.";
-            } else {
-                // 2. Fetch Contact Name and Expiry Date
-                $contactStmt = $appDb->prepare("SELECT display_name FROM tgg_contacts WHERE id = :id AND is_deleted = 0 LIMIT 1");
-                $contactStmt->execute(['id' => $contactId]);
-                $contactRow = $contactStmt->fetch();
+            if ($geoValid) {
+                $contactId = 0;
+                $contactName = '';
 
-                if (!$contactRow) {
-                    $errorMsg = "Member not found in database.";
+                // 1. Resolve Contact ID
+                if (filter_var($identifier, FILTER_VALIDATE_EMAIL)) {
+                    // Resolved via Email
+                    $stmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE email = :email AND is_deleted = 0 LIMIT 1");
+                    $stmt->execute(['email' => strtolower($identifier)]);
+                    $row = $stmt->fetch();
+                    if ($row) {
+                        $contactId = (int)$row['id'];
+                    }
+                } else if (is_numeric($identifier)) {
+                    // Resolved via Contact ID
+                    $contactId = (int)$identifier;
+                }
+
+                if ($contactId <= 0) {
+                    $errorMsg = "Member not found. Please check your Email or Member ID.";
                 } else {
-                    $contactName = CiviCRMImporter::getFormattedName($contactId);
+                    // 2. Fetch Contact Name and Expiry Date
+                    $contactStmt = $appDb->prepare("SELECT display_name FROM tgg_contacts WHERE id = :id AND is_deleted = 0 LIMIT 1");
+                    $contactStmt->execute(['id' => $contactId]);
+                    $contactRow = $contactStmt->fetch();
 
-                    // 3. Verify Active Membership
-                    $membership = CiviCRMImporter::getMemberMembershipDetails($contactId);
-
-                    if (!$membership || !$membership['is_active']) {
-                        $errorMsg = "Check-in Denied: Membership is currently expired or inactive for {$contactName}.";
+                    if (!$contactRow) {
+                        $errorMsg = "Member not found in database.";
                     } else {
-                        // 4. Log the check-in
-                        $insertStmt = $appDb->prepare("INSERT INTO tgg_checkins (contact_id, checked_in_at, notes) VALUES (:contact_id, NOW(), :notes)");
-                        $insertStmt->execute([
-                            'contact_id' => $contactId,
-                            'notes' => $notes
-                        ]);
+                        $contactName = CiviCRMImporter::getFormattedName($contactId);
 
-                        $successMsg = "Check-In Successful! Welcome, {$contactName}.";
-                        $memberDetails = [
-                            'name' => $contactName,
-                            'membership' => $membership['membership_name'],
-                            'expires' => date('M d, Y', strtotime($membership['end_date']))
-                        ];
+                        // 3. Verify Active Membership
+                        $membership = CiviCRMImporter::getMemberMembershipDetails($contactId);
+
+                        if (!$membership || !$membership['is_active']) {
+                            $errorMsg = "Check-in Denied: Membership is currently expired or inactive for {$contactName}.";
+                        } else {
+                            // 4. Log the check-in
+                            $insertStmt = $appDb->prepare("INSERT INTO tgg_checkins (contact_id, checked_in_at, notes) VALUES (:contact_id, NOW(), :notes)");
+                            $insertStmt->execute([
+                                'contact_id' => $contactId,
+                                'notes' => $notes
+                            ]);
+
+                            $successMsg = "Check-In Successful! Welcome, {$contactName}.";
+                            $memberDetails = [
+                                'name' => $contactName,
+                                'membership' => $membership['membership_name'],
+                                'expires' => date('M d, Y', strtotime($membership['end_date']))
+                            ];
+                        }
                     }
                 }
             }
@@ -203,6 +253,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 inputField.focus();
             });
 
+            const isGeoEnabled = <?php echo $isGeoEnabled ? 'true' : 'false'; ?>;
+
             // AJAX Handler for faster checkins (desk tablet mode)
             const form = document.getElementById('checkin-form');
             const feedbackArea = document.getElementById('feedback-area');
@@ -210,9 +262,63 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             form.addEventListener('submit', (e) => {
                 e.preventDefault();
                 
+                if (isGeoEnabled) {
+                    const submitBtn = form.querySelector('button[type="submit"]');
+                    const originalBtnText = submitBtn.textContent;
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = 'Acquiring location...';
+
+                    if (!navigator.geolocation) {
+                        renderFeedback(false, 'Your browser does not support geolocation, which is required to check in.');
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = originalBtnText;
+                        return;
+                    }
+
+                    navigator.geolocation.getCurrentPosition(
+                        (position) => {
+                            const lat = position.coords.latitude;
+                            const lon = position.coords.longitude;
+                            submitCheckin(lat, lon);
+                        },
+                        (error) => {
+                            let msg = 'Failed to acquire location.';
+                            if (error.code === error.PERMISSION_DENIED) {
+                                msg = 'Location access denied. You must allow location access to check in.';
+                            } else if (error.code === error.POSITION_UNAVAILABLE) {
+                                msg = 'Location details unavailable. Please enable GPS/Location services.';
+                            } else if (error.code === error.TIMEOUT) {
+                                msg = 'Location request timed out. Please try again.';
+                            }
+                            renderFeedback(false, msg);
+                            submitBtn.disabled = false;
+                            submitBtn.textContent = originalBtnText;
+                        },
+                        {
+                            enableHighAccuracy: true,
+                            timeout: 10000,
+                            maximumAge: 0
+                        }
+                    );
+                } else {
+                    submitCheckin();
+                }
+            });
+
+            function submitCheckin(lat = null, lon = null) {
+                const submitBtn = form.querySelector('button[type="submit"]');
+                const originalBtnText = submitBtn.textContent;
+                
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Submitting...';
+
                 const data = new URLSearchParams();
                 data.append('identifier', inputField.value);
                 data.append('ajax', '1');
+                if (lat !== null && lon !== null) {
+                    data.append('latitude', lat);
+                    data.append('longitude', lon);
+                }
 
                 fetch('checkin.php', {
                     method: 'POST',
@@ -225,6 +331,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 .then(response => response.json().then(json => ({ status: response.status, body: json })))
                 .then(res => {
                     inputField.value = ''; // Clear for next member
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = originalBtnText;
                     if (res.status === 200 && res.body.success) {
                         playAudio(true);
                         renderFeedback(true, res.body.message, res.body.details);
@@ -234,10 +342,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 })
                 .catch(err => {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = originalBtnText;
                     playAudio(false);
                     renderFeedback(false, 'Connection error. Please try again.');
                 });
-            });
+            }
 
             function escapeHtml(str) {
                 if (!str) return '';
