@@ -82,9 +82,9 @@ try {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Check-In List - Admin Panel</title>
     <link rel="stylesheet" href="../assets/css/style.css">
-    <!-- Flatpickr Datepicker -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.css">
+    <!-- Flatpickr Datepicker (Served locally to satisfy Content Security Policy) -->
+    <link rel="stylesheet" href="../assets/css/flatpickr.min.css">
+    <link rel="stylesheet" href="../assets/css/flatpickr-dark.min.css">
     <style>
         /* Custom styled Flatpickr for dark glassmorphism */
         .flatpickr-calendar {
@@ -246,8 +246,8 @@ try {
             </div>
         </main>
     </div>
-    <!-- Flatpickr JS -->
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <!-- Flatpickr JS (Served locally to satisfy Content Security Policy) -->
+    <script src="../assets/js/flatpickr.min.js"></script>
     <script>
         document.addEventListener("DOMContentLoaded", function() {
             const eventDates = <?php echo json_encode($eventDates); ?>;
