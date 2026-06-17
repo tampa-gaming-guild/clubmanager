@@ -35,7 +35,7 @@ $successMsg = null;
 $memberDetails = null;
 
 // Determine if geolocation check is required for the current user
-$isGeoEnabled = ($_ENV['GEOLOCATION_CHECK_ENABLED'] ?? 'false') === 'true' && !has_role('admin') && !has_role('host');
+$isGeoEnabled = ($_ENV['GEOLOCATION_CHECK_ENABLED'] ?? 'false') === 'true' && !has_role('superadmin');
 
 // Handle Check-In POST (Standard & AJAX)
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
