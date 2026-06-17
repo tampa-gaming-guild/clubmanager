@@ -224,10 +224,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <?php endif; ?>
                 </div>
 
-                <form id="checkin-form" action="checkin.php" method="POST" class="terminal-form">
+                <form id="checkin-form" action="checkin.php" method="POST" class="terminal-form" autocomplete="off">
                     <div class="form-group large-input">
                         <label for="identifier">Email Address or Member ID</label>
-                        <input type="text" id="identifier" name="identifier" autocomplete="off" required placeholder="Enter Email or ID..." autofocus>
+                        <input type="text" id="identifier" name="identifier" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" required placeholder="Enter Email or ID..." autofocus>
                     </div>
                     <button type="submit" class="btn btn-primary btn-large btn-block">Submit Check-In</button>
                 </form>
