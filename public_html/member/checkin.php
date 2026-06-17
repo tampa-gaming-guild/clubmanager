@@ -120,25 +120,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     } else {
                         $contactName = CiviCRMImporter::getFormattedName($contactId);
 
-                        // 3. Verify Active Membership
-                        $membership = CiviCRMImporter::getMemberMembershipDetails($contactId);
+                        // 2b. Prevent double check-in on the same day
+                        $dupCheckStmt = $appDb->prepare("SELECT COUNT(*) FROM tgg_checkins WHERE contact_id = :contact_id AND DATE(checked_in_at) = CURDATE()");
+                        $dupCheckStmt->execute(['contact_id' => $contactId]);
+                        $hasCheckedInToday = (int)$dupCheckStmt->fetchColumn() > 0;
 
-                        if (!$membership || !$membership['is_active']) {
-                            $errorMsg = "Check-in Denied: Membership is currently expired or inactive for {$contactName}.";
+                        if ($hasCheckedInToday) {
+                            $errorMsg = "Check-in Denied: {$contactName} has already checked in today.";
                         } else {
-                            // 4. Log the check-in
-                            $insertStmt = $appDb->prepare("INSERT INTO tgg_checkins (contact_id, checked_in_at, notes) VALUES (:contact_id, NOW(), :notes)");
-                            $insertStmt->execute([
-                                'contact_id' => $contactId,
-                                'notes' => $notes
-                            ]);
+                            // 3. Verify Active Membership
+                            $membership = CiviCRMImporter::getMemberMembershipDetails($contactId);
 
-                            $successMsg = "Check-In Successful! Welcome, {$contactName}.";
-                            $memberDetails = [
-                                'name' => $contactName,
-                                'membership' => $membership['membership_name'],
-                                'expires' => date('M d, Y', strtotime($membership['end_date']))
-                            ];
+                            if (!$membership || !$membership['is_active']) {
+                                $errorMsg = "Check-in Denied: Membership is currently expired or inactive for {$contactName}.";
+                            } else {
+                                // 4. Log the check-in
+                                $insertStmt = $appDb->prepare("INSERT INTO tgg_checkins (contact_id, checked_in_at, notes) VALUES (:contact_id, NOW(), :notes)");
+                                $insertStmt->execute([
+                                    'contact_id' => $contactId,
+                                    'notes' => $notes
+                                ]);
+
+                                $successMsg = "Check-In Successful! Welcome, {$contactName}.";
+                                $memberDetails = [
+                                    'name' => $contactName,
+                                    'membership' => $membership['membership_name'],
+                                    'expires' => date('M d, Y', strtotime($membership['end_date']))
+                                ];
+                            }
                         }
                     }
                 }
@@ -233,7 +242,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </form>
 
                 <div class="terminal-footer">
-                    <p>Issues checking in? Please see the desk administrator.</p>
+                    <p>Issues checking in? Please ask for the host.</p>
                 </div>
             </div>
         </main>
