@@ -258,20 +258,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // AJAX Handler for faster checkins (desk tablet mode)
             const form = document.getElementById('checkin-form');
             const feedbackArea = document.getElementById('feedback-area');
+            const submitBtn = form.querySelector('button[type="submit"]');
+
+            function setButtonChecking() {
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Checking your current location...';
+                submitBtn.style.backgroundColor = '#ffcc00';
+                submitBtn.style.color = '#000';
+            }
+
+            function resetButtonState() {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Check-In';
+                submitBtn.style.backgroundColor = '';
+                submitBtn.style.color = '';
+            }
 
             form.addEventListener('submit', (e) => {
                 e.preventDefault();
                 
                 if (isGeoEnabled) {
-                    const submitBtn = form.querySelector('button[type="submit"]');
-                    const originalBtnText = submitBtn.textContent;
-                    submitBtn.disabled = true;
-                    submitBtn.textContent = 'Check-In';
+                    setButtonChecking();
 
                     if (!navigator.geolocation) {
                         renderFeedback(false, 'Your browser does not support geolocation, which is required to check in.');
-                        submitBtn.disabled = false;
-                        submitBtn.textContent = originalBtnText;
+                        resetButtonState();
                         return;
                     }
 
@@ -291,8 +302,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 msg = 'Location request timed out. Please try again.';
                             }
                             renderFeedback(false, msg);
-                            submitBtn.disabled = false;
-                            submitBtn.textContent = originalBtnText;
+                            resetButtonState();
                         },
                         {
                             enableHighAccuracy: true,
@@ -301,17 +311,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                     );
                 } else {
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = 'Check-In';
                     submitCheckin();
                 }
             });
 
             function submitCheckin(lat = null, lon = null) {
-                const submitBtn = form.querySelector('button[type="submit"]');
-                const originalBtnText = submitBtn.textContent;
-                
-                submitBtn.disabled = true;
-                submitBtn.textContent = 'Check-In';
-
                 const data = new URLSearchParams();
                 data.append('identifier', inputField.value);
                 data.append('ajax', '1');
@@ -331,8 +337,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 .then(response => response.json().then(json => ({ status: response.status, body: json })))
                 .then(res => {
                     inputField.value = ''; // Clear for next member
-                    submitBtn.disabled = false;
-                    submitBtn.textContent = originalBtnText;
+                    resetButtonState();
                     if (res.status === 200 && res.body.success) {
                         playAudio(true);
                         renderFeedback(true, res.body.message, res.body.details);
@@ -342,8 +347,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 })
                 .catch(err => {
-                    submitBtn.disabled = false;
-                    submitBtn.textContent = originalBtnText;
+                    resetButtonState();
                     playAudio(false);
                     renderFeedback(false, 'Connection error. Please try again.');
                 });
