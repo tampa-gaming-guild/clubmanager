@@ -33,6 +33,8 @@ if (!function_exists('get_distance_meters')) {
 $errorMsg = null;
 $successMsg = null;
 $memberDetails = null;
+$isLoggedIn = \App\Auth::check();
+$loggedInName = $isLoggedIn ? ($_SESSION['user']['display_name'] ?? 'Member') : '';
 
 // Determine if geolocation check is required for the current user
 $isGeoEnabled = ($_ENV['GEOLOCATION_CHECK_ENABLED'] ?? 'false') === 'true' && !has_role('superadmin');
@@ -210,7 +212,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <div class="terminal-panel glass-panel">
                 <div class="terminal-header">
                     <h2>Club Entry Check-In</h2>
-                    <p class="subtitle">Please scan your barcode, or enter your Email or Member ID to check in.</p>
+                    <?php if ($isLoggedIn): ?>
+                        <p class="subtitle">Please verify your location to complete check-in.</p>
+                    <?php else: ?>
+                        <p class="subtitle">Please scan your barcode, or enter your Email or Member ID to check in.</p>
+                    <?php endif; ?>
                 </div>
 
                 <div id="feedback-area">
@@ -237,10 +243,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
 
                 <form id="checkin-form" action="checkin.php" method="POST" class="terminal-form" autocomplete="off">
-                    <div class="form-group large-input">
-                        <label for="identifier">Email Address or Member ID</label>
-                        <input type="text" id="identifier" name="identifier" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" required placeholder="Enter Email or ID..." autofocus>
-                    </div>
+                    <?php if ($isLoggedIn): ?>
+                        <div style="text-align: center; margin-bottom: 25px;">
+                            <p style="font-size: 1.15rem; color: var(--color-text-secondary); margin-bottom: 5px;">Logged in as:</p>
+                            <p style="font-size: 1.4rem; font-weight: 700; color: #fff; margin: 0; font-family: var(--font-heading);"><?php echo e($loggedInName); ?></p>
+                        </div>
+                        <input type="hidden" id="identifier" name="identifier" value="<?php echo e($_SESSION['user']['contact_id']); ?>">
+                    <?php else: ?>
+                        <div class="form-group large-input">
+                            <label for="identifier">Email Address or Member ID</label>
+                            <input type="text" id="identifier" name="identifier" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" required placeholder="Enter Email or ID..." autofocus>
+                        </div>
+                    <?php endif; ?>
                     <button type="submit" class="btn btn-primary btn-large btn-block">Check-In</button>
                 </form>
 
@@ -260,10 +274,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         document.addEventListener('DOMContentLoaded', () => {
             const inputField = document.getElementById('identifier');
             
-            // Keep input focused at all times for quick barcode scanner entry
-            document.addEventListener('click', () => {
-                inputField.focus();
-            });
+            // Keep input focused at all times for quick barcode scanner entry (only if text input)
+            if (inputField && inputField.type !== 'hidden') {
+                document.addEventListener('click', () => {
+                    inputField.focus();
+                });
+            }
 
             const isGeoEnabled = <?php echo $isGeoEnabled ? 'true' : 'false'; ?>;
 
@@ -329,6 +345,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             });
 
+            // Automatically trigger check-in if user is logged in
+            const isLoggedIn = <?php echo $isLoggedIn ? 'true' : 'false'; ?>;
+            if (isLoggedIn) {
+                setTimeout(() => {
+                    submitBtn.click();
+                }, 300);
+            }
+
             function submitCheckin(lat = null, lon = null) {
                 const data = new URLSearchParams();
                 data.append('identifier', inputField.value);
@@ -348,7 +372,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 })
                 .then(response => response.json().then(json => ({ status: response.status, body: json })))
                 .then(res => {
-                    inputField.value = ''; // Clear for next member
+                    if (!isLoggedIn) {
+                        inputField.value = ''; // Clear for next member
+                    }
                     resetButtonState();
                     if (res.status === 200 && res.body.success) {
                         playAudio(true);
