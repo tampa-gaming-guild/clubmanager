@@ -263,7 +263,7 @@ CREATE TABLE IF NOT EXISTS `tgg_email_log` (
 
 -- 13. Contacts Table (Local storage for CiviCRM contact details)
 CREATE TABLE IF NOT EXISTS `tgg_contacts` (
-  `id` INT NOT NULL,
+  `id` INT AUTO_INCREMENT NOT NULL,
   `contact_type` VARCHAR(64) DEFAULT 'Individual',
   `display_name` VARCHAR(128) NOT NULL,
   `first_name` VARCHAR(64) NULL,
@@ -275,7 +275,7 @@ CREATE TABLE IF NOT EXISTS `tgg_contacts` (
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_email` (`email`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci AUTO_INCREMENT=100000;
 
 -- 14. Membership Statuses Table
 CREATE TABLE IF NOT EXISTS `tgg_membership_statuses` (
