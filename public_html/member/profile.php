@@ -937,7 +937,10 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                                  $badgeLabel = ucfirst($tx['payment_status']);
                                                  if ($tx['payment_status'] === 'paid') {
                                                      $trxnId = $tx['trxn_id'] ?? '';
-                                                     if (strpos($trxnId, 'offline_volunteer_credit_') === 0) {
+                                                     if (strpos($trxnId, 'trial_') === 0) {
+                                                         $badgeClass = 'badge-free';
+                                                         $badgeLabel = 'Email Verified';
+                                                     } elseif (strpos($trxnId, 'offline_volunteer_credit_') === 0) {
                                                          $badgeClass = 'badge-volunteer';
                                                          $badgeLabel = 'Volunteer';
                                                      } elseif (strpos($trxnId, 'offline_complimentary_') === 0) {
