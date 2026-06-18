@@ -252,7 +252,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <?php else: ?>
                         <div class="form-group large-input">
                             <label for="identifier">Email Address or Member ID</label>
-                            <input type="text" id="identifier" name="identifier" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" required placeholder="Enter Email or ID..." autofocus>
+                            <input type="text" id="identifier" name="identifier" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" required placeholder="Enter Email or ID..." autofocus>
                         </div>
                     <?php endif; ?>
                     <button type="submit" class="btn btn-primary btn-large btn-block">Check-In</button>
