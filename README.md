@@ -1,6 +1,6 @@
-# Simple CiviCRM Member Tracking System (PHP & MariaDB)
+# Game Club Member Tracking System (PHP & MariaDB)
 
-A secure, high-fidelity club membership tracking web application modeled as a lightweight alternative to CiviCRM. The application runs natively on PHP 8.x and MariaDB, and integrates with CiviMember and CiviContribute schemas.
+A secure, high-fidelity club membership tracking web application modeled as a lightweight alternative to CiviCRM. The application runs natively on PHP 8.x and MariaDB, and imports from CiviMember and CiviContribute schemas.
 
 ---
 
@@ -18,7 +18,9 @@ c:\apps\tgg\                  (Keep OUTSIDE the web server document root)
 │   ├── Database.php          # Dual DB connection pool (App DB & CiviCRM DB)
 │   ├── Event.php             # Event/Session CRUD & volunteer signups
 │   ├── StripeHelper.php      # Stripe Checkout & native signature verification
-│   └── CiviCRMImporter.php   # MySQL sync utility from CiviCRM to local credentials
+│   ├── MailHelper.php        # SMTP sending via templated emails
+│   ├── BillingHelper.php     # Subscription plan management & billing ledger
+│   └── CiviCRMImporter.php   # One-time CiviCRM -> local DB import (contacts, membership levels)
 ├── sql\
 │   ├── schema.sql            # Local app database tables (check-ins, events, settings)
 │   └── civicrm_mock.sql      # Seedable CiviCRM tables for local test environments
@@ -39,7 +41,42 @@ c:\apps\tgg\                  (Keep OUTSIDE the web server document root)
 
 ---
 
-## Installation & Deployment
+## Local Development with Docker Compose
+
+The fastest way to run the app locally is `docker-compose.yml`, which starts three containers:
+
+* **db** – MariaDB, auto-seeded on first start from `sql/schema.sql` (local app tables) and `sql/civicrm_mock.sql` (mock CiviCRM tables for testing).
+* **mailpit** – catches outgoing emails instead of sending them. Web UI at `http://localhost:8025`.
+* **app** – PHP 8.2 + Apache, document root locked to `public_html/` (same separation as production).
+
+### 1. Start the stack
+```bash
+cp .env.example .env   # if you don't already have one
+docker compose up -d --build
+```
+The app is then available at `http://localhost:8080/member/`. `DB_HOST`, `CIVI_DB_HOST`, `SMTP_HOST`, and `BASE_URL` are overridden by `docker-compose.yml` so the same `.env` works for both Docker and a native install — fill in your Stripe test keys in `.env` if you need checkout/webhook testing.
+
+### 2. Run the initial CiviCRM import
+The local database starts empty — contacts and membership levels (`tgg_subscription_plans`) only exist after the CiviCRM import runs. Since the import tool itself is an admin-only page (a chicken-and-egg problem on a brand new install), trigger it once from the CLI instead:
+```bash
+docker compose exec app php -r "require '/var/www/html/config/bootstrap.php'; print_r(App\CiviCRMImporter::runSync());"
+```
+This populates `tgg_contacts` and `tgg_subscription_plans` from the mock CiviCRM data, and creates a `tgg_member_settings` row (with a random, unusable password) for every imported contact.
+
+### 3. Bootstrap your first admin login
+Every imported contact defaults to the `member` role with no usable password. Promote one to `superadmin` and set a password directly:
+```bash
+docker compose exec db mariadb -uroot -e "
+  UPDATE tgg_members.tgg_member_settings SET role='superadmin' WHERE contact_id=1;
+  UPDATE tgg_members.tgg_member_roles SET role_name='superadmin' WHERE contact_id=1 AND role_name='member';
+"
+docker compose exec app php -r "require '/var/www/html/config/bootstrap.php'; App\Auth::registerPassword(1, 'YourPasswordHere123!', 'superadmin');"
+```
+(Both `tgg_member_settings.role` and the `tgg_member_roles` mapping table need updating — the mapping table is only auto-populated on `INSERT`, not `UPDATE`.) Log in at `http://localhost:8080/member/` with that contact's email and the password you set.
+
+---
+
+## Production Installation & Deployment
 
 ### 1. Database Configuration
 1. Create a database for the local application (default name: `tgg_members`) and import the schema:
@@ -51,6 +88,7 @@ c:\apps\tgg\                  (Keep OUTSIDE the web server document root)
    mysql -u your_user -p < sql/civicrm_mock.sql
    ```
    *For live deployment, ensure this application has SELECT, INSERT, and UPDATE permissions to the CiviCRM tables inside your WordPress database.*
+3. Run the CiviCRM import once (see "Run the initial CiviCRM import" above) to populate contacts and membership levels, then bootstrap your first admin login (see "Bootstrap your first admin login" above).
 
 ### 2. Configure Environment Variables
 1. Copy `.env.example` to `.env` in the root project folder:
