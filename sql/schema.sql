@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS `tgg_member_roles` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Trigger to automatically assign default role on settings creation
+DELIMITER ;;
 CREATE TRIGGER IF NOT EXISTS `tgg_member_settings_after_insert`
 AFTER INSERT ON `tgg_member_settings`
 FOR EACH ROW
@@ -92,7 +93,8 @@ BEGIN
   INSERT INTO `tgg_member_roles` (`contact_id`, `role_name`)
   VALUES (NEW.contact_id, NEW.role)
   ON DUPLICATE KEY UPDATE `role_name` = VALUES(`role_name`);
-END;
+END;;
+DELIMITER ;
 
 -- 2. Member Check-ins (Attendance Log)
 CREATE TABLE IF NOT EXISTS `tgg_checkins` (
