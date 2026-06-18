@@ -21,9 +21,12 @@ c:\apps\tgg\                  (Keep OUTSIDE the web server document root)
 │   ├── MailHelper.php        # SMTP sending via templated emails
 │   ├── BillingHelper.php     # Subscription plan management & billing ledger
 │   └── CiviCRMImporter.php   # One-time CiviCRM -> local DB import (contacts, membership levels)
+├── db\
+│   ├── migrations\           # Phinx migrations -- the local app schema, versioned
+│   └── seeds\                 # Phinx seeders -- reference data (roles, email templates, etc.)
 ├── sql\
-│   ├── schema.sql            # Local app database tables (check-ins, events, settings)
 │   └── civicrm_mock.sql      # Seedable CiviCRM tables for local test environments
+├── phinx.php                 # Phinx config (reads DB_* from .env)
 ├── .env                      # Live database credentials & Stripe API secrets (KEEP PRIVATE)
 ├── .env.example              # Environment variables template
 └── public_html\              (ONLY this directory is exposed to the internet)
@@ -45,9 +48,9 @@ c:\apps\tgg\                  (Keep OUTSIDE the web server document root)
 
 The fastest way to run the app locally is `docker-compose.yml`, which starts three containers:
 
-* **db** – MariaDB, auto-seeded on first start from `sql/schema.sql` (local app tables) and `sql/civicrm_mock.sql` (mock CiviCRM tables for testing).
+* **db** – MariaDB, auto-seeded on first start from `sql/civicrm_mock.sql` (mock CiviCRM tables for testing). The app's own `tgg_members` schema and reference data are built by Phinx, not by this auto-seeding.
 * **mailpit** – catches outgoing emails instead of sending them. Web UI at `http://localhost:8025`.
-* **app** – PHP 8.2 + Apache, document root locked to `public_html/` (same separation as production).
+* **app** – PHP 8.2 + Apache, document root locked to `public_html/` (same separation as production). On every container start, its entrypoint runs `vendor/bin/phinx migrate` and `vendor/bin/phinx seed:run` against the local database -- no manual schema setup needed, and pulling a new schema change just means restarting the `app` container.
 
 ### 1. Start the stack
 ```bash
@@ -76,13 +79,59 @@ docker compose exec app php -r "require '/var/www/html/config/bootstrap.php'; Ap
 
 ---
 
+## Database Migrations (Phinx)
+
+The local `tgg_members` schema and its reference data (roles, permissions, email templates, volunteer credit weights, membership statuses) are managed with [Phinx](https://book.cakephp.org/phinx/0/en/index.html), not a hand-maintained `.sql` file. `phinx.php` reads the same `DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USER`/`DB_PASS` from `.env` that `App\Database` uses.
+
+**Adding a schema change:**
+```bash
+docker compose exec app vendor/bin/phinx create AddFooColumnToBar
+# edit the generated file in db/migrations/, then:
+docker compose exec app vendor/bin/phinx migrate
+```
+Use `change()` for simple reversible DDL (add/drop column, index, table); use explicit `up()`/`down()` when the migration includes raw SQL (e.g. a trigger) that Phinx can't auto-reverse. Every migration's rollback path is a required code-review item — there's no CI safety net to catch a broken `down()` before it's needed.
+
+**Adding/changing reference data:** add or edit a seeder class in `db/seeds/`, then run `docker compose exec app vendor/bin/phinx seed:run -s YourSeeder` to verify locally. Tables admins can edit live in production (`tgg_email_templates`, `tgg_volunteer_credits`) use an insert-only-if-missing pattern so reseeding never clobbers a live customization; fixed system tables (`tgg_roles`, `tgg_permissions`, `tgg_role_permissions`, `tgg_membership_statuses`) use a full upsert.
+
+Commit new migration/seed files as part of the normal PR.
+
+### Deploying to an existing (already-bootstrapped) database
+
+If you're applying this to an environment that already has the schema (e.g. it was bootstrapped from the old `sql/schema.sql` before Phinx was introduced), the baseline migration must be marked as applied without being executed:
+```bash
+vendor/bin/phinx status -e production              # confirm only BaselineSchema shows "down"
+vendor/bin/phinx migrate -e production --target <baseline_version> --fake
+vendor/bin/phinx status -e production              # confirm it now shows "up"
+```
+Do this once, before any other migration exists, then use plain `phinx migrate -e production` from then on.
+
+### Production deploy runbook
+
+There's no CI/CD yet, so this is manual:
+1. **Backup first, always** (the trigger needs `--routines --triggers`):
+   ```bash
+   mysqldump --single-transaction --routines --triggers -h $DB_HOST -P $DB_PORT -u $DB_USER -p $DB_NAME > backups/tgg_members_$(date +%Y%m%d_%H%M%S).sql
+   ```
+2. Deploy the new code.
+3. `vendor/bin/phinx status -e production` — confirm only the expected pending migration(s); anything surprising is a hard stop.
+4. `vendor/bin/phinx migrate -e production`
+5. `vendor/bin/phinx status -e production` — confirm everything now shows `up`.
+6. `vendor/bin/phinx seed:run -e production` (safe to run unconditionally; see insert-if-missing note above).
+7. Smoke-test the app manually.
+
+MySQL/MariaDB DDL isn't fully transactional (some statements implicitly commit), so if a migration fails partway through in production, restoring the mysqldump from step 1 — not `phinx rollback` — is the real recovery path. Fix the migration and retry from step 3. `phinx rollback -e production -t <version>` is only for cleanly undoing an already-`up` migration whose `down()` is known-correct.
+
+---
+
 ## Production Installation & Deployment
 
 ### 1. Database Configuration
-1. Create a database for the local application (default name: `tgg_members`) and import the schema:
+1. Create an empty database for the local application (default name: `tgg_members`), then apply the schema and seed reference data via Phinx:
    ```bash
-   mysql -u your_user -p tgg_members < sql/schema.sql
+   vendor/bin/phinx migrate -e production
+   vendor/bin/phinx seed:run -e production
    ```
+   (If the database already has this schema from before Phinx was introduced, see "Deploying to an existing database" above instead.)
 2. If deploying to a local test environment, create the mock CiviCRM database and seed data:
    ```bash
    mysql -u your_user -p < sql/civicrm_mock.sql

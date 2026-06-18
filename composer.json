@@ -14,5 +14,13 @@
         "psr-4": {
             "App\\": "src/"
         }
+    },
+    "scripts": {
+        "migrate": "phinx migrate",
+        "migrate:status": "phinx status",
+        "migrate:create": "phinx create",
+        "rollback": "phinx rollback",
+        "seed": "phinx seed:run",
+        "seed:create": "phinx seed:create"
     }
 }
