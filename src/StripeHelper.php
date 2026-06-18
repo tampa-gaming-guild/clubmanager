@@ -18,10 +18,11 @@ class StripeHelper {
      * @param float $amount Amount to charge in USD
      * @param string $action 'join' or 'renew'
      * @param string|null $email Member email to pre-fill on the Stripe-hosted checkout page
+     * @param string|null $name Member name to pre-fill on the Stripe-hosted checkout page
      * @return array Checkout session response from Stripe
      * @throws Exception
      */
-    public static function createCheckoutSession(int $contactId, int $planId, int $membershipTypeId, string $membershipTypeName, float $amount, string $action, ?string $email = null): array {
+    public static function createCheckoutSession(int $contactId, int $planId, int $membershipTypeId, string $membershipTypeName, float $amount, string $action, ?string $email = null, ?string $name = null): array {
         $secretKey = $_ENV['STRIPE_SECRET_KEY'] ?? '';
         if (empty($secretKey)) {
             throw new Exception("Stripe Secret Key is not configured in environment.");
@@ -62,7 +63,10 @@ class StripeHelper {
             ]
         ];
 
-        if (!empty($email)) {
+        if (!empty($email) && !empty($name)) {
+            $customer = self::createCustomer($email, $name);
+            $fields['customer'] = $customer['id'];
+        } elseif (!empty($email)) {
             $fields['customer_email'] = $email;
         }
 
@@ -80,6 +84,42 @@ class StripeHelper {
 
         if ($httpCode !== 200) {
             $error = $data['error']['message'] ?? 'Unknown Stripe Checkout Error';
+            throw new Exception("Stripe API Error: " . $error);
+        }
+
+        return $data;
+    }
+
+    /**
+     * Create a Stripe Customer so both name and email can be pre-filled on the Checkout page
+     * (the Checkout Session API only supports prefilling email directly via customer_email;
+     * prefilling name requires an associated Customer object)
+     * @param string $email
+     * @param string $name
+     * @return array Customer object response from Stripe
+     * @throws Exception
+     */
+    private static function createCustomer(string $email, string $name): array {
+        $secretKey = $_ENV['STRIPE_SECRET_KEY'] ?? '';
+        if (empty($secretKey)) {
+            throw new Exception("Stripe Secret Key is not configured in environment.");
+        }
+
+        $ch = curl_init("https://api.stripe.com/v1/customers");
+        curl_setopt($ch, CURLOPT_USERPWD, $secretKey . ":");
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query(['email' => $email, 'name' => $name]));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/x-www-form-urlencoded']);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $data = json_decode($response, true);
+
+        if ($httpCode !== 200) {
+            $error = $data['error']['message'] ?? 'Unknown Stripe Customer Error';
             throw new Exception("Stripe API Error: " . $error);
         }
 

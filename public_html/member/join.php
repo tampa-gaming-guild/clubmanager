@@ -164,7 +164,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                             $successMsg = "Thanks for registering! We've sent a verification link to {$email}. Click it to activate your one-time 30-day Trial membership. You can log in once it's confirmed.";
                         } else {
                             // D. Create Stripe Session and Redirect
-                            $session = StripeHelper::createCheckoutSession($contactId, $tierId, $civicrmTypeId, $tierName, $fee, 'join', $email);
+                            $session = StripeHelper::createCheckoutSession($contactId, $tierId, $civicrmTypeId, $tierName, $fee, 'join', $email, $displayName);
 
                             header("Location: " . $session['url']);
                             exit;
