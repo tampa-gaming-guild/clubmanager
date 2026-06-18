@@ -127,7 +127,7 @@ if ($nextMonth > 12) { $nextMonth = 1; $nextYear++; }
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Club Calendar - Events & Volunteering</title>
-    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="stylesheet" href="assets/css/style.css<?php echo asset_version('assets/css/style.css'); ?>">
     <style>
         .calendar-layout {
             grid-template-columns: 1fr !important;

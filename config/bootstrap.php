@@ -143,6 +143,16 @@ function e($string) {
 }
 
 /**
+ * Cache-busting query string for a static asset, based on its last-modified time.
+ * $relativePath is relative to public_html/member/ regardless of the URL prefix used to reach it.
+ */
+function asset_version(string $relativePath): string {
+    $fullPath = dirname(__DIR__) . '/public_html/member/' . $relativePath;
+    $mtime = file_exists($fullPath) ? filemtime($fullPath) : time();
+    return '?v=' . $mtime;
+}
+
+/**
  * Helper to check role
  */
 function has_role($role) {
