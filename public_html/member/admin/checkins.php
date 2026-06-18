@@ -224,7 +224,7 @@ try {
                 </section>
             </div>
         </main>
-    </div>
+        <?php $footerText = 'TGG Club Membership System. Secure Admin Portal.'; include __DIR__ . '/../partials/footer.php'; ?>
     <!-- Flatpickr JS (Served locally to satisfy Content Security Policy) -->
     <script src="../assets/js/flatpickr.min.js"></script>
     <script>

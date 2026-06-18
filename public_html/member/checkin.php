@@ -245,10 +245,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
         </main>
 
-        <footer class="app-footer">
-            <p>&copy; <?php echo date('Y'); ?> TGG Club Entry Terminal. Auto-refreshing.</p>
-        </footer>
-    </div>
+        <?php $footerText = 'TGG Club Entry Terminal. Auto-refreshing.'; include __DIR__ . '/partials/footer.php'; ?>
 
     <!-- Checkin sound effects and autofocus scripts -->
     <script>

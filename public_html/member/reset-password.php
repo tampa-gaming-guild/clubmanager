@@ -146,15 +146,7 @@ if (empty($rawToken)) {
 </head>
 <body>
     <div class="app-container">
-        <header class="navbar">
-            <div class="logo">TGG Members</div>
-            <nav class="nav-links">
-                <a href="index.php">Home / Login</a>
-                <a href="join.php">Join Us</a>
-                <a href="calendar.php">Calendar</a>
-                <a href="volunteers.php">Volunteers</a>
-            </nav>
-        </header>
+        <?php $navGuestCheckin = false; include __DIR__ . '/partials/navbar.php'; ?>
 
         <main class="main-content centered-content">
             <div class="auth-panel glass-panel">
@@ -209,10 +201,6 @@ if (empty($rawToken)) {
             </div>
         </main>
 
-        <footer class="app-footer">
-            <p>&copy; <?php echo date('Y'); ?> TGG Club Membership System. Secure Portal.</p>
-        </footer>
-    </div>
-    <script src="assets/js/main.js"></script>
+        <?php $footerText = 'TGG Club Membership System. Secure Portal.'; include __DIR__ . '/partials/footer.php'; ?>
 </body>
 </html>

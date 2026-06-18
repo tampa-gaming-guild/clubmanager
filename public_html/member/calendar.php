@@ -164,6 +164,7 @@ if ($nextMonth > 12) { $nextMonth = 1; $nextYear++; }
                         <a href="calendar.php?month=<?php echo $nextMonth; ?>&year=<?php echo $nextYear; ?>" class="btn btn-secondary">Next &rarr;</a>
                     </div>
 
+                    <div class="table-scroll-wrapper">
                     <table class="calendar-table">
                         <thead>
                             <tr>
@@ -260,15 +261,13 @@ if ($nextMonth > 12) { $nextMonth = 1; $nextYear++; }
                             </tr>
                         </tbody>
                     </table>
+                    </div>
                 </section>
 
 
             </div>
         </main>
 
-        <footer class="app-footer">
-            <p>&copy; <?php echo date('Y'); ?> TGG Club Membership System. Secure Public Portal.</p>
-        </footer>
-    </div>
+        <?php include __DIR__ . '/partials/footer.php'; ?>
 </body>
 </html>

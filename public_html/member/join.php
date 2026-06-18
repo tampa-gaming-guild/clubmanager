@@ -156,23 +156,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
 </head>
 <body>
     <div class="app-container">
-        <header class="navbar">
-            <div class="logo">TGG Members</div>
-            <?php if (has_role('admin')): ?>
-                <form action="<?php echo rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/admin/dashboard.php'; ?>" method="GET" class="navbar-search-form" style="margin: 0 20px; flex-grow: 1; max-width: 380px; position: relative;">
-                    <input type="text" name="search" placeholder="Search members by name..." 
-                        value="<?php echo isset($_GET['search']) ? e($_GET['search']) : ''; ?>"
-                        style="width: 100%; padding: 8px 15px 8px 35px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; color: #fff; font-size: 0.85rem; outline: none; transition: all 0.2s ease;">
-                    <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: rgba(255, 255, 255, 0.4); font-size: 0.9rem;">🔍</span>
-                </form>
-            <?php endif; ?>
-            <nav class="nav-links">
-                <a href="index.php">Home / Login</a>
-                <a href="join.php" class="active">Join Us</a>
-                <a href="calendar.php">Calendar</a>
-                <a href="volunteers.php">Volunteers</a>
-            </nav>
-        </header>
+        <?php $navActive = 'join'; $navGuestCheckin = false; include __DIR__ . '/partials/navbar.php'; ?>
 
         <main class="main-content centered-content">
             <div class="auth-panel glass-panel">
@@ -244,12 +228,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
             </div>
         </main>
 
-        <footer class="app-footer">
-            <p>&copy; <?php echo date('Y'); ?> TGG Club Membership System. Secure Public Portal.</p>
-        </footer>
-    </div>
-
-    <script src="assets/js/main.js"></script>
+        <?php include __DIR__ . '/partials/footer.php'; ?>
     <script>
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {

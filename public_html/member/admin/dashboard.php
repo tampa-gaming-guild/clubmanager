@@ -384,10 +384,7 @@ try {
             </div>
         </main>
 
-        <footer class="app-footer">
-            <p>&copy; <?php echo date('Y'); ?> TGG Club Membership System. Secure Public Portal.</p>
-        </footer>
-    </div>
+        <?php include __DIR__ . '/../partials/footer.php'; ?>
 
     <!-- Client-side filter and sort script -->
     <script>

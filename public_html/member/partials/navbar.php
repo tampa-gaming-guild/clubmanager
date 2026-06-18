@@ -16,6 +16,11 @@ $navAuthed = $navAdminArea || \App\Auth::check();
 ?>
 <header class="navbar">
     <div class="logo">TGG Members</div>
+    <button type="button" class="navbar-toggle" id="navbarToggle" aria-label="Toggle navigation menu" aria-expanded="false" aria-controls="navLinks">
+        <span class="navbar-toggle-bar"></span>
+        <span class="navbar-toggle-bar"></span>
+        <span class="navbar-toggle-bar"></span>
+    </button>
     <?php if (has_role('admin')): ?>
         <form action="<?php echo rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/admin/dashboard.php'; ?>" method="GET" class="navbar-search-form" style="margin: 0 20px; flex-grow: 1; max-width: 380px; position: relative;">
             <input type="text" name="search" placeholder="Search members by name..."
@@ -24,7 +29,7 @@ $navAuthed = $navAdminArea || \App\Auth::check();
             <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: rgba(255, 255, 255, 0.4); font-size: 0.9rem;">🔍</span>
         </form>
     <?php endif; ?>
-    <nav class="nav-links">
+    <nav class="nav-links" id="navLinks">
         <?php if ($navKiosk): ?>
             <a href="<?php echo $navPrefix; ?>index.php">Portal Hub</a>
             <a href="<?php echo $navPrefix; ?>calendar.php">Calendar</a>
@@ -41,7 +46,7 @@ $navAuthed = $navAdminArea || \App\Auth::check();
             <a href="<?php echo $navPrefix; ?>index.php?action=logout&amp;csrf_token=<?php echo e(get_csrf_token()); ?>" class="btn-logout">Logout</a>
         <?php else: ?>
             <a href="index.php" class="<?php echo $navActive === 'login' ? 'active' : ''; ?>">Login</a>
-            <a href="join.php">Join Us</a>
+            <a href="join.php" class="<?php echo $navActive === 'join' ? 'active' : ''; ?>">Join Us</a>
             <a href="calendar.php" class="<?php echo $navActive === 'calendar' ? 'active' : ''; ?>">Calendar</a>
             <a href="volunteers.php" class="<?php echo $navActive === 'volunteers' ? 'active' : ''; ?>">Volunteers</a>
             <?php if ($navGuestCheckin): ?>

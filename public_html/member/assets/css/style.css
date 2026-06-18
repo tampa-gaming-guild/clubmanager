@@ -146,6 +146,68 @@ a:hover {
     color: hsl(350, 89%, 75%);
 }
 
+/* --- Mobile Navbar Toggle (hidden above the 768px breakpoint) --- */
+.navbar-toggle {
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    gap: 5px;
+    width: 36px;
+    height: 36px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 6px;
+}
+
+.navbar-toggle-bar {
+    display: block;
+    width: 100%;
+    height: 2px;
+    background: var(--color-text-primary);
+    border-radius: 2px;
+}
+
+/* --- Mobile Admin Sidebar Drawer (hidden above the 768px breakpoint) --- */
+.admin-sidebar-toggle {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    top: 50%;
+    left: 0;
+    transform: translateY(-50%);
+    width: 26px;
+    height: 56px;
+    background: var(--color-surface-glass-solid);
+    border: 1px solid var(--border-glass);
+    border-left: none;
+    border-radius: 0 8px 8px 0;
+    color: var(--color-text-primary);
+    cursor: pointer;
+    padding: 0;
+    z-index: 210;
+    transition: left 0.25s ease;
+}
+
+.admin-sidebar-toggle.open {
+    left: min(80%, 300px);
+}
+
+.admin-sidebar-toggle-arrow {
+    font-size: 1.3rem;
+    line-height: 1;
+    transition: transform 0.25s ease;
+}
+
+.admin-sidebar-toggle.open .admin-sidebar-toggle-arrow {
+    transform: rotate(180deg);
+}
+
+.admin-sidebar-backdrop {
+    display: none;
+}
+
 /* --- Glassmorphic Panels --- */
 .glass-panel {
     background: var(--color-surface-glass);
@@ -1078,10 +1140,110 @@ select option {
     margin-top: 40px;
 }
 
+/* --- Prevent wide descendants (e.g. tables) from forcing collapsed 1fr grid tracks back open --- */
+.admin-grid > *,
+.dashboard-grid > *,
+.profile-body-grid > *,
+.calendar-layout > *,
+.scheduler-split > *,
+.reports-grid > * {
+    min-width: 0;
+}
+
+/* --- Table horizontal-scroll fallback (use on wide tables for narrow screens) --- */
+.table-scroll-wrapper {
+    overflow-x: auto;
+    width: 100%;
+}
+
 /* --- Responsive Adjustments --- */
-@media (max-width: 900px) {
+@media (max-width: 1024px) {
+    .main-content {
+        padding: 30px 16px;
+    }
+}
+
+@media (max-width: 768px) {
+    .navbar {
+        position: relative;
+        flex-wrap: wrap;
+    }
+
+    .navbar-toggle {
+        display: flex;
+    }
+
+    .navbar-search-form {
+        display: none;
+    }
+
+    .nav-links {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0;
+        background: hsla(222, 47%, 8%, 0.97);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border-bottom: 1px solid var(--border-glass);
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.25s ease;
+    }
+
+    .nav-links.open {
+        max-height: 80vh;
+        overflow-y: auto;
+    }
+
+    .nav-links a {
+        padding: 14px 20px;
+        border-radius: 0;
+    }
+
     .admin-grid {
         grid-template-columns: 1fr;
+    }
+
+    .admin-sidebar-toggle {
+        display: flex;
+    }
+
+    .admin-sidebar-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.55);
+        z-index: 150;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s ease;
+    }
+
+    .admin-sidebar-backdrop.open {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    .admin-sidebar {
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 80%;
+        max-width: 300px;
+        border-radius: 0;
+        transform: translateX(-100%);
+        transition: transform 0.25s ease;
+        overflow-y: auto;
+        z-index: 200;
+    }
+
+    .admin-sidebar.open {
+        transform: translateX(0);
     }
     .scheduler-split {
         grid-template-columns: 1fr;
@@ -1103,6 +1265,31 @@ select option {
     }
     .form-row {
         grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 480px) {
+    body {
+        font-size: 14px;
+    }
+
+    h1 {
+        font-size: 1.5rem;
+    }
+    h2 {
+        font-size: 1.25rem;
+    }
+    h3 {
+        font-size: 1.1rem;
+    }
+
+    .main-content {
+        padding: 16px 12px;
+    }
+
+    .large-input input {
+        height: 52px;
+        font-size: 1.25rem;
     }
 }
 

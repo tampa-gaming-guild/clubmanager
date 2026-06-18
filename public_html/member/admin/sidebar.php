@@ -1,7 +1,11 @@
 <?php
 $current_page = basename($_SERVER['PHP_SELF']);
 ?>
-<aside class="admin-sidebar glass-panel">
+<button type="button" class="admin-sidebar-toggle" id="adminSidebarToggle" aria-label="Toggle admin menu" aria-expanded="false" aria-controls="adminSidebarPanel">
+    <span class="admin-sidebar-toggle-arrow">&rsaquo;</span>
+</button>
+<div class="admin-sidebar-backdrop" id="adminSidebarBackdrop"></div>
+<aside class="admin-sidebar glass-panel" id="adminSidebarPanel">
     <h3>Admin Controls</h3>
     <ul class="admin-menu">
         <li><a href="dashboard.php" class="<?php echo ($current_page === 'dashboard.php') ? 'active' : ''; ?>">Dashboard</a></li>
@@ -54,3 +58,4 @@ $current_page = basename($_SERVER['PHP_SELF']);
         <?php endif; ?>
     </ul>
 </aside>
+

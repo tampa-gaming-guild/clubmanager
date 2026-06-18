@@ -977,10 +977,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
             <?php endif; ?>
         </main>
 
-        <footer class="app-footer">
-            <p>&copy; <?php echo date('Y'); ?> TGG Club Membership System. Secure Public Portal.</p>
-        </footer>
-    </div>
+        <?php include __DIR__ . '/partials/footer.php'; ?>
 
     <script>
     function switchTab(tabId) {

@@ -219,12 +219,7 @@ if (Auth::check()) {
             <?php endif; ?>
         </main>
 
-        <footer class="app-footer">
-            <p>&copy; <?php echo date('Y'); ?> TGG Club Membership System. Secure Public Portal.</p>
-        </footer>
-    </div>
-
-    <script src="assets/js/main.js"></script>
+        <?php include __DIR__ . '/partials/footer.php'; ?>
     <script>
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {

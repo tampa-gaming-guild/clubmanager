@@ -131,10 +131,7 @@ try {
             </div>
         </main>
 
-        <footer class="app-footer">
-            <p>&copy; <?php echo date('Y'); ?> TGG Club Membership System. Secure Admin Portal.</p>
-        </footer>
-    </div>
+        <?php $footerText = 'TGG Club Membership System. Secure Admin Portal.'; include __DIR__ . '/../partials/footer.php'; ?>
 
     <!-- Table Sorting Configuration Script -->
     <script>
