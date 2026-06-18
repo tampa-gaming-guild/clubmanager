@@ -7,7 +7,8 @@
         "php": ">=8.0",
         "stripe/stripe-php": "^10.0",
         "vlucas/phpdotenv": "^5.5",
-        "phpmailer/phpmailer": "^7.1"
+        "phpmailer/phpmailer": "^7.1",
+        "robmorgan/phinx": "^0.16.11"
     },
     "autoload": {
         "psr-4": {

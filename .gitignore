@@ -16,6 +16,8 @@ import/
 # Composer files
 vendor/
 composer.lock
+composer.phar
+
 
 # Windows OS metadata
 Thumbs.db
