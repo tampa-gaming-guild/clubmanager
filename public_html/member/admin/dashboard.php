@@ -181,13 +181,14 @@ try {
                     <!-- Stat Cards Panel -->
                     <div class="stats-panel-grid">
                         <?php if (has_permission('edit checkins')): ?>
-                        <a href="checkins.php" class="stat-card glass-panel border-left-orange stat-card-link">
+                        <div class="stat-card glass-panel border-left-orange">
                             <span class="stat-icon">🎟️</span>
                             <div class="stat-vals">
                                 <strong><?php echo $checkinsToday; ?></strong>
                                 <span>Check-Ins Today</span>
+                                <a href="checkins.php" class="card-link" style="font-size: 0.7rem; color: var(--color-primary); text-decoration: none; margin-top: 5px; display: inline-block;">View Check-In Log &rarr;</a>
                             </div>
-                        </a>
+                        </div>
                         <?php endif; ?>
                         
                         <div class="stat-card glass-panel border-left-blue">

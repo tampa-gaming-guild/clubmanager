@@ -909,15 +909,6 @@ select option {
     padding: 20px;
 }
 
-.stat-card-link {
-    transition: background 0.2s ease, transform 0.2s ease;
-}
-
-.stat-card-link:hover {
-    background: rgba(255, 255, 255, 0.04);
-    transform: translateY(-2px);
-}
-
 .border-left-blue { border-left: 4px solid var(--color-primary); }
 .border-left-green { border-left: 4px solid var(--color-success); }
 .border-left-orange { border-left: 4px solid var(--color-warning); }
