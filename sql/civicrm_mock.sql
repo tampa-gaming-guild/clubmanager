@@ -83,10 +83,9 @@ CREATE TABLE IF NOT EXISTS `civicrm_contribution` (
 
 -- Seed Data for Testing
 INSERT INTO `civicrm_membership_type` (`id`, `name`, `description`, `minimum_fee`, `duration_unit`, `duration_interval`) VALUES
-(1, 'Monthly Member', 'Monthly membership subscription', 15.00, 'month', 1),
-(2, 'Annual Standard', 'Yearly standard individual membership', 120.00, 'year', 1),
-(3, 'Annual Premium', 'Yearly premium member support', 250.00, 'year', 1),
-(9, 'Daily', 'Daily membership level', 10.00, 'day', 1);
+(1, 'Associate', 'Associate membership level', 10.00, 'year', 1),
+(2, 'Monthly', 'Monthly membership subscription', 30.00, 'month', 1),
+(3, 'Annual', 'Annual membership subscription', 200.00, 'year', 1);
 
 INSERT INTO `civicrm_membership_status` (`id`, `name`, `label`, `is_active`) VALUES
 (1, 'New', 'New', 1),
@@ -106,11 +105,11 @@ INSERT INTO `civicrm_contact` (`id`, `display_name`, `first_name`, `last_name`) 
 INSERT INTO `civicrm_email` (`contact_id`, `email`) VALUES (2, 'bob@example.com');
 INSERT INTO `civicrm_phone` (`contact_id`, `phone`) VALUES (2, '555-0102');
 INSERT INTO `civicrm_membership` (`contact_id`, `membership_type_id`, `join_date`, `start_date`, `end_date`, `status_id`) VALUES
-(2, 2, '2025-01-15', '2026-01-15', '2027-01-15', 2); -- Current
+(2, 3, '2025-01-15', '2026-01-15', '2027-01-15', 2); -- Current (Annual)
 
 -- Contact 3: Expired Member
 INSERT INTO `civicrm_contact` (`id`, `display_name`, `first_name`, `last_name`) VALUES (3, 'Alice Expired', 'Alice', 'Expired');
 INSERT INTO `civicrm_email` (`contact_id`, `email`) VALUES (3, 'alice@example.com');
 INSERT INTO `civicrm_phone` (`contact_id`, `phone`) VALUES (3, '555-0103');
 INSERT INTO `civicrm_membership` (`contact_id`, `membership_type_id`, `join_date`, `start_date`, `end_date`, `status_id`) VALUES
-(3, 1, '2025-05-01', '2025-05-01', '2026-05-01', 4); -- Expired
+(3, 2, '2025-05-01', '2025-05-01', '2026-05-01', 4); -- Expired (Monthly)

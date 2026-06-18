@@ -43,12 +43,44 @@ class CiviCRMImporter {
         $civiDb = Database::getCiviConnection();
 
         $stats = [
+            'plans_synced' => 0,
             'contacts_scanned' => 0,
             'settings_created' => 0,
             'settings_updated' => 0,
             'contributions_synced' => 0,
             'errors' => []
         ];
+
+        // 0. Sync CiviCRM membership types to local subscription plans first,
+        // since contacts' memberships below are matched against these plans.
+        try {
+            $membershipTypes = $civiDb->query("SELECT id, name, description, minimum_fee, duration_unit, duration_interval FROM civicrm_membership_type")->fetchAll();
+
+            $upsertPlanStmt = $appDb->prepare("
+                INSERT INTO tgg_subscription_plans (name, description, price, duration_unit, duration_interval, civicrm_membership_type_id, active)
+                VALUES (:name, :description, :price, :duration_unit, :duration_interval, :civicrm_membership_type_id, 'active')
+                ON DUPLICATE KEY UPDATE
+                    name = VALUES(name),
+                    description = VALUES(description),
+                    price = VALUES(price),
+                    duration_unit = VALUES(duration_unit),
+                    duration_interval = VALUES(duration_interval)
+            ");
+
+            foreach ($membershipTypes as $type) {
+                $upsertPlanStmt->execute([
+                    'name' => $type['name'],
+                    'description' => $type['description'],
+                    'price' => $type['minimum_fee'],
+                    'duration_unit' => $type['duration_unit'],
+                    'duration_interval' => $type['duration_interval'],
+                    'civicrm_membership_type_id' => (int)$type['id']
+                ]);
+                $stats['plans_synced']++;
+            }
+        } catch (Exception $e) {
+            $stats['errors'][] = "Failed syncing membership types: " . $e->getMessage();
+        }
 
         // 1. Fetch all contacts from CiviCRM (including deleted status and names)
         $query = "SELECT c.id, c.display_name, c.first_name, c.last_name, e.email, p.phone, c.is_deleted
@@ -123,7 +155,7 @@ class CiviCRMImporter {
 
                 // C. Sync CiviCRM membership details to local tgg_subscriptions
                 $memQuery = $civiDb->prepare("
-                    SELECT membership_type_id, join_date, start_date, end_date, s.is_current_member as is_active
+                    SELECT membership_type_id, join_date, start_date, end_date, s.is_active
                     FROM civicrm_membership m
                     INNER JOIN civicrm_membership_status s ON m.status_id = s.id
                     WHERE m.contact_id = :contact_id
