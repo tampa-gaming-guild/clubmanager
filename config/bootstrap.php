@@ -101,11 +101,11 @@ if (session_status() === PHP_SESSION_NONE) {
     // Match server-side session GC lifetime to the cookie lifetime below.
     // PHP's default (1440s / 24min) is otherwise unrelated to the cookie's
     // expiration and silently destroys sessions long before the cookie does.
-    ini_set('session.gc_maxlifetime', '86400');
+    ini_set('session.gc_maxlifetime', '2592000');
 
     // Session Cookie Settings
     $cookieParams = [
-        'lifetime' => 86400, // 1 day
+        'lifetime' => 2592000, // 30 days
         'path' => $cookiePath, // Dynamic path matching BASE_URL
         'domain' => '', // Empty lets browser default to host (ignoring port number)
         'secure' => isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on', // HTTPS only when enabled
