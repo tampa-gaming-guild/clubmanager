@@ -1,0 +1,56 @@
+services:
+  db:
+    image: mariadb:11
+    container_name: tgg-db
+    restart: unless-stopped
+    environment:
+      MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: "yes"
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+      # Each file creates its own database (CREATE DATABASE IF NOT EXISTS ...; USE ...;)
+      - ./sql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: tgg-mailpit
+    restart: unless-stopped
+    ports:
+      - "8025:8025" # Web UI
+      - "1025:1025" # SMTP
+
+  app:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+    container_name: tgg-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    environment:
+      # Override host-dependent values from .env so the same .env file
+      # works for both native and Docker setups.
+      DB_HOST: db
+      CIVI_DB_HOST: db
+      SMTP_HOST: mailpit
+      BASE_URL: http://localhost:8080/member
+    ports:
+      - "8080:80"
+    volumes:
+      - .:/var/www/html
+      # Keep vendor/ in a named volume so it persists across rebuilds
+      # without polluting the bind-mounted source tree.
+      - vendor_data:/var/www/html/vendor
+
+volumes:
+  db_data:
+  vendor_data:
