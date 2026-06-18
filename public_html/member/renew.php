@@ -52,11 +52,14 @@ if ($isAdmin && isset($_GET['contact_id'])) {
 }
 
 $contactName = null;
+$contactEmail = null;
 try {
     $appDb = Database::getAppConnection();
-    $nameStmt = $appDb->prepare("SELECT display_name FROM tgg_contacts WHERE id = :id LIMIT 1");
+    $nameStmt = $appDb->prepare("SELECT display_name, email FROM tgg_contacts WHERE id = :id LIMIT 1");
     $nameStmt->execute(['id' => $contactId]);
-    $contactName = $nameStmt->fetchColumn() ?: "Member #{$contactId}";
+    $contactRow = $nameStmt->fetch();
+    $contactName = $contactRow['display_name'] ?? "Member #{$contactId}";
+    $contactEmail = $contactRow['email'] ?? null;
 
     $membership = BillingHelper::getMemberSubscriptionDetails($contactId);
     if (!$membership) {
@@ -157,7 +160,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                     $civicrmTypeId = (int)$tier['civicrm_membership_type_id'];
 
                     // Create Checkout Session
-                    $session = StripeHelper::createCheckoutSession($contactId, $tierId, $civicrmTypeId, $tierName, $fee, 'renew');
+                    $session = StripeHelper::createCheckoutSession($contactId, $tierId, $civicrmTypeId, $tierName, $fee, 'renew', $contactEmail);
                     header("Location: " . $session['url']);
                     exit;
                 } catch (Exception $e) {

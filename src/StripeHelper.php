@@ -17,10 +17,11 @@ class StripeHelper {
      * @param string $membershipTypeName Name of membership (e.g. Annual Standard)
      * @param float $amount Amount to charge in USD
      * @param string $action 'join' or 'renew'
+     * @param string|null $email Member email to pre-fill on the Stripe-hosted checkout page
      * @return array Checkout session response from Stripe
      * @throws Exception
      */
-    public static function createCheckoutSession(int $contactId, int $planId, int $membershipTypeId, string $membershipTypeName, float $amount, string $action): array {
+    public static function createCheckoutSession(int $contactId, int $planId, int $membershipTypeId, string $membershipTypeName, float $amount, string $action, ?string $email = null): array {
         $secretKey = $_ENV['STRIPE_SECRET_KEY'] ?? '';
         if (empty($secretKey)) {
             throw new Exception("Stripe Secret Key is not configured in environment.");
@@ -60,6 +61,10 @@ class StripeHelper {
                 'action' => $action
             ]
         ];
+
+        if (!empty($email)) {
+            $fields['customer_email'] = $email;
+        }
 
         curl_setopt($ch, CURLOPT_USERPWD, $secretKey . ":");
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
