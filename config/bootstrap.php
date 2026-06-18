@@ -98,6 +98,11 @@ if (session_status() === PHP_SESSION_NONE) {
         $cookiePath = isset($parsedUrl['path']) ? rtrim($parsedUrl['path'], '/') . '/' : '/';
     }
 
+    // Match server-side session GC lifetime to the cookie lifetime below.
+    // PHP's default (1440s / 24min) is otherwise unrelated to the cookie's
+    // expiration and silently destroys sessions long before the cookie does.
+    ini_set('session.gc_maxlifetime', '86400');
+
     // Session Cookie Settings
     $cookieParams = [
         'lifetime' => 86400, // 1 day
