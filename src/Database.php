@@ -36,11 +36,21 @@ class Database {
 
             try {
                 self::$appPdo = new PDO($dsn, $user, $pass, $options);
+                self::$appPdo->exec("SET time_zone = '" . self::getEasternOffset() . "'");
             } catch (PDOException $e) {
                 throw new Exception("Local Database connection failed: " . $e->getMessage());
             }
         }
         return self::$appPdo;
+    }
+
+    /**
+     * Current UTC offset for the club's US Eastern timezone (handles DST), e.g. "-04:00".
+     * Computed via PHP's tzdata rather than relying on MySQL's named timezone tables being loaded.
+     */
+    private static function getEasternOffset(): string {
+        $now = new \DateTime('now', new \DateTimeZone('America/New_York'));
+        return $now->format('P');
     }
 
     /**
@@ -66,6 +76,7 @@ class Database {
 
             try {
                 self::$civiPdo = new PDO($dsn, $user, $pass, $options);
+                self::$civiPdo->exec("SET time_zone = '" . self::getEasternOffset() . "'");
             } catch (PDOException $e) {
                 throw new Exception("CiviCRM Database connection failed: " . $e->getMessage());
             }

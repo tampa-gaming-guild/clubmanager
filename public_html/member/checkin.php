@@ -91,7 +91,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
+            // Session/Activity Validation: check-in is only allowed when a session is
+            // scheduled today, opening 1 hour before its start through its end time.
+            $sessionOpen = true;
             if ($geoValid) {
+                $sessionStmt = $appDb->prepare("
+                    SELECT COUNT(*) FROM tgg_events
+                    WHERE DATE(start_time) = CURDATE()
+                      AND NOW() >= DATE_SUB(start_time, INTERVAL 1 HOUR)
+                      AND NOW() <= end_time
+                ");
+                $sessionStmt->execute();
+                $sessionOpen = (int)$sessionStmt->fetchColumn() > 0;
+
+                if (!$sessionOpen) {
+                    $errorMsg = "Check-in Denied: There is no session open for check-in right now. Check-in opens 1 hour before a scheduled session begins.";
+                }
+            }
+
+            if ($geoValid && $sessionOpen) {
                 $contactId = 0;
                 $contactName = '';
 

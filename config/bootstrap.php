@@ -43,6 +43,9 @@ function loadEnv($dir) {
 }
 loadEnv(dirname(__DIR__));
 
+// The club operates in the US Eastern timezone; all date/time logic (PHP and DB) should assume it.
+date_default_timezone_set('America/New_York');
+
 // Configure Error Reporting based on Environment
 if (($_ENV['APP_ENV'] ?? 'production') !== 'development') {
     ini_set('display_errors', 0);
