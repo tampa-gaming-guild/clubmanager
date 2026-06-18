@@ -85,7 +85,8 @@ CREATE TABLE IF NOT EXISTS `civicrm_contribution` (
 INSERT INTO `civicrm_membership_type` (`id`, `name`, `description`, `minimum_fee`, `duration_unit`, `duration_interval`) VALUES
 (1, 'Associate', 'Associate membership level', 10.00, 'year', 1),
 (2, 'Monthly', 'Monthly membership subscription', 30.00, 'month', 1),
-(3, 'Annual', 'Annual membership subscription', 200.00, 'year', 1);
+(3, 'Annual', 'Annual membership subscription', 200.00, 'year', 1),
+(4, 'Trial', 'One-time 30-day free trial membership. Not renewable; limited to one trial per person.', 0.00, 'day', 30);
 
 INSERT INTO `civicrm_membership_status` (`id`, `name`, `label`, `is_active`) VALUES
 (1, 'New', 'New', 1),

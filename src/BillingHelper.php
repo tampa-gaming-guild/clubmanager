@@ -229,6 +229,110 @@ class BillingHelper {
     }
 
     /**
+     * Check whether a plan is the one-time, non-renewable Trial membership.
+     * @param array $plan Plan row (must include 'name')
+     * @return bool
+     */
+    public static function isTrialPlan(array $plan): bool {
+        return strcasecmp(trim($plan['name'] ?? ''), 'Trial') === 0;
+    }
+
+    /**
+     * Check whether an email address has already used (or has a pending) Trial membership.
+     * Checked across all contacts with this email, including soft-deleted ones, since the
+     * Trial is limited to one per person ever, not just once per active account.
+     * @param string $email
+     * @return bool
+     */
+    public static function hasUsedOrPendingTrial(string $email): bool {
+        $appDb = Database::getAppConnection();
+        $email = strtolower(trim($email));
+
+        $stmt = $appDb->prepare("
+            SELECT 1 FROM tgg_billing_ledger bl
+            INNER JOIN tgg_subscription_plans p ON p.id = bl.plan_id
+            INNER JOIN tgg_contacts c ON c.id = bl.contact_id
+            WHERE LOWER(p.name) = 'trial' AND LOWER(c.email) = :email
+            LIMIT 1
+        ");
+        $stmt->execute(['email' => $email]);
+        if ($stmt->fetch()) {
+            return true;
+        }
+
+        $stmt = $appDb->prepare("
+            SELECT 1 FROM tgg_trial_verifications v
+            INNER JOIN tgg_contacts c ON c.id = v.contact_id
+            WHERE LOWER(c.email) = :email AND v.expires_at >= NOW()
+            LIMIT 1
+        ");
+        $stmt->execute(['email' => $email]);
+        return (bool)$stmt->fetch();
+    }
+
+    /**
+     * Activate a verified Trial membership: creates the local subscription and logs
+     * a $0.00 ledger entry (the ledger entry is what makes the trial show up as "used"
+     * for the lifetime one-trial-per-email check).
+     * @param int $contactId
+     * @param int $planId
+     * @return array Activation details (start_date, end_date, plan)
+     * @throws Exception
+     */
+    public static function activateTrial(int $contactId, int $planId): array {
+        $appDb = Database::getAppConnection();
+
+        $planStmt = $appDb->prepare("SELECT * FROM tgg_subscription_plans WHERE id = :id LIMIT 1");
+        $planStmt->execute(['id' => $planId]);
+        $plan = $planStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$plan || !self::isTrialPlan($plan)) {
+            throw new Exception("Trial plan not found.");
+        }
+
+        $intervalDays = (int)$plan['duration_interval'];
+        $today = date('Y-m-d');
+        $endDate = date('Y-m-d', strtotime($today . " +{$intervalDays} days"));
+
+        $appDb->beginTransaction();
+
+        try {
+            $uniqueId = uniqid('trial_', true);
+            $insertLedger = $appDb->prepare("
+                INSERT INTO tgg_billing_ledger (contact_id, plan_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type)
+                VALUES (:contact_id, :plan_id, :stripe_session_id, :payment_intent_id, 0.00, 'usd', 'paid', 'join')
+            ");
+            $insertLedger->execute([
+                'contact_id' => $contactId,
+                'plan_id' => $planId,
+                'stripe_session_id' => $uniqueId,
+                'payment_intent_id' => $uniqueId
+            ]);
+
+            $insertSub = $appDb->prepare("
+                INSERT INTO tgg_subscriptions (contact_id, plan_id, status, join_date, start_date, end_date)
+                VALUES (:contact_id, :plan_id, 'active', :join_date, :start_date, :end_date)
+                ON DUPLICATE KEY UPDATE plan_id = VALUES(plan_id), status = 'active', join_date = VALUES(join_date), start_date = VALUES(start_date), end_date = VALUES(end_date)
+            ");
+            $insertSub->execute([
+                'contact_id' => $contactId,
+                'plan_id' => $planId,
+                'join_date' => $today,
+                'start_date' => $today,
+                'end_date' => $endDate
+            ]);
+
+            $appDb->commit();
+
+            return ['start_date' => $today, 'end_date' => $endDate, 'plan' => $plan];
+        } catch (Exception $e) {
+            if ($appDb->inTransaction()) {
+                $appDb->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    /**
      * Add or update a membership plan locally
      * @param array $data Plan attributes
      * @return bool

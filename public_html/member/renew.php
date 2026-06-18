@@ -62,7 +62,10 @@ try {
     if (!$membership) {
         $membership = CiviCRMImporter::getMemberMembershipDetails($contactId);
     }
-    $tiers = BillingHelper::getSubscriptionPlans(true);
+    // The Trial membership is a one-time, non-renewable offer, so it's never a valid renewal choice.
+    $tiers = array_values(array_filter(BillingHelper::getSubscriptionPlans(true), function ($tier) {
+        return !BillingHelper::isTrialPlan($tier);
+    }));
 } catch (Exception $e) {
     $errorMsg = safe_err("Unable to fetch membership details: ", $e);
 }

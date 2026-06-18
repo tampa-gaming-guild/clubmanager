@@ -12,6 +12,34 @@ use App\Auth;
 use App\BillingHelper;
 use App\MailHelper;
 
+function send_trial_verification_email($appDb, int $contactId, int $planId, string $email, string $displayName): void {
+    $rawToken = bin2hex(random_bytes(32));
+    $hashedToken = hash('sha256', $rawToken);
+    $expiresAt = date('Y-m-d H:i:s', strtotime('+24 hours'));
+
+    $stmt = $appDb->prepare("
+        INSERT INTO tgg_trial_verifications (contact_id, plan_id, token, expires_at)
+        VALUES (:contact_id, :plan_id, :token, :expires_at)
+        ON DUPLICATE KEY UPDATE plan_id = :plan_id2, token = :token2, expires_at = :expires_at2
+    ");
+    $stmt->execute([
+        'contact_id' => $contactId,
+        'plan_id' => $planId,
+        'token' => $hashedToken,
+        'expires_at' => $expiresAt,
+        'plan_id2' => $planId,
+        'token2' => $hashedToken,
+        'expires_at2' => $expiresAt
+    ]);
+
+    $verifyLink = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/verify-trial.php?token=' . $rawToken;
+    MailHelper::sendTemplate($email, 'trial_verification', [
+        'display_name' => $displayName,
+        'verify_link' => $verifyLink,
+        'expires_in' => '24 hours'
+    ], $contactId, null);
+}
+
 $tiers = [];
 $errorMsg = null;
 $successMsg = null;
@@ -63,6 +91,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
             try {
                 $appDb = Database::getAppConnection();
 
+                // Resolve the selected tier first so trial eligibility can be checked before any records are created
+                $tierIndex = array_search($tierId, array_column($tiers, 'id'));
+                if ($tierIndex === false) {
+                    throw new Exception("Invalid membership tier selected.");
+                }
+                $tier = $tiers[$tierIndex];
+                $fee = (float)$tier['price'];
+                $tierName = $tier['name'];
+                $civicrmTypeId = (int)$tier['civicrm_membership_type_id'];
+                $isTrial = BillingHelper::isTrialPlan($tier);
+
+                if ($isTrial && BillingHelper::hasUsedOrPendingTrial($email)) {
+                    throw new Exception("This email address has already used its one-time Trial membership and is not eligible for another.");
+                }
+
                 // Check if email already exists in local contacts
                 $checkEmail = $appDb->prepare("SELECT id FROM tgg_contacts WHERE email = :email AND is_deleted = 0 LIMIT 1");
                 $checkEmail->execute(['email' => $email]);
@@ -75,7 +118,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                     try {
                         // A. Create Local Contact
                         $displayName = "{$firstName} {$lastName}";
-                        $insertContact = $appDb->prepare("INSERT INTO tgg_contacts (contact_type, display_name, first_name, last_name, email, phone, is_deleted) 
+                        $insertContact = $appDb->prepare("INSERT INTO tgg_contacts (contact_type, display_name, first_name, last_name, email, phone, is_deleted)
                                                            VALUES ('Individual', :display_name, :first_name, :last_name, :email, :phone, 0)");
                         $insertContact->execute([
                             'display_name' => $displayName,
@@ -89,23 +132,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                         // B. Create Local Member Settings / Credentials
                         $passwordHash = password_hash($password, PASSWORD_DEFAULT);
                         $defaultPublicFields = json_encode(['display_name', 'membership_name', 'status_label']);
-                        $insertSettings = $appDb->prepare("INSERT INTO tgg_member_settings (contact_id, password_hash, role, is_profile_public, public_fields) 
+                        $insertSettings = $appDb->prepare("INSERT INTO tgg_member_settings (contact_id, password_hash, role, is_profile_public, public_fields)
                                                            VALUES (:contact_id, :password_hash, 'member', 1, :public_fields)");
                         $insertSettings->execute([
                             'contact_id' => $contactId,
                             'password_hash' => $passwordHash,
                             'public_fields' => $defaultPublicFields
                         ]);
-
-                        // C. Find tier fee details
-                        $tierIndex = array_search($tierId, array_column($tiers, 'id'));
-                        if ($tierIndex === false) {
-                            throw new Exception("Invalid membership tier selected.");
-                        }
-                        $tier = $tiers[$tierIndex];
-                        $fee = (float)$tier['price'];
-                        $tierName = $tier['name'];
-                        $civicrmTypeId = (int)$tier['civicrm_membership_type_id'];
 
                         // Commit transaction
                         $appDb->commit();
@@ -120,15 +153,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                             ];
                             MailHelper::sendTemplate($email, 'signup', $placeholders, $contactId, null);
                         } catch (Exception $mailEx) {
-                            // Log mail error and allow user to continue to Stripe checkout
+                            // Log mail error and allow user to continue
                             error_log("Failed to send welcome email: " . $mailEx->getMessage());
                         }
 
-                        // D. Create Stripe Session and Redirect
-                        $session = StripeHelper::createCheckoutSession($contactId, $tierId, $civicrmTypeId, $tierName, $fee, 'join');
-                        
-                        header("Location: " . $session['url']);
-                        exit;
+                        if ($isTrial) {
+                            // Trial membership is free and skips Stripe entirely; it doesn't
+                            // activate until the user clicks the emailed verification link.
+                            send_trial_verification_email($appDb, $contactId, $tierId, $email, $displayName);
+                            $successMsg = "Thanks for registering! We've sent a verification link to {$email}. Click it to activate your one-time 30-day Trial membership. You can log in once it's confirmed.";
+                        } else {
+                            // D. Create Stripe Session and Redirect
+                            $session = StripeHelper::createCheckoutSession($contactId, $tierId, $civicrmTypeId, $tierName, $fee, 'join');
+
+                            header("Location: " . $session['url']);
+                            exit;
+                        }
 
                     } catch (Exception $txException) {
                         if ($appDb->inTransaction()) $appDb->rollBack();
@@ -208,22 +248,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
 
                         <div class="form-group">
                             <label for="tier_id">Select Membership Tier</label>
-                            <select id="tier_id" name="tier_id" required>
+                            <select id="tier_id" name="tier_id" required onchange="updateJoinCallToAction()">
                                 <option value="" disabled selected>-- Select a Tier --</option>
                                 <?php foreach ($tiers as $tier): ?>
-                                    <option value="<?php echo (int)$tier['id']; ?>" <?php echo (isset($_POST['tier_id']) && $_POST['tier_id'] == $tier['id']) ? 'selected' : ''; ?>>
+                                    <option value="<?php echo (int)$tier['id']; ?>" data-trial="<?php echo BillingHelper::isTrialPlan($tier) ? '1' : '0'; ?>" <?php echo (isset($_POST['tier_id']) && $_POST['tier_id'] == $tier['id']) ? 'selected' : ''; ?>>
                                         <?php echo e($tier['name']); ?> - $<?php echo number_format($tier['minimum_fee'], 2); ?> / <?php echo e($tier['duration_interval']); ?> <?php echo e($tier['duration_unit']); ?>(s)
                                     </option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
 
-                        <div class="info-block payment-warning">
+                        <div class="info-block payment-warning" id="join_cta_info">
                             <p><strong>Secure Checkout:</strong> Clicking the button below will redirect you to Stripe to pay your membership dues securely. Once your transaction finishes, you will be redirected back here to log in.</p>
                         </div>
 
-                        <button type="submit" class="btn btn-primary btn-block">Proceed to Payment</button>
+                        <button type="submit" class="btn btn-primary btn-block" id="join_cta_button">Proceed to Payment</button>
                     </form>
+
+                    <script>
+                        function updateJoinCallToAction() {
+                            const select = document.getElementById('tier_id');
+                            const infoBlock = document.getElementById('join_cta_info');
+                            const button = document.getElementById('join_cta_button');
+                            const selectedOpt = select.options[select.selectedIndex];
+                            const isTrial = selectedOpt && selectedOpt.getAttribute('data-trial') === '1';
+
+                            if (isTrial) {
+                                infoBlock.innerHTML = '<p><strong>Verify Your Email:</strong> No payment is required. After you register, we\'ll email you a verification link &mdash; click it to activate your one-time 30-day Trial membership.</p>';
+                                button.textContent = 'Send Verification Email';
+                            } else {
+                                infoBlock.innerHTML = '<p><strong>Secure Checkout:</strong> Clicking the button below will redirect you to Stripe to pay your membership dues securely. Once your transaction finishes, you will be redirected back here to log in.</p>';
+                                button.textContent = 'Proceed to Payment';
+                            }
+                        }
+
+                        updateJoinCallToAction();
+                    </script>
                 <?php endif; ?>
             </div>
         </main>
