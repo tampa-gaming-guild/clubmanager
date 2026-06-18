@@ -32,8 +32,8 @@ class StripeHelper {
         $cancelUrl = "{$baseUrl}/join.php?status=cancelled";
 
         if ($action === 'renew') {
-            $successUrl = "{$baseUrl}/renew.php?status=success&session_id={CHECKOUT_SESSION_ID}";
-            $cancelUrl = "{$baseUrl}/renew.php?status=cancelled";
+            $successUrl = "{$baseUrl}/renew.php?status=success&session_id={CHECKOUT_SESSION_ID}&contact_id={$contactId}";
+            $cancelUrl = "{$baseUrl}/renew.php?status=cancelled&contact_id={$contactId}";
         }
 
         $ch = curl_init("https://api.stripe.com/v1/checkout/sessions");
