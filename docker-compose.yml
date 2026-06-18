@@ -5,11 +5,15 @@ services:
     restart: unless-stopped
     environment:
       MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: "yes"
+      # Ensures the (empty) app database exists for Phinx to migrate into.
+      # The CiviCRM mock database is still created by civicrm_mock.sql itself.
+      MARIADB_DATABASE: tgg_members
     ports:
       - "3306:3306"
     volumes:
       - db_data:/var/lib/mysql
-      # Each file creates its own database (CREATE DATABASE IF NOT EXISTS ...; USE ...;)
+      # Seeds the *mock CiviCRM* database only. The app's own tgg_members
+      # schema is built by Phinx from the app container's entrypoint.
       - ./sql:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]

@@ -10,7 +10,6 @@ scratch/
 # SQL Files (Ignore large database dumps but keep project schemas)
 import/
 *.sql
-!sql/schema.sql
 !sql/civicrm_mock.sql
 
 # Composer files
