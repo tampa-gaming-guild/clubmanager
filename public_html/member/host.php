@@ -104,7 +104,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <div style="font-size: 2rem; margin-bottom: 15px;">🤝</div>
                             <h3 style="margin-bottom: 10px;">Volunteer Roster</h3>
                             <p style="font-size: 0.9rem; color: var(--color-text-secondary); line-height: 1.4; margin-bottom: 15px;">
-                                View scheduled shifts (Open, Close, Bouncer) and signup status.
+                                View scheduled shifts (Open, Close, Greeter) and signup status.
                             </p>
                         </div>
                         <a href="volunteers.php" class="btn btn-secondary btn-block" style="text-align: center;">View Volunteers</a>
