@@ -77,6 +77,31 @@ class CiviCRMImporter {
                     'civicrm_membership_type_id' => (int)$type['id']
                 ]);
                 $stats['plans_synced']++;
+
+                // Ensure a default rate exists for this plan in tgg_subscription_rates
+                $planId = $appDb->query("SELECT id FROM tgg_subscription_plans WHERE civicrm_membership_type_id = " . (int)$type['id'])->fetchColumn();
+                if ($planId) {
+                    $rateCheck = $appDb->prepare("SELECT id FROM tgg_subscription_rates WHERE plan_id = :plan_id LIMIT 1");
+                    $rateCheck->execute(['plan_id' => $planId]);
+                    if (!$rateCheck->fetch()) {
+                        $freq = 'monthly';
+                        if ($type['duration_unit'] === 'year') {
+                            $freq = 'annual';
+                        } elseif ($type['duration_unit'] === 'day') {
+                            $freq = 'daily';
+                        }
+                        $insertRate = $appDb->prepare("
+                            INSERT INTO tgg_subscription_rates (plan_id, name, price, billing_frequency, inactive)
+                            VALUES (:plan_id, :name, :price, :billing_frequency, 0)
+                        ");
+                        $insertRate->execute([
+                            'plan_id' => $planId,
+                            'name' => $type['name'] . ' - Standard',
+                            'price' => $type['minimum_fee'],
+                            'billing_frequency' => $freq
+                        ]);
+                    }
+                }
             }
         } catch (Exception $e) {
             $stats['errors'][] = "Failed syncing membership types: " . $e->getMessage();
@@ -184,7 +209,8 @@ class CiviCRMImporter {
                         if ($subCheck->fetch()) {
                             $subUpdate = $appDb->prepare("
                                 UPDATE tgg_subscriptions 
-                                SET plan_id = :plan_id, status = :status, join_date = :join_date, start_date = :start_date, end_date = :end_date 
+                                SET plan_id = :plan_id, status = :status, join_date = :join_date, start_date = :start_date, end_date = :end_date,
+                                    rate_id = COALESCE(rate_id, (SELECT id FROM tgg_subscription_rates WHERE plan_id = {$planId} LIMIT 1))
                                 WHERE contact_id = :contact_id
                             ");
                             $subUpdate->execute([
@@ -197,8 +223,8 @@ class CiviCRMImporter {
                             ]);
                         } else {
                             $subInsert = $appDb->prepare("
-                                INSERT INTO tgg_subscriptions (contact_id, plan_id, status, join_date, start_date, end_date) 
-                                VALUES (:contact_id, :plan_id, :status, :join_date, :start_date, :end_date)
+                                INSERT INTO tgg_subscriptions (contact_id, plan_id, status, join_date, start_date, end_date, rate_id) 
+                                VALUES (:contact_id, :plan_id, :status, :join_date, :start_date, :end_date, (SELECT id FROM tgg_subscription_rates WHERE plan_id = {$planId} LIMIT 1))
                             ");
                             $subInsert->execute([
                                 'contact_id' => $contactId,
@@ -305,8 +331,11 @@ class CiviCRMImporter {
      */
     public static function getMemberMembershipDetails(int $contactId): ?array {
         $appDb = Database::getAppConnection();
-        $query = "SELECT s.plan_id as membership_id, s.join_date, s.start_date, s.end_date,
-                         p.name as membership_name, p.price as minimum_fee,
+        $query = "SELECT s.plan_id as membership_id, s.join_date, s.start_date, s.end_date, s.rate_id,
+                         p.name as membership_name, COALESCE(r.price, p.price) as minimum_fee,
+                         COALESCE(r.price, p.price) as price,
+                         COALESCE(r.billing_frequency, p.duration_unit) as duration_unit,
+                         COALESCE(CASE WHEN r.billing_frequency IS NOT NULL THEN 1 ELSE p.duration_interval END, p.duration_interval) as duration_interval,
                          CASE
                              WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE() AND s.join_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)) THEN 'New'
                              WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE()) THEN 'Current'
@@ -322,6 +351,7 @@ class CiviCRMImporter {
                          CASE WHEN (s.status = 'active' AND s.end_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)) THEN 1 ELSE 0 END as is_active
                   FROM tgg_subscriptions s
                   INNER JOIN tgg_subscription_plans p ON s.plan_id = p.id
+                  LEFT JOIN tgg_subscription_rates r ON s.rate_id = r.id
                   WHERE s.contact_id = :contact_id
                   LIMIT 1";
         

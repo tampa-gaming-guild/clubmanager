@@ -182,9 +182,10 @@ if (isset($_GET['action']) && $_GET['action'] === 'edit' && isset($_GET['id'])) 
                                                         <?php echo e(ucfirst($plan['active'] ?? 'active')); ?>
                                                     </span>
                                                 </td>
-                                                <td style="text-align: center;">
-                                                    <a href="memberships.php?action=edit&id=<?php echo (int)$plan['id']; ?>" class="btn btn-warning btn-sm" style="display: inline-block; padding: 4px 8px; font-size: 0.8rem;">Edit</a>
-                                                </td>
+                                                 <td style="text-align: center; white-space: nowrap;">
+                                                     <a href="memberships.php?action=edit&id=<?php echo (int)$plan['id']; ?>" class="btn btn-warning btn-sm" style="display: inline-block; padding: 4px 8px; font-size: 0.8rem;">Edit</a>
+                                                     <a href="rates.php?plan_id=<?php echo (int)$plan['id']; ?>" class="btn btn-primary btn-sm" style="display: inline-block; padding: 4px 8px; font-size: 0.8rem;">Rates</a>
+                                                 </td>
                                             </tr>
                                         <?php endforeach; ?>
                                     <?php else: ?>

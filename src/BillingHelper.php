@@ -80,15 +80,21 @@ class BillingHelper {
     public static function getMemberSubscriptionDetails(int $contactId): ?array {
         try {
             $db = Database::getAppConnection();
-            $stmt = $db->prepare("
-                SELECT s.status, s.join_date, s.start_date, s.end_date, p.name as plan_name, p.name as membership_name, p.price, p.duration_unit, p.duration_interval
-                FROM tgg_subscriptions s
-                INNER JOIN tgg_subscription_plans p ON s.plan_id = p.id
-                WHERE s.contact_id = :contact_id
-                LIMIT 1
-            ");
-            $stmt->execute(['contact_id' => $contactId]);
-            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+             $stmt = $db->prepare("
+                 SELECT s.status, s.join_date, s.start_date, s.end_date, s.plan_id as membership_id, s.rate_id,
+                        p.name as plan_name, p.name as membership_name, 
+                        COALESCE(r.price, p.price) as price, 
+                        COALESCE(r.price, p.price) as minimum_fee, 
+                        COALESCE(r.billing_frequency, p.duration_unit) as duration_unit, 
+                        COALESCE(CASE WHEN r.billing_frequency IS NOT NULL THEN 1 ELSE p.duration_interval END, p.duration_interval) as duration_interval
+                 FROM tgg_subscriptions s
+                 INNER JOIN tgg_subscription_plans p ON s.plan_id = p.id
+                 LEFT JOIN tgg_subscription_rates r ON s.rate_id = r.id
+                 WHERE s.contact_id = :contact_id
+                 LIMIT 1
+             ");
+             $stmt->execute(['contact_id' => $contactId]);
+             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             
             if ($row) {
                 $today = date('Y-m-d');
@@ -187,9 +193,25 @@ class BillingHelper {
             $durationUnit = strtolower($plan['duration_unit']);
 
             // Query existing local subscription
-            $subStmt = $appDb->prepare("SELECT join_date, end_date FROM tgg_subscriptions WHERE contact_id = :contact_id LIMIT 1");
+            $subStmt = $appDb->prepare("SELECT join_date, end_date, rate_id FROM tgg_subscriptions WHERE contact_id = :contact_id LIMIT 1");
             $subStmt->execute(['contact_id' => $contactId]);
             $existingSub = $subStmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($existingSub && !empty($existingSub['rate_id'])) {
+                $rateStmt = $appDb->prepare("SELECT * FROM tgg_subscription_rates WHERE id = :rate_id LIMIT 1");
+                $rateStmt->execute(['rate_id' => $existingSub['rate_id']]);
+                $rate = $rateStmt->fetch(PDO::FETCH_ASSOC);
+                if ($rate) {
+                    $durationInterval = 1;
+                    if ($rate['billing_frequency'] === 'annual') {
+                        $durationUnit = 'year';
+                    } elseif ($rate['billing_frequency'] === 'monthly') {
+                        $durationUnit = 'month';
+                    } elseif ($rate['billing_frequency'] === 'daily') {
+                        $durationUnit = 'day';
+                    }
+                }
+            }
 
             $today = date('Y-m-d');
             $startDate = $today;
@@ -199,7 +221,7 @@ class BillingHelper {
                 $existingEndDate = $existingSub['end_date'];
             }
 
-            if ($existingEndDate && $action === 'renew') {
+            if ($existingEndDate) {
                 // Extend from the day after the old expiry if the membership is still active,
                 // or lapsed by 30 days or less (a grace window). Beyond 30 days lapsed, start a
                 // brand-new period from today instead of stacking the term on a stale expiry.
@@ -469,20 +491,38 @@ class BillingHelper {
                 $maxCiviId = (int)$appDb->query("SELECT MAX(civicrm_membership_type_id) FROM tgg_subscription_plans")->fetchColumn();
                 $civiTypeId = $maxCiviId + 1;
 
-                $insertLocal = $appDb->prepare("
-                    INSERT INTO tgg_subscription_plans (name, description, price, duration_unit, duration_interval, civicrm_membership_type_id, active) 
-                    VALUES (:name, :description, :price, :duration_unit, :duration_interval, :civicrm_membership_type_id, :active)
-                ");
-                $insertLocal->execute([
-                    'name' => $name,
-                    'description' => $description,
-                    'price' => $price,
-                    'duration_unit' => $durationUnit,
-                    'duration_interval' => $durationInterval,
-                    'civicrm_membership_type_id' => $civiTypeId,
-                    'active' => $active
-                ]);
-            }
+                 $insertLocal = $appDb->prepare("
+                     INSERT INTO tgg_subscription_plans (name, description, price, duration_unit, duration_interval, civicrm_membership_type_id, active) 
+                     VALUES (:name, :description, :price, :duration_unit, :duration_interval, :civicrm_membership_type_id, :active)
+                 ");
+                 $insertLocal->execute([
+                     'name' => $name,
+                     'description' => $description,
+                     'price' => $price,
+                     'duration_unit' => $durationUnit,
+                     'duration_interval' => $durationInterval,
+                     'civicrm_membership_type_id' => $civiTypeId,
+                     'active' => $active
+                 ]);
+
+                 $planId = $appDb->lastInsertId();
+                 $freq = 'monthly';
+                 if ($durationUnit === 'year') {
+                     $freq = 'annual';
+                 } elseif ($durationUnit === 'day') {
+                     $freq = 'daily';
+                 }
+                 $insertRate = $appDb->prepare("
+                     INSERT INTO tgg_subscription_rates (plan_id, name, price, billing_frequency, inactive)
+                     VALUES (:plan_id, :name, :price, :billing_frequency, 0)
+                 ");
+                 $insertRate->execute([
+                     'plan_id' => $planId,
+                     'name' => $name . ' - Standard',
+                     'price' => $price,
+                     'billing_frequency' => $freq
+                 ]);
+             }
 
             $appDb->commit();
             return true;
@@ -535,7 +575,17 @@ class BillingHelper {
         $paymentMethodLabel = ucwords($paymentMethod);
         $uniqueId = uniqid('offline_', true);
         $paymentIntentId = 'offline_' . str_replace(' ', '_', strtolower($paymentMethod)) . '_' . time();
-        $amountTotal = ($customAmount !== null) ? $customAmount : (($durationMode === 'standard') ? (float)$plan['price'] : 0.00);
+        
+        $planPrice = (float)$plan['price'];
+        // Check if the member has a custom rate for this plan
+        $rateStmt = $appDb->prepare("SELECT price FROM tgg_subscription_rates r INNER JOIN tgg_subscriptions s ON s.rate_id = r.id WHERE s.contact_id = :contact_id AND s.plan_id = :plan_id LIMIT 1");
+        $rateStmt->execute(['contact_id' => $contactId, 'plan_id' => $planId]);
+        $customRatePrice = $rateStmt->fetchColumn();
+        if ($customRatePrice !== false) {
+            $planPrice = (float)$customRatePrice;
+        }
+        
+        $amountTotal = ($customAmount !== null) ? $customAmount : (($durationMode === 'standard') ? $planPrice : 0.00);
         $currency = 'usd';
 
         $appDb->beginTransaction();
@@ -576,7 +626,7 @@ class BillingHelper {
             $today = date('Y-m-d');
             $startDate = $today;
 
-            if ($existingSub && $action === 'renew') {
+            if ($existingSub) {
                 $existingEndDate = $existingSub['end_date'];
                 // Extend from the day after the old expiry if still active, or lapsed by 30 days or
                 // less (grace period). Beyond that, start a fresh period from today instead. join_date
@@ -597,6 +647,22 @@ class BillingHelper {
             } else {
                 $durationInterval = (int)$plan['duration_interval'];
                 $durationUnit = strtolower($plan['duration_unit']);
+
+                if ($existingSub && !empty($existingSub['rate_id'])) {
+                    $rateStmt = $appDb->prepare("SELECT * FROM tgg_subscription_rates WHERE id = :rate_id LIMIT 1");
+                    $rateStmt->execute(['rate_id' => $existingSub['rate_id']]);
+                    $rate = $rateStmt->fetch(PDO::FETCH_ASSOC);
+                    if ($rate) {
+                        $durationInterval = 1;
+                        if ($rate['billing_frequency'] === 'annual') {
+                            $durationUnit = 'year';
+                        } elseif ($rate['billing_frequency'] === 'monthly') {
+                            $durationUnit = 'month';
+                        } elseif ($rate['billing_frequency'] === 'daily') {
+                            $durationUnit = 'day';
+                        }
+                    }
+                }
                 if ($durationUnit === 'day') {
                     // Daily payment should never change the expiration date
                     $existingEndDate = null;

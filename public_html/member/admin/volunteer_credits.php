@@ -306,8 +306,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             ]);
                         } else {
                             $insertSub = $appDb->prepare("
-                                INSERT INTO tgg_subscriptions (contact_id, plan_id, status, join_date, start_date, end_date)
-                                VALUES (:contact_id, 2, 'active', :join_date, :start_date, :end_date)
+                                INSERT INTO tgg_subscriptions (contact_id, plan_id, status, join_date, start_date, end_date, rate_id)
+                                VALUES (:contact_id, 2, 'active', :join_date, :start_date, :end_date, (SELECT id FROM tgg_subscription_rates WHERE plan_id = 2 LIMIT 1))
                             ");
                             $insertSub->execute([
                                 'contact_id' => $cid,

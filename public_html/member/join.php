@@ -122,17 +122,25 @@ if (isset($_GET['status']) && $_GET['status'] === 'success' && isset($_GET['sess
         if ($session['payment_status'] === 'paid') {
             BillingHelper::processCheckoutSession($session);
             $successMsg = "Thank you! Your payment was successful and your membership is active. Check your email for a confirmation receipt.";
+            header("Location: index.php?success=" . urlencode($successMsg));
+            exit;
         } else {
             $errorMsg = "Your payment is pending. Once completed, your membership will be active.";
+            header("Location: index.php?success=" . urlencode($errorMsg));
+            exit;
         }
     } catch (Exception $e) {
         $errorMsg = safe_err("Could not verify payment status: ", $e);
+        header("Location: index.php?error=" . urlencode($errorMsg));
+        exit;
     }
 }
 
 // 2. Handle Cancelled Redirect from Stripe
 if (isset($_GET['status']) && $_GET['status'] === 'cancelled') {
     $errorMsg = "Payment was cancelled. You have not been charged and your membership registration was not completed.";
+    header("Location: index.php?error=" . urlencode($errorMsg));
+    exit;
 }
 
 // 3. Handle Form Submission (Join or Renew)

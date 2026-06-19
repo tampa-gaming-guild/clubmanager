@@ -157,6 +157,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                     }
                     $tier = $tiers[$tierIndex];
                     $fee = (float)$tier['price'];
+                    if ($membership && (int)$membership['membership_id'] === (int)$tier['id']) {
+                        $fee = (float)$membership['minimum_fee'];
+                    }
                     $tierName = $tier['name'];
                     $civicrmTypeId = (int)$tier['civicrm_membership_type_id'];
 
@@ -259,10 +262,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                                     <label for="stripe_tier_id">Select Renewal Level</label>
                                     <select id="stripe_tier_id" name="tier_id" required>
                                         <option value="" disabled selected>-- Select a Level --</option>
-                                        <?php foreach ($tiers as $tier): ?>
+                                        <?php foreach ($tiers as $tier): 
+                                            $dispFee = $tier['minimum_fee'];
+                                            $dispInterval = $tier['duration_interval'];
+                                            $dispUnit = $tier['duration_unit'];
+                                            if ($membership && (int)$membership['membership_id'] === (int)$tier['id']) {
+                                                $dispFee = $membership['minimum_fee'];
+                                                $dispInterval = $membership['duration_interval'];
+                                                $dispUnit = $membership['duration_unit'];
+                                            }
+                                            $unitText = strtolower($dispUnit);
+                                            if ($unitText === 'year') $unitText = 'annual';
+                                            elseif ($unitText === 'month') $unitText = 'monthly';
+                                            elseif ($unitText === 'day') $unitText = 'daily';
+                                        ?>
                                             <option value="<?php echo (int)$tier['id']; ?>" 
                                                 <?php echo ($membership && $membership['membership_name'] === $tier['name']) ? 'selected' : ''; ?>>
-                                                <?php echo e($tier['name']); ?> - $<?php echo number_format($tier['minimum_fee'], 2); ?> / <?php echo e($tier['duration_interval']); ?> <?php echo e($tier['duration_unit']); ?>(s)
+                                                <?php echo e($tier['name']); ?> - $<?php echo number_format($dispFee, 2); ?> / <?php echo e($unitText); ?>
                                             </option>
                                         <?php endforeach; ?>
                                     </select>
@@ -308,14 +324,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                                             <div id="standard_tier_select_wrapper" style="margin-left: 24px; margin-top: 5px;">
                                                 <select id="offline_tier_id" name="tier_id" style="width: 100%;">
                                                     <option value="" disabled selected>-- Select a Level --</option>
-                                                    <?php foreach ($tiers as $tier): ?>
+                                                    <?php foreach ($tiers as $tier): 
+                                                        $dispFee = $tier['minimum_fee'];
+                                                        $dispInterval = $tier['duration_interval'];
+                                                        $dispUnit = $tier['duration_unit'];
+                                                        if ($membership && (int)$membership['membership_id'] === (int)$tier['id']) {
+                                                            $dispFee = $membership['minimum_fee'];
+                                                            $dispInterval = $membership['duration_interval'];
+                                                            $dispUnit = $membership['duration_unit'];
+                                                        }
+                                                        $unitText = strtolower($dispUnit);
+                                                        if ($unitText === 'year') $unitText = 'annual';
+                                                        elseif ($unitText === 'month') $unitText = 'monthly';
+                                                        elseif ($unitText === 'day') $unitText = 'daily';
+                                                    ?>
                                                         <option value="<?php echo (int)$tier['id']; ?>" 
-                                                            data-interval="<?php echo (int)$tier['duration_interval']; ?>"
-                                                            data-unit="<?php echo e(strtolower($tier['duration_unit'])); ?>"
-                                                            data-price="<?php echo (float)$tier['price']; ?>"
+                                                            data-interval="<?php echo (int)$dispInterval; ?>"
+                                                            data-unit="<?php echo e(strtolower($dispUnit)); ?>"
+                                                            data-price="<?php echo (float)$dispFee; ?>"
                                                             data-name="<?php echo e($tier['name']); ?>"
                                                             <?php echo ($membership && $membership['membership_name'] === $tier['name']) ? 'selected' : ''; ?>>
-                                                            <?php echo e($tier['name']); ?> - $<?php echo number_format($tier['minimum_fee'], 2); ?> / <?php echo e($tier['duration_interval']); ?> <?php echo e($tier['duration_unit']); ?>(s)
+                                                            <?php echo e($tier['name']); ?> - $<?php echo number_format($dispFee, 2); ?> / <?php echo e($unitText); ?>
                                                         </option>
                                                     <?php endforeach; ?>
                                                 </select>
@@ -599,10 +628,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                             <label for="tier_id">Select Renewal Level</label>
                             <select id="tier_id" name="tier_id" required>
                                 <option value="" disabled selected>-- Select a Level --</option>
-                                <?php foreach ($tiers as $tier): ?>
+                                <?php foreach ($tiers as $tier): 
+                                    $dispFee = $tier['minimum_fee'];
+                                    $dispInterval = $tier['duration_interval'];
+                                    $dispUnit = $tier['duration_unit'];
+                                    if ($membership && (int)$membership['membership_id'] === (int)$tier['id']) {
+                                        $dispFee = $membership['minimum_fee'];
+                                        $dispInterval = $membership['duration_interval'];
+                                        $dispUnit = $membership['duration_unit'];
+                                    }
+                                    $unitText = strtolower($dispUnit);
+                                    if ($unitText === 'year') $unitText = 'annual';
+                                    elseif ($unitText === 'month') $unitText = 'monthly';
+                                    elseif ($unitText === 'day') $unitText = 'daily';
+                                ?>
                                     <option value="<?php echo (int)$tier['id']; ?>" 
                                         <?php echo ($membership && $membership['membership_name'] === $tier['name']) ? 'selected' : ''; ?>>
-                                        <?php echo e($tier['name']); ?> - $<?php echo number_format($tier['minimum_fee'], 2); ?> / <?php echo e($tier['duration_interval']); ?> <?php echo e($tier['duration_unit']); ?>(s)
+                                        <?php echo e($tier['name']); ?> - $<?php echo number_format($dispFee, 2); ?> / <?php echo e($unitText); ?>
                                     </option>
                                 <?php endforeach; ?>
                             </select>

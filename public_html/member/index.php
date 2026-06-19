@@ -35,13 +35,21 @@ if (isset($_GET['loggedout'])) {
     $successMsg = "You have been logged out successfully.";
 }
 
+if (isset($_GET['success'])) {
+    $successMsg = trim($_GET['success']);
+}
+
 if (isset($_GET['renew_success'])) {
     $amount = isset($_GET['amount']) ? (float)$_GET['amount'] : 0.00;
     $successMsg = "Thank you! Your renewal payment " . ($amount > 0 ? "of $" . number_format($amount, 2) : "") . " was processed successfully. Please sign in to view your updated status.";
 }
 
-if (isset($_GET['error']) && $_GET['error'] === 'unauthorized') {
-    $errorMsg = "Access denied. You do not have permission to view that page.";
+if (isset($_GET['error'])) {
+    if ($_GET['error'] === 'unauthorized') {
+        $errorMsg = "Access denied. You do not have permission to view that page.";
+    } else {
+        $errorMsg = trim($_GET['error']);
+    }
 }
 
 // Handle Login POST
@@ -124,12 +132,33 @@ if (Auth::check()) {
                         <div class="dashboard-card status-card">
                             <h3>Membership Status</h3>
                             <?php if ($membership): ?>
-                                <div class="status-summary">
-                                    <span class="membership-level"><?php echo e($membership['membership_name']); ?></span>
-                                    <span class="badge badge-status <?php echo $membership['is_active'] ? 'badge-active' : 'badge-expired'; ?>">
-                                        <?php echo e($membership['status_label']); ?>
-                                    </span>
-                                </div>
+                                 <div class="status-summary" style="display: flex; flex-direction: column; align-items: flex-start; gap: 5px;">
+                                     <span class="membership-level" style="font-size: 0.9rem;">
+                                         <?php 
+                                         echo e($membership['membership_name']); 
+                                         $showRate = Auth::check() && (
+                                             true // The user logged in always owns their dashboard view
+                                             || has_role('host') || has_role('admin') || has_role('superadmin')
+                                         );
+                                         if ($showRate && isset($membership['minimum_fee'])) {
+                                             $formattedPrice = '$' . number_format($membership['minimum_fee'], 2);
+                                             $intervalText = '';
+                                             if (isset($membership['duration_unit'])) {
+                                                 $unit = strtolower($membership['duration_unit']);
+                                                 if ($unit === 'year') $unit = 'annual';
+                                                 elseif ($unit === 'month') $unit = 'monthly';
+                                                 elseif ($unit === 'day') $unit = 'daily';
+                                                 
+                                                 $intervalText = ' / ' . $unit;
+                                             }
+                                             echo ' <span style="color: var(--color-text-muted); font-size: 0.9em; font-weight: normal;">' . e("({$formattedPrice}{$intervalText})") . '</span>';
+                                         }
+                                         ?>
+                                     </span>
+                                     <span class="badge badge-status <?php echo $membership['is_active'] ? 'badge-active' : 'badge-expired'; ?>">
+                                         <?php echo e($membership['status_label']); ?>
+                                     </span>
+                                 </div>
                                 <div class="status-dates">
                                     <p>Joined: <span><?php echo date('M d, Y', strtotime($membership['join_date'])); ?></span></p>
                                     <p>Expires: <span class="<?php echo strtotime($membership['end_date']) < time() ? 'text-danger' : ''; ?>"><?php echo date('M d, Y', strtotime($membership['end_date'])); ?></span></p>

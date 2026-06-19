@@ -443,6 +443,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
             }
         }
 
+        // A2b. Handle Subscription Rate Adjustment (Only Admin/Superadmin)
+        if (isset($_POST['update_member_rate']) && $isAdmin) {
+            $rateId = (int)($_POST['rate_id'] ?? 0);
+            try {
+                if (!$membership) {
+                    throw new Exception("Member must have a subscription to adjust their rate.");
+                }
+                
+                // Verify the rate is active and belongs to the member's plan
+                $rateQuery = $appDb->prepare("
+                    SELECT id FROM tgg_subscription_rates 
+                    WHERE id = :id AND plan_id = :plan_id 
+                      AND inactive = 0 
+                      AND (expiration_date IS NULL OR expiration_date >= CURRENT_DATE()) 
+                    LIMIT 1
+                ");
+                $rateQuery->execute(['id' => $rateId, 'plan_id' => $membership['membership_id']]);
+                $rateExists = $rateQuery->fetchColumn();
+                
+                if (!$rateExists) {
+                    throw new Exception("Invalid, inactive, or expired rate selected.");
+                }
+
+                $updateRateStmt = $appDb->prepare("UPDATE tgg_subscriptions SET rate_id = :rate_id WHERE contact_id = :contact_id");
+                $updateRateStmt->execute(['rate_id' => $rateId, 'contact_id' => $profileId]);
+                
+                $successMsg = "Subscription rate adjusted successfully.";
+                // Refresh membership info
+                $membership = CiviCRMImporter::getMemberMembershipDetails($profileId);
+            } catch (Exception $e) {
+                $errorMsg = safe_err("Failed to update rate: ", $e);
+            }
+        }
+
         // B. Handle Trigger Password Reset (Only owner or user with password resets permission)
         if (isset($_POST['trigger_password_reset'])) {
             try {
@@ -627,7 +661,25 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                         <?php if ($hasPrivateAccess || in_array('membership_name', $publicFields)): ?>
                                         <tr>
                                             <td><strong>Membership Level:</strong></td>
-                                            <td><?php echo e($membership['membership_name']); ?></td>
+                                            <td style="font-size: 0.85rem;">
+                                                <?php 
+                                                echo e($membership['membership_name']); 
+                                                $showRate = $isOwner || (Auth::check() && (has_role('host') || has_role('admin') || has_role('superadmin')));
+                                                if ($showRate && isset($membership['minimum_fee'])) {
+                                                    $formattedPrice = '$' . number_format($membership['minimum_fee'], 2);
+                                                    $intervalText = '';
+                                                    if (isset($membership['duration_unit'])) {
+                                                        $unit = strtolower($membership['duration_unit']);
+                                                        if ($unit === 'year') $unit = 'annual';
+                                                        elseif ($unit === 'month') $unit = 'monthly';
+                                                        elseif ($unit === 'day') $unit = 'daily';
+                                                        
+                                                        $intervalText = ' / ' . $unit;
+                                                    }
+                                                    echo ' <span style="color: var(--color-text-muted); font-size: 0.95em;">' . e("({$formattedPrice}{$intervalText})") . '</span>';
+                                                }
+                                                ?>
+                                            </td>
                                         </tr>
                                         <?php endif; ?>
 
@@ -790,6 +842,44 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                         <?php endif; ?>
                                     </form>
                                 </div>
+                                
+                                <!-- Admin Adjust Subscription Rate Card -->
+                                <?php 
+                                if ($membership): 
+                                    // Fetch active rates for this plan
+                                    $activeRates = [];
+                                    try {
+                                        $ratesStmt = $appDb->prepare("
+                                            SELECT * FROM tgg_subscription_rates 
+                                            WHERE plan_id = :plan_id 
+                                              AND inactive = 0 
+                                              AND (expiration_date IS NULL OR expiration_date >= CURRENT_DATE())
+                                            ORDER BY price ASC
+                                        ");
+                                        $ratesStmt->execute(['plan_id' => $membership['membership_id']]);
+                                        $activeRates = $ratesStmt->fetchAll(PDO::FETCH_ASSOC);
+                                    } catch (Exception $e) {
+                                        $activeRates = [];
+                                    }
+                                ?>
+                                <div class="management-card mt-20">
+                                    <h4>Adjust Subscription Rate</h4>
+                                    <form action="profile.php?id=<?php echo $profileId; ?>" method="POST" class="settings-form">
+                                        <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                        <div class="form-group">
+                                            <label for="rate_id" style="display: block; font-size: 0.85rem; margin-bottom: 8px; color: rgba(255,255,255,0.85);">Select Active Rate</label>
+                                            <select name="rate_id" id="rate_id" required>
+                                                <?php foreach ($activeRates as $rate): ?>
+                                                    <option value="<?php echo (int)$rate['id']; ?>" <?php echo (isset($membership['rate_id']) && (int)$membership['rate_id'] === (int)$rate['id']) ? 'selected' : ''; ?>>
+                                                        <?php echo e($rate['name']); ?> - $<?php echo number_format($rate['price'], 2); ?> / <?php echo e($rate['billing_frequency']); ?>
+                                                    </option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </div>
+                                        <button type="submit" name="update_member_rate" class="btn btn-primary btn-block mt-15">Update Rate</button>
+                                    </form>
+                                </div>
+                                <?php endif; ?>
                                 <?php endif; ?>
 
                                 <!-- Portal Roles Info Card -->
