@@ -49,6 +49,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && Auth::check()) {
             } catch (Exception $e) {
                 $errorMsg = safe_err("Volunteer signup failed: ", $e);
             }
+        } elseif (isset($_POST['action_delete'])) {
+            try {
+                if (empty($role)) {
+                    throw new Exception("Role is required.");
+                }
+                if (empty($contactId)) {
+                    throw new Exception("Member ID is required.");
+                }
+                
+                $isAdmin = has_role('admin');
+                $isSelf = ($contactId === (int)$_SESSION['user']['contact_id']);
+                
+                if (!$isAdmin && !$isSelf) {
+                    throw new Exception("You are not authorized to delete this signup.");
+                }
+                
+                if (!$isAdmin) {
+                    $event = Event::getEvent($eventId);
+                    if (!$event) {
+                        throw new Exception("Event not found.");
+                    }
+                    $eventDate = date('Y-m-d', strtotime($event['start_time']));
+                    $today = date('Y-m-d');
+                    if ($eventDate < $today) {
+                        throw new Exception("Members can only delete signups dated today or later.");
+                    }
+                }
+                
+                Event::cancelVolunteer($eventId, $contactId, $role);
+                
+                $appDb = Database::getAppConnection();
+                $stmtName = $appDb->prepare("SELECT display_name FROM tgg_contacts WHERE id = :id LIMIT 1");
+                $stmtName->execute(['id' => $contactId]);
+                $displayName = $stmtName->fetchColumn() ?: "Member #{$contactId}";
+                
+                $successMsg = "Success! Removed {$displayName} from {$role} volunteer slot.";
+            } catch (Exception $e) {
+                $errorMsg = safe_err("Failed to delete volunteer signup: ", $e);
+            }
         }
     }
 }
@@ -202,10 +241,10 @@ try {
                                         $evtId = (int)$evt['id'];
                                         $vols = Event::getVolunteers($evtId);
                                         
-                                        // Map role -> volunteer name
+                                        // Map role -> volunteer info
                                         $roleVolunteers = [];
                                         foreach ($vols as $vol) {
-                                            $roleVolunteers[$vol['role']] = $vol['display_name'];
+                                            $roleVolunteers[$vol['role']] = $vol;
                                         }
                                         
                                         $eventDate = date('F d, Y (l)', strtotime($evt['start_time']));
@@ -234,7 +273,8 @@ try {
                                         $roles = ['Open', 'Close', 'Greeter'];
                                         foreach ($roles as $role):
                                             $hasVol = isset($roleVolunteers[$role]);
-                                            $volName = $hasVol ? $roleVolunteers[$role] : null;
+                                            $volName = $hasVol ? $roleVolunteers[$role]['display_name'] : null;
+                                            $volContactId = $hasVol ? (int)$roleVolunteers[$role]['contact_id'] : null;
                                             
                                             // Format the bullet class
                                             $bulletClass = 'bullet-' . strtolower($role);
@@ -262,7 +302,29 @@ try {
                                             </td>
                                              <td>
                                                 <?php if ($hasVol): ?>
-                                                    <span style="color: var(--color-text-muted); font-size: 0.85rem;">Filled</span>
+                                                    <?php 
+                                                        $evtDateOnly = date('Y-m-d', strtotime($evt['start_time']));
+                                                        $todayDateOnly = date('Y-m-d');
+                                                        $isTodayOrLater = ($evtDateOnly >= $todayDateOnly);
+                                                        
+                                                        $canDelete = Auth::check() && (
+                                                            has_role('admin') || 
+                                                            ($volContactId === (int)$_SESSION['user']['contact_id'] && $isTodayOrLater)
+                                                        );
+                                                    ?>
+                                                    <?php if ($canDelete): ?>
+                                                        <form action="volunteers.php?highlight=<?php echo $evtDateStr; ?><?php echo isset($_GET['filter']) ? '&filter=' . urlencode($_GET['filter']) : ''; ?>" method="POST" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete this volunteer signup?');">
+                                                            <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                                            <input type="hidden" name="event_id" value="<?php echo $evtId; ?>">
+                                                            <input type="hidden" name="role" value="<?php echo e($role); ?>">
+                                                            <input type="hidden" name="contact_id" value="<?php echo $volContactId; ?>">
+                                                            <button type="submit" name="action_delete" class="btn btn-danger btn-small" style="padding: 6px 12px; font-size: 0.8rem;">
+                                                                Cancel Signup
+                                                            </button>
+                                                        </form>
+                                                    <?php else: ?>
+                                                        <span style="color: var(--color-text-muted); font-size: 0.85rem;">Filled</span>
+                                                    <?php endif; ?>
                                                 <?php else: ?>
                                                     <?php if (!Auth::check()): ?>
                                                         <a href="index.php?action=login" class="btn btn-success btn-small" style="padding: 6px 12px; font-size: 0.8rem;">
