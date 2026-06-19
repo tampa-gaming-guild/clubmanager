@@ -40,6 +40,9 @@ $navAuthed = $navAdminArea || \App\Auth::check();
             <a href="<?php echo $navPrefix; ?>calendar.php" class="<?php echo $navActive === 'calendar' ? 'active' : ''; ?>">Calendar</a>
             <a href="<?php echo $navPrefix; ?>volunteers.php" class="<?php echo $navActive === 'volunteers' ? 'active' : ''; ?>">Volunteers</a>
             <a href="<?php echo $navPrefix; ?>checkin.php" class="<?php echo $navActive === 'checkin' ? 'active' : ''; ?>">Check-In</a>
+            <?php if (has_permission('edit checkins')): ?>
+                <a href="<?php echo $navPrefix; ?>host.php" class="<?php echo $navActive === 'host' ? 'active' : ''; ?>">Host Portal</a>
+            <?php endif; ?>
             <?php if ($navAdminArea || has_role('admin')): ?>
                 <a href="<?php echo $navAdminArea ? 'dashboard.php' : 'admin/dashboard.php'; ?>" class="<?php echo $navActive === 'admin' ? 'active' : ''; ?>">Admin</a>
             <?php endif; ?>

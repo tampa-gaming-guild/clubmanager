@@ -37,7 +37,7 @@ $isLoggedIn = \App\Auth::check();
 $loggedInName = $isLoggedIn ? ($_SESSION['user']['display_name'] ?? 'Member') : '';
 
 // Determine if geolocation check is required for the current user
-$isGeoEnabled = ($_ENV['GEOLOCATION_CHECK_ENABLED'] ?? 'false') === 'true' && !has_role('superadmin');
+$isGeoEnabled = ($_ENV['GEOLOCATION_CHECK_ENABLED'] ?? 'false') === 'true';
 
 // Handle Check-In POST (Standard & AJAX)
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {

@@ -46,7 +46,7 @@ if (isset($_GET['status']) && $_GET['status'] === 'cancelled') {
 // 3. Auth Gate & Load Details
 Auth::requireAuth();
 $contactId = $_SESSION['user']['contact_id'];
-$isAdmin = has_role('admin');
+$isAdmin = has_role('admin') || has_permission('edit checkins');
 if ($isAdmin && isset($_GET['contact_id'])) {
     $contactId = (int)$_GET['contact_id'];
 }
