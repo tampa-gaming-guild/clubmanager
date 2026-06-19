@@ -32,8 +32,8 @@ try {
     // 1. Fetch Tiers & Statuses first for pivot matrix layout & dropdowns
     $tiers = CiviCRMImporter::getMembershipTiers();
     $statuses = $appDb->query("
-        SELECT id, name, label 
-        FROM tgg_membership_statuses 
+        SELECT id, name, label, is_active
+        FROM tgg_membership_statuses
         WHERE label NOT IN ('Deceased', 'Current Renewed', 'Future Start')
           AND name NOT IN ('Deceased', 'Current Renewed', 'Future Start')
         ORDER BY id ASC
@@ -238,9 +238,11 @@ try {
                                     ?>
                                         <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
                                             <td style="padding: 6px 8px; font-weight: 500; color: #fff; white-space: nowrap;"><a href="dashboard.php?level=<?php echo urlencode($lvl); ?>" style="color: var(--color-primary); text-decoration: none; font-weight: 600;"><?php echo e($lvl); ?></a></td>
-                                            <?php foreach ($statuses as $stat): 
+                                            <?php foreach ($statuses as $stat):
                                                 $count = $stats[$stat['label']] ?? 0;
-                                                $rowTotal += $count;
+                                                if ($stat['is_active']) {
+                                                    $rowTotal += $count;
+                                                }
                                                 $colTotals[$stat['label']] += $count;
                                                 $color = $count > 0 ? ($stat['label'] === 'Current' || $stat['label'] === 'New' ? 'var(--color-success)' : ($stat['label'] === 'Expired' ? 'var(--color-danger)' : '#fff')) : 'rgba(255,255,255,0.15)';
                                                 $weight = $count > 0 ? '700' : '400';
