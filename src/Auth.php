@@ -177,6 +177,39 @@ class Auth {
     }
 
     /**
+     * Generate a password setup/reset token for an email address, storing its hash in
+     * tgg_password_resets, and return the raw token to embed in an emailed link.
+     * Used both for "forgot password" requests and for "set up your portal password"
+     * links sent after a new member joins (members aren't required to have a password).
+     * @param string $email
+     * @param string $expiresIn A strtotime()-compatible relative expiry, e.g. '+1 hour'
+     * @return string The raw (unhashed) token
+     */
+    public static function createPasswordSetupToken(string $email, string $expiresIn = '+1 hour'): string {
+        $appDb = Database::getAppConnection();
+        $email = trim(strtolower($email));
+
+        $rawToken = bin2hex(random_bytes(32));
+        $hashedToken = hash('sha256', $rawToken);
+        $expiresAt = date('Y-m-d H:i:s', strtotime($expiresIn));
+
+        $stmt = $appDb->prepare("
+            INSERT INTO tgg_password_resets (email, token, expires_at)
+            VALUES (:email, :token, :expires_at)
+            ON DUPLICATE KEY UPDATE token = :token2, expires_at = :expires_at2
+        ");
+        $stmt->execute([
+            'email' => $email,
+            'token' => $hashedToken,
+            'expires_at' => $expiresAt,
+            'token2' => $hashedToken,
+            'expires_at2' => $expiresAt
+        ]);
+
+        return $rawToken;
+    }
+
+    /**
      * Log out the current user
      */
     public static function logout(): void {

@@ -18,8 +18,8 @@ final class EmailTemplatesSeeder extends AbstractSeed
             [
                 'template_key' => 'signup',
                 'subject' => 'Welcome to TGG Club!',
-                'body' => '<h2>Welcome, {display_name}!</h2><p>Thank you for signing up for the TGG Membership Portal. Your account has been registered with the email <strong>{email}</strong>.</p><p>If you have not done so already, please complete your checkout to activate your subscription.</p><p>You can access the portal and complete any pending payments by logging in here: <a href="{login_url}">{login_url}</a></p><p>Best regards,<br>TGG Club Team</p>',
-                'description' => 'Welcome email sent immediately after a user registers their account details.',
+                'body' => '<h2>Welcome, {display_name}!</h2><p>Thank you for joining TGG Club! Your <strong>{tier_name}</strong> membership is now active.</p><p><strong>Membership Details:</strong></p><ul><li><strong>Start Date:</strong> {start_date}</li><li><strong>Expiration Date:</strong> {end_date}</li></ul><p>You don\'t need to log in to be a member -- this email is all you need. But if you\'d like to access the member portal, click below to set up a password:</p><p><a href="{set_password_link}">{set_password_link}</a></p><p>Best regards,<br>TGG Club Team</p>',
+                'description' => 'Welcome email sent after a new (non-Trial) member\'s first payment succeeds, with a link to optionally set up portal access.',
             ],
             [
                 'template_key' => 'payment_received',
@@ -54,8 +54,8 @@ final class EmailTemplatesSeeder extends AbstractSeed
             [
                 'template_key' => 'trial_activated',
                 'subject' => 'Your 30-Day Trial Membership is Active!',
-                'body' => '<h2>Hello, {display_name}!</h2><p>Your email has been verified and your 30-day Trial membership is now active.</p><p><strong>Membership Details:</strong></p><ul><li><strong>Start Date:</strong> {start_date}</li><li><strong>Expiration Date:</strong> {end_date}</li></ul><p>This Trial membership is a one-time offer and cannot be renewed. To continue your membership after it expires, you will need to sign up for a paid membership level.</p><p>You can log in to your account dashboard at: <a href="{login_url}">{login_url}</a></p><p>Best regards,<br>TGG Club Team</p>',
-                'description' => 'Sent when a member confirms their email and their one-time Trial membership is activated.',
+                'body' => '<h2>Hello, {display_name}!</h2><p>Your email has been verified and your 30-day Trial membership is now active.</p><p><strong>Membership Details:</strong></p><ul><li><strong>Start Date:</strong> {start_date}</li><li><strong>Expiration Date:</strong> {end_date}</li></ul><p>This Trial membership is a one-time offer and cannot be renewed. To continue your membership after it expires, you will need to sign up for a paid membership level.</p><p>You don\'t need to log in to use your Trial membership -- this email is all you need. But if you\'d like to access the member portal, click below to set up a password:</p><p><a href="{set_password_link}">{set_password_link}</a></p><p>Best regards,<br>TGG Club Team</p>',
+                'description' => 'Sent when a member confirms their email and their one-time Trial membership is activated. Doubles as their welcome email since Trial members never set a password at signup.',
             ],
         ];
 

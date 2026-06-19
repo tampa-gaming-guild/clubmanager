@@ -19,22 +19,26 @@ class StripeHelper {
      * @param string $action 'join' or 'renew'
      * @param string|null $email Member email to pre-fill on the Stripe-hosted checkout page
      * @param string|null $name Member name to pre-fill on the Stripe-hosted checkout page
+     * @param string $returnPage Which page Stripe should redirect back to ('join.php' or 'renew.php') --
+     *        this is the page that initiated the session, not necessarily implied by $action, since
+     *        join.php now also handles self-service renewals for the public (no-login) entry point.
      * @return array Checkout session response from Stripe
      * @throws Exception
      */
-    public static function createCheckoutSession(int $contactId, int $planId, int $membershipTypeId, string $membershipTypeName, float $amount, string $action, ?string $email = null, ?string $name = null): array {
+    public static function createCheckoutSession(int $contactId, int $planId, int $membershipTypeId, string $membershipTypeName, float $amount, string $action, ?string $email = null, ?string $name = null, string $returnPage = 'join.php'): array {
         $secretKey = $_ENV['STRIPE_SECRET_KEY'] ?? '';
         if (empty($secretKey)) {
             throw new Exception("Stripe Secret Key is not configured in environment.");
         }
 
         $baseUrl = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/');
-        $successUrl = "{$baseUrl}/join.php?status=success&session_id={CHECKOUT_SESSION_ID}";
-        $cancelUrl = "{$baseUrl}/join.php?status=cancelled";
 
-        if ($action === 'renew') {
+        if ($returnPage === 'renew.php') {
             $successUrl = "{$baseUrl}/renew.php?status=success&session_id={CHECKOUT_SESSION_ID}&contact_id={$contactId}";
             $cancelUrl = "{$baseUrl}/renew.php?status=cancelled&contact_id={$contactId}";
+        } else {
+            $successUrl = "{$baseUrl}/join.php?status=success&session_id={CHECKOUT_SESSION_ID}";
+            $cancelUrl = "{$baseUrl}/join.php?status=cancelled";
         }
 
         $ch = curl_init("https://api.stripe.com/v1/checkout/sessions");

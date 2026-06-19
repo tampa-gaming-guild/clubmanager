@@ -307,9 +307,19 @@ class CiviCRMImporter {
         $appDb = Database::getAppConnection();
         $query = "SELECT s.plan_id as membership_id, s.join_date, s.start_date, s.end_date,
                          p.name as membership_name, p.price as minimum_fee,
-                         CASE WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE()) THEN 'Current' ELSE 'Expired' END as status_label,
-                         CASE WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE()) THEN 'Current' ELSE 'Expired' END as status_name,
-                         CASE WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE()) THEN 1 ELSE 0 END as is_active
+                         CASE
+                             WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE() AND s.join_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)) THEN 'New'
+                             WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE()) THEN 'Current'
+                             WHEN (s.status = 'active' AND s.end_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)) THEN 'Grace Period'
+                             ELSE 'Expired'
+                         END as status_label,
+                         CASE
+                             WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE() AND s.join_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)) THEN 'New'
+                             WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE()) THEN 'Current'
+                             WHEN (s.status = 'active' AND s.end_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)) THEN 'Grace Period'
+                             ELSE 'Expired'
+                         END as status_name,
+                         CASE WHEN (s.status = 'active' AND s.end_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)) THEN 1 ELSE 0 END as is_active
                   FROM tgg_subscriptions s
                   INNER JOIN tgg_subscription_plans p ON s.plan_id = p.id
                   WHERE s.contact_id = :contact_id
@@ -331,8 +341,13 @@ class CiviCRMImporter {
         $query = "SELECT c.id, c.display_name, c.first_name, c.last_name, c.email, c.phone,
                          s.join_date, s.start_date, s.end_date,
                          p.name as membership_name,
-                         CASE WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE()) THEN 'Current' ELSE 'Expired' END as status_label,
-                         CASE WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE()) THEN 1 ELSE 0 END as is_active
+                         CASE
+                             WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE() AND s.join_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)) THEN 'New'
+                             WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE()) THEN 'Current'
+                             WHEN (s.status = 'active' AND s.end_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)) THEN 'Grace Period'
+                             ELSE 'Expired'
+                         END as status_label,
+                         CASE WHEN (s.status = 'active' AND s.end_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)) THEN 1 ELSE 0 END as is_active
                   FROM tgg_contacts c
                   LEFT JOIN tgg_subscriptions s ON s.contact_id = c.id
                   LEFT JOIN tgg_subscription_plans p ON s.plan_id = p.id

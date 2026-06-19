@@ -5,6 +5,7 @@
  */
 require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
+use App\Auth;
 use App\Database;
 use App\MailHelper;
 
@@ -34,26 +35,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $contactId = (int)$civiRow['id'];
                     $displayName = $civiRow['display_name'] ?? 'Member';
 
-                    // 2. Generate secure token
-                    $rawToken = bin2hex(random_bytes(32));
-                    $hashedToken = hash('sha256', $rawToken);
-                    $expiresAt = date('Y-m-d H:i:s', strtotime('+1 hour'));
+                    // 2. Generate secure token and save to password resets table
+                    $rawToken = Auth::createPasswordSetupToken($email, '+1 hour');
 
-                    // 3. Save to password resets table
-                    $stmt4 = $appDb->prepare("
-                        INSERT INTO tgg_password_resets (email, token, expires_at)
-                        VALUES (:email, :token, :expires_at)
-                        ON DUPLICATE KEY UPDATE token = :token2, expires_at = :expires_at2
-                    ");
-                    $stmt4->execute([
-                        'email' => $email,
-                        'token' => $hashedToken,
-                        'expires_at' => $expiresAt,
-                        'token2' => $hashedToken,
-                        'expires_at2' => $expiresAt
-                    ]);
-
-                    // 4. Send Email using Template
+                    // 3. Send Email using Template
                     $resetLink = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/reset-password.php?token=' . $rawToken;
                     $placeholders = [
                         'display_name' => $displayName,

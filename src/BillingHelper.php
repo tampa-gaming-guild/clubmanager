@@ -11,6 +11,48 @@ use Exception;
 class BillingHelper {
 
     /**
+     * Add a number of calendar months/years to a date and subtract one day, giving the
+     * last day of an N-month/year membership period that starts on $startDate (e.g. a
+     * 1-month join on 2026-06-05 ends 2026-07-04; a 1-month renewal starting the day
+     * after a 2026-07-04 expiry ends 2026-08-04).
+     *
+     * If $startDate is itself the last calendar day of its month (e.g. Jan 31, or Feb 29
+     * in a leap year), the period instead anchors to the last day of the target month
+     * (e.g. Jan 31 -> Feb 28) rather than clamping to a fixed day-of-month. Without this,
+     * a single short month (February) would permanently lock the renewal day onto a
+     * smaller number forever after (Jan 31 -> Feb 27/28 -> Mar 27/28 -> ... even though
+     * March has 31 days). Anchoring to month-end instead self-heals on the very next
+     * period, since "day after the last day of a month" is always the 1st of the next
+     * month, which never needs clamping again: Jan 31 -> Feb 28 -> Mar 31 -> Apr 30 -> ...
+     * @param string $startDate 'Y-m-d'
+     * @param int $interval
+     * @param string $unit 'month' or 'year'
+     * @return string 'Y-m-d'
+     */
+    private static function addPeriodMinusOneDay(string $startDate, int $interval, string $unit): string {
+        $months = (strtolower($unit) === 'year') ? $interval * 12 : $interval;
+
+        $dt = new \DateTime($startDate);
+        $day = (int)$dt->format('j');
+        $isLastDayOfStartMonth = ($day === (int)$dt->format('t'));
+
+        $dt->setDate((int)$dt->format('Y'), (int)$dt->format('n'), 1);
+        $dt->modify("+{$months} month");
+
+        $daysInTargetMonth = (int)$dt->format('t');
+
+        if ($isLastDayOfStartMonth) {
+            $dt->setDate((int)$dt->format('Y'), (int)$dt->format('n'), $daysInTargetMonth);
+            return $dt->format('Y-m-d');
+        }
+
+        $dt->setDate((int)$dt->format('Y'), (int)$dt->format('n'), min($day, $daysInTargetMonth));
+        $dt->modify('-1 day');
+
+        return $dt->format('Y-m-d');
+    }
+
+    /**
      * Get local subscription plans
      * @param bool $onlyActive If true, only retrieves active plans
      * @return array
@@ -49,10 +91,24 @@ class BillingHelper {
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             
             if ($row) {
-                // Compute dynamic is_active flag locally based on end date
                 $today = date('Y-m-d');
-                $row['is_active'] = (strtolower($row['status']) === 'active' && strtotime($row['end_date']) >= strtotime($today)) ? 1 : 0;
-                $row['status_label'] = $row['is_active'] ? 'Current' : 'Expired';
+                $isActiveStatus = strtolower($row['status']) === 'active';
+                // Positive once end_date is in the past; negative/zero while still within the paid period.
+                $daysSinceExpiry = (strtotime($today) - strtotime($row['end_date'])) / 86400;
+
+                // Members remain in good standing (is_active) through a 30-day grace window past expiry,
+                // matching the 'Grace Period' entry in tgg_membership_statuses.
+                $row['is_active'] = ($isActiveStatus && $daysSinceExpiry <= 30) ? 1 : 0;
+
+                if (!$row['is_active']) {
+                    $row['status_label'] = 'Expired';
+                } elseif ($daysSinceExpiry > 0) {
+                    $row['status_label'] = 'Grace Period';
+                } else {
+                    // Members read as "New" for their first 30 days after joining, then "Current".
+                    $daysSinceJoin = (strtotime($today) - strtotime($row['join_date'])) / 86400;
+                    $row['status_label'] = ($daysSinceJoin < 30) ? 'New' : 'Current';
+                }
             }
             
             return $row ?: null;
@@ -144,8 +200,13 @@ class BillingHelper {
             }
 
             if ($existingEndDate && $action === 'renew') {
-                // If existing subscription is still active, start renewal from day after current expiry
-                if (strtotime($existingEndDate) >= strtotime($today)) {
+                // Extend from the day after the old expiry if the membership is still active,
+                // or lapsed by 30 days or less (a grace window). Beyond 30 days lapsed, start a
+                // brand-new period from today instead of stacking the term on a stale expiry.
+                // join_date is never touched by the UPDATE below, so this never resets how long
+                // someone has been a member -- it only affects this period's start/end dates.
+                $daysSinceExpiry = (strtotime($today) - strtotime($existingEndDate)) / 86400;
+                if ($daysSinceExpiry <= 30) {
                     $startDate = date('Y-m-d', strtotime($existingEndDate . ' +1 day'));
                 }
             }
@@ -158,7 +219,7 @@ class BillingHelper {
                 if (!in_array($unitString, ['month', 'year'])) {
                     $unitString = 'year';
                 }
-                $endDate = date('Y-m-d', strtotime($startDate . " +{$durationInterval} {$unitString}"));
+                $endDate = self::addPeriodMinusOneDay($startDate, $durationInterval, $unitString);
             }
 
             // C. Insert or update local subscription
@@ -212,6 +273,21 @@ class BillingHelper {
                         'login_url' => $loginUrl
                     ];
                     MailHelper::sendTemplate($contact['email'], 'payment_received', $placeholders, $contactId, null);
+
+                    // New (non-Trial) members don't set a password at signup, so once their
+                    // first payment clears, send a welcome email with a link they can use to
+                    // set one up if they ever want portal access -- it's optional, not required.
+                    if ($action === 'join') {
+                        $rawToken = Auth::createPasswordSetupToken($contact['email'], '+7 days');
+                        $setPasswordLink = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/reset-password.php?token=' . $rawToken;
+                        MailHelper::sendTemplate($contact['email'], 'signup', [
+                            'display_name' => $contact['display_name'] ?? 'Member',
+                            'tier_name' => $plan['name'] ?? 'Membership Tier',
+                            'start_date' => $startDate,
+                            'end_date' => $endDate,
+                            'set_password_link' => $setPasswordLink
+                        ], $contactId, null);
+                    }
                 }
             } catch (Exception $mailEx) {
                 // Log mail exception but do not interrupt the checkout flow
@@ -500,16 +576,20 @@ class BillingHelper {
 
             if ($existingSub && $action === 'renew') {
                 $existingEndDate = $existingSub['end_date'];
-                // If existing subscription is still active, start renewal from day after current expiry
-                if (strtotime($existingEndDate) >= strtotime($today)) {
+                // Extend from the day after the old expiry if still active, or lapsed by 30 days or
+                // less (grace period). Beyond that, start a fresh period from today instead. join_date
+                // is never touched here (no UPDATE below includes it), so this never resets how long
+                // someone has been a member.
+                $daysSinceExpiry = (strtotime($today) - strtotime($existingEndDate)) / 86400;
+                if ($daysSinceExpiry <= 30) {
                     $startDate = date('Y-m-d', strtotime($existingEndDate . ' +1 day'));
                 }
             }
 
             if ($durationMode === '1_month') {
-                $endDate = date('Y-m-d', strtotime($startDate . " +1 month"));
+                $endDate = self::addPeriodMinusOneDay($startDate, 1, 'month');
             } elseif ($durationMode === '1_year') {
-                $endDate = date('Y-m-d', strtotime($startDate . " +1 year"));
+                $endDate = self::addPeriodMinusOneDay($startDate, 1, 'year');
             } elseif ($durationMode === 'custom_date') {
                 $endDate = date('Y-m-d', strtotime($customDate));
             } else {
@@ -527,7 +607,7 @@ class BillingHelper {
                     if (!in_array($unitString, ['month', 'year'])) {
                         $unitString = 'year';
                     }
-                    $endDate = date('Y-m-d', strtotime($startDate . " +{$durationInterval} {$unitString}"));
+                    $endDate = self::addPeriodMinusOneDay($startDate, $durationInterval, $unitString);
                 }
             }
 

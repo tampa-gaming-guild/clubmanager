@@ -46,7 +46,7 @@ $navAuthed = $navAdminArea || \App\Auth::check();
             <a href="<?php echo $navPrefix; ?>index.php?action=logout&amp;csrf_token=<?php echo e(get_csrf_token()); ?>" class="btn-logout">Logout</a>
         <?php else: ?>
             <a href="index.php" class="<?php echo $navActive === 'login' ? 'active' : ''; ?>">Login</a>
-            <a href="join.php" class="<?php echo $navActive === 'join' ? 'active' : ''; ?>">Join Us</a>
+            <a href="join.php" class="<?php echo $navActive === 'join' ? 'active' : ''; ?>">Join / Renew</a>
             <a href="calendar.php" class="<?php echo $navActive === 'calendar' ? 'active' : ''; ?>">Calendar</a>
             <a href="volunteers.php" class="<?php echo $navActive === 'volunteers' ? 'active' : ''; ?>">Volunteers</a>
             <?php if ($navGuestCheckin): ?>

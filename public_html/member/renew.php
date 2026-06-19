@@ -161,7 +161,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                     $civicrmTypeId = (int)$tier['civicrm_membership_type_id'];
 
                     // Create Checkout Session
-                    $session = StripeHelper::createCheckoutSession($contactId, $tierId, $civicrmTypeId, $tierName, $fee, 'renew', $contactEmail, $contactDisplayName);
+                    $session = StripeHelper::createCheckoutSession($contactId, $tierId, $civicrmTypeId, $tierName, $fee, 'renew', $contactEmail, $contactDisplayName, 'renew.php');
                     header("Location: " . $session['url']);
                     exit;
                 } catch (Exception $e) {
@@ -414,20 +414,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                             }
                         }
                         
+                        // Adds N months (or N*12 for years) to a date -- mirrors
+                        // BillingHelper::addPeriodMinusOneDay() on the backend so this preview
+                        // always matches what actually gets saved. If `date` is itself the last
+                        // calendar day of its month (e.g. Jan 31), anchors to the last day of the
+                        // target month instead (Jan 31 -> Feb 28 -> Mar 31 -> ...) so a short month
+                        // like February doesn't permanently lock the renewal day onto a smaller
+                        // number forever after.
+                        function addPeriodMinusOneDay(date, interval, unit) {
+                            const months = (unit === 'year') ? interval * 12 : interval;
+                            const day = date.getDate();
+                            const daysInStartMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+                            const isLastDayOfStartMonth = (day === daysInStartMonth);
+
+                            const result = new Date(date.getFullYear(), date.getMonth(), 1);
+                            result.setMonth(result.getMonth() + months);
+                            const daysInTargetMonth = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
+
+                            if (isLastDayOfStartMonth) {
+                                result.setDate(daysInTargetMonth);
+                                return result;
+                            }
+
+                            result.setDate(Math.min(day, daysInTargetMonth));
+                            result.setDate(result.getDate() - 1);
+                            return result;
+                        }
+
                         function calculateNewExpiration() {
                             const todayStr = "<?php echo date('Y-m-d'); ?>";
                             const currentExpiryStr = "<?php echo $membership ? $membership['end_date'] : ''; ?>";
-                            
+
                             let startDate = new Date(todayStr + 'T00:00:00');
                             if (currentExpiryStr) {
                                 const today = new Date(todayStr + 'T00:00:00');
                                 const currentExpiry = new Date(currentExpiryStr + 'T00:00:00');
-                                if (currentExpiry >= today) {
+                                // Extend from the old expiry if still active, or lapsed by 30 days or
+                                // less (grace period). Beyond that, start fresh from today instead.
+                                const daysSinceExpiry = (today.getTime() - currentExpiry.getTime()) / 86400000;
+                                if (daysSinceExpiry <= 30) {
                                     startDate = new Date(currentExpiry.getTime());
                                     startDate.setDate(startDate.getDate() + 1);
                                 }
                             }
-                            
+
                             const modes = document.getElementsByName('duration_mode');
                             let selectedMode = 'standard';
                             for (const mode of modes) {
@@ -436,20 +466,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                                     break;
                                 }
                             }
-                            
+
                             let newExpiry = new Date(startDate.getTime());
                             let durationLabel = '';
                             let amountLabel = '';
-                            
+
                             // Amount Received
                             const amountInput = document.getElementById('amount_received').value;
-                            
+
                             if (selectedMode === '1_month') {
-                                newExpiry.setMonth(newExpiry.getMonth() + 1);
+                                newExpiry = addPeriodMinusOneDay(startDate, 1, 'month');
                                 durationLabel = "1 Month";
                                 amountLabel = amountInput !== '' ? '$' + parseFloat(amountInput).toFixed(2) : '$0.00';
                             } else if (selectedMode === '1_year') {
-                                newExpiry.setFullYear(newExpiry.getFullYear() + 1);
+                                newExpiry = addPeriodMinusOneDay(startDate, 1, 'year');
                                 durationLabel = "1 Year";
                                 amountLabel = amountInput !== '' ? '$' + parseFloat(amountInput).toFixed(2) : '$0.00';
                             } else if (selectedMode === 'custom_date') {
@@ -468,7 +498,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                                     const unit = selectedOpt.getAttribute('data-unit');
                                     const price = parseFloat(selectedOpt.getAttribute('data-price'));
                                     const name = selectedOpt.getAttribute('data-name');
-                                    
+
                                     if (unit === 'day') {
                                          // Daily payment should never change the expiration date
                                          if (currentExpiryStr) {
@@ -476,10 +506,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                                          } else {
                                              newExpiry = new Date(todayStr + 'T00:00:00');
                                          }
-                                     } else if (unit === 'month') {
-                                        newExpiry.setMonth(newExpiry.getMonth() + interval);
-                                    } else {
-                                        newExpiry.setFullYear(newExpiry.getFullYear() + interval);
+                                     } else {
+                                        newExpiry = addPeriodMinusOneDay(startDate, interval, unit);
                                     }
                                     durationLabel = `${name} (${interval} ${unit}(s))`;
                                     amountLabel = amountInput !== '' ? '$' + parseFloat(amountInput).toFixed(2) : '$' + price.toFixed(2);
