@@ -305,12 +305,14 @@ class BillingHelper {
     }
 
     /**
-     * Check whether a plan is the one-time, non-renewable Trial membership.
+     * Check whether a plan is the one-time, non-renewable Trial membership. Matches
+     * any plan name containing "trial" (e.g. "Trial" or "30 Day Trial"), not just an
+     * exact "Trial" name, since the live plan name includes the trial length.
      * @param array $plan Plan row (must include 'name')
      * @return bool
      */
     public static function isTrialPlan(array $plan): bool {
-        return strcasecmp(trim($plan['name'] ?? ''), 'Trial') === 0;
+        return stripos(trim($plan['name'] ?? ''), 'trial') !== false;
     }
 
     /**
@@ -328,7 +330,7 @@ class BillingHelper {
             SELECT 1 FROM tgg_billing_ledger bl
             INNER JOIN tgg_subscription_plans p ON p.id = bl.plan_id
             INNER JOIN tgg_contacts c ON c.id = bl.contact_id
-            WHERE LOWER(p.name) = 'trial' AND LOWER(c.email) = :email
+            WHERE LOWER(p.name) LIKE '%trial%' AND LOWER(c.email) = :email
             LIMIT 1
         ");
         $stmt->execute(['email' => $email]);
