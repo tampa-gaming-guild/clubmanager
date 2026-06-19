@@ -123,23 +123,9 @@ MySQL/MariaDB DDL isn't fully transactional (some statements implicitly commit),
 
 ---
 
-## Production Installation & Deployment
+## Production Installation & Deployment (requires root access)
 
-### 1. Database Configuration
-1. Create an empty database for the local application (default name: `tgg_members`), then apply the schema and seed reference data via Phinx:
-   ```bash
-   vendor/bin/phinx migrate -e production
-   vendor/bin/phinx seed:run -e production
-   ```
-   (If the database already has this schema from before Phinx was introduced, see "Deploying to an existing database" above instead.)
-2. If deploying to a local test environment, create the mock CiviCRM database and seed data:
-   ```bash
-   mysql -u your_user -p < sql/civicrm_mock.sql
-   ```
-   *For live deployment, ensure this application has SELECT, INSERT, and UPDATE permissions to the CiviCRM tables inside your WordPress database.*
-3. Run the CiviCRM import once (see "Run the initial CiviCRM import" above) to populate contacts and membership levels, then bootstrap your first admin login (see "Bootstrap your first admin login" above).
-
-### 2. Configure Environment Variables
+### 1. Configure Environment Variables
 1. Copy `.env.example` to `.env` in the root project folder:
    ```bash
    cp .env.example .env
@@ -149,52 +135,38 @@ MySQL/MariaDB DDL isn't fully transactional (some statements implicitly commit),
    - `STRIPE_PUBLISHABLE_KEY`
    - `STRIPE_SECRET_KEY`
    - `STRIPE_WEBHOOK_SECRET` (obtained from Stripe webhook panel)
+   
+### 2. Database Configuration
+1. Create an empty database `tgg_members`, then apply the schema and seed reference data via Phinx:
+   ```bash
+   vendor/bin/phinx migrate -e production
+   vendor/bin/phinx seed:run -e production
+   ```
+   (If the database already has this schema from before Phinx was introduced, see "Deploying to an existing database" above instead.)
+2. Copy the live Civi/WP database to the mock database:
+   ```bash
+	mysqldump --opt tgg_wp989  | mysql --host=localhost -C tgg_mockcivi
+   ```
 
-### 3. Web Server Virtual Host Setup
-Configure Apache or Nginx to point its document root to the `public_html/member/` directory.
-
-**Apache VirtualHost example:**
-```apache
-<VirtualHost *:4043>
-    ServerName club.example.com
-    DocumentRoot "/var/www/tgg/public_html"
-    
-    # Optional URL mapping: ensures /member/ works
-    Alias /member "/var/www/tgg/public_html/member"
-    
-    <Directory "/var/www/tgg/public_html">
-        Options FollowSymLinks
-        AllowOverride All
-        Require all granted
-    </Directory>
-</VirtualHost>
-```
-
-**Nginx Configuration example:**
-```nginx
-server {
-    listen 80;
-    server_name club.example.com;
-    root /var/www/tgg/public_html/member;
-    index index.php index.html;
-
-    location / {
-        try_files $uri $uri/ /index.php?$query_string;
-    }
-
-    location ~ \.php$ {
-        include snippets/fastcgi-php.conf;
-        fastcgi_pass unix:/var/run/php/php8.2-fpm.sock;
-    }
-}
-```
-
+3. Run the CiviCRM import to populate contacts and membership levels:
+   ```bash
+   php -r "require '/home/tgg/tgg2/config/bootstrap.php'; print_r(App\CiviCRMImporter::runSync());"
+   ```
+4. Bootstrap your first admin login - replace contact_id below with the your id from tgg_member_settings:
+   ```bash
+    mysql
+	UPDATE tgg_members.tgg_member_settings SET role='superadmin' WHERE contact_id=2;
+	UPDATE tgg_members.tgg_member_roles SET role_name='superadmin' WHERE contact_id=2 AND role_name='member';
+   ```
 ### 4. Setup Stripe Webhook
 1. Log in to your Stripe Dashboard and navigate to **Developers > Webhooks**.
 2. Click **Add endpoint** and enter your public URL pointing to:
    `https://yourdomain.com/member/stripe-webhook.php`
 3. Select the event: `checkout.session.completed`.
 4. Copy the **Signing secret** (starts with `whsec_`) and paste it into your `.env` file as `STRIPE_WEBHOOK_SECRET`.
+
+### 5. Login 
+   Use the password reset function on the login page to set your password.
 
 ---
 
