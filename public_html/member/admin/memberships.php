@@ -16,6 +16,29 @@ $successMsg = null;
 $plans = [];
 $editPlan = null;
 
+// Handle Form Submission (Save Grace Period)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_grace_period'])) {
+    if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
+        $errorMsg = "Invalid security token. Please try again.";
+    } else {
+        $graceDays = (int)($_POST['renewal_grace_days'] ?? 30);
+        try {
+            $appDb = App\Database::getAppConnection();
+            $stmt = $appDb->prepare("
+                INSERT INTO tgg_volunteer_credits (credit_key, credit_label, credits) 
+                VALUES ('renewal_grace_days', 'Renewal Grace Period (Days)', :days)
+                ON DUPLICATE KEY UPDATE credits = VALUES(credits)
+            ");
+            $stmt->execute(['days' => $graceDays]);
+            $successMsg = "Renewal grace period updated successfully!";
+            header("Location: memberships.php?success=" . urlencode($successMsg));
+            exit;
+        } catch (Exception $e) {
+            $errorMsg = safe_err("Failed to save grace period: ", $e);
+        }
+    }
+}
+
 // Handle Form Submission (Add/Edit Plan)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_plan'])) {
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
@@ -73,6 +96,8 @@ if (isset($_GET['action']) && $_GET['action'] === 'edit' && isset($_GET['id'])) 
 } else {
     $plans = BillingHelper::getSubscriptionPlans();
 }
+
+$renewalGraceDays = BillingHelper::getRenewalGraceDays();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -251,6 +276,26 @@ if (isset($_GET['action']) && $_GET['action'] === 'edit' && isset($_GET['id'])) 
                                 </div>
                             </form>
                         </div>
+                    </div>
+
+                    <!-- Renewal Grace Period Setting Form -->
+                    <div class="glass-panel mt-20" style="padding: 20px;">
+                        <h3>Renewal Grace Period</h3>
+                        <p class="description-text" style="margin-bottom: 15px;">
+                            Configure the number of days a member can renew their existing membership after expiration.
+                            If renewed within this window, the membership period extends from their former expiration date.
+                            Otherwise, a brand-new membership period starts from the current date.
+                        </p>
+                        <form action="memberships.php" method="POST" class="auth-form" style="max-width: 400px;">
+                            <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                            <div class="form-group">
+                                <label for="renewal_grace_days">Grace Period Limit (Days)</label>
+                                <input type="number" id="renewal_grace_days" name="renewal_grace_days" required min="0" placeholder="30" value="<?php echo (int)$renewalGraceDays; ?>">
+                            </div>
+                            <div class="form-actions">
+                                <button type="submit" name="save_grace_period" class="btn btn-primary">Save Settings</button>
+                            </div>
+                        </form>
                     </div>
                 </section>
             </div>

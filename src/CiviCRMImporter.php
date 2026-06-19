@@ -337,18 +337,18 @@ class CiviCRMImporter {
                          COALESCE(r.billing_frequency, p.duration_unit) as duration_unit,
                          COALESCE(CASE WHEN r.billing_frequency IS NOT NULL THEN 1 ELSE p.duration_interval END, p.duration_interval) as duration_interval,
                          CASE
-                             WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE() AND s.join_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)) THEN 'New'
+                             WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE() AND s.join_date >= DATE_SUB(CURRENT_DATE(), INTERVAL (SELECT COALESCE(credits, 30) FROM tgg_volunteer_credits WHERE credit_key = 'renewal_grace_days' LIMIT 1) DAY)) THEN 'New'
                              WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE()) THEN 'Current'
-                             WHEN (s.status = 'active' AND s.end_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)) THEN 'Grace Period'
+                             WHEN (s.status = 'active' AND s.end_date >= DATE_SUB(CURRENT_DATE(), INTERVAL (SELECT COALESCE(credits, 30) FROM tgg_volunteer_credits WHERE credit_key = 'renewal_grace_days' LIMIT 1) DAY)) THEN 'Grace Period'
                              ELSE 'Expired'
                          END as status_label,
                          CASE
-                             WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE() AND s.join_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)) THEN 'New'
+                             WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE() AND s.join_date >= DATE_SUB(CURRENT_DATE(), INTERVAL (SELECT COALESCE(credits, 30) FROM tgg_volunteer_credits WHERE credit_key = 'renewal_grace_days' LIMIT 1) DAY)) THEN 'New'
                              WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE()) THEN 'Current'
-                             WHEN (s.status = 'active' AND s.end_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)) THEN 'Grace Period'
+                             WHEN (s.status = 'active' AND s.end_date >= DATE_SUB(CURRENT_DATE(), INTERVAL (SELECT COALESCE(credits, 30) FROM tgg_volunteer_credits WHERE credit_key = 'renewal_grace_days' LIMIT 1) DAY)) THEN 'Grace Period'
                              ELSE 'Expired'
                          END as status_name,
-                         CASE WHEN (s.status = 'active' AND s.end_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)) THEN 1 ELSE 0 END as is_active
+                         CASE WHEN (s.status = 'active' AND s.end_date >= DATE_SUB(CURRENT_DATE(), INTERVAL (SELECT COALESCE(credits, 30) FROM tgg_volunteer_credits WHERE credit_key = 'renewal_grace_days' LIMIT 1) DAY)) THEN 1 ELSE 0 END as is_active
                   FROM tgg_subscriptions s
                   INNER JOIN tgg_subscription_plans p ON s.plan_id = p.id
                   LEFT JOIN tgg_subscription_rates r ON s.rate_id = r.id
@@ -372,12 +372,12 @@ class CiviCRMImporter {
                          s.join_date, s.start_date, s.end_date,
                          p.name as membership_name,
                          CASE
-                             WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE() AND s.join_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)) THEN 'New'
+                             WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE() AND s.join_date >= DATE_SUB(CURRENT_DATE(), INTERVAL (SELECT COALESCE(credits, 30) FROM tgg_volunteer_credits WHERE credit_key = 'renewal_grace_days' LIMIT 1) DAY)) THEN 'New'
                              WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE()) THEN 'Current'
-                             WHEN (s.status = 'active' AND s.end_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)) THEN 'Grace Period'
+                             WHEN (s.status = 'active' AND s.end_date >= DATE_SUB(CURRENT_DATE(), INTERVAL (SELECT COALESCE(credits, 30) FROM tgg_volunteer_credits WHERE credit_key = 'renewal_grace_days' LIMIT 1) DAY)) THEN 'Grace Period'
                              ELSE 'Expired'
                          END as status_label,
-                         CASE WHEN (s.status = 'active' AND s.end_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)) THEN 1 ELSE 0 END as is_active
+                         CASE WHEN (s.status = 'active' AND s.end_date >= DATE_SUB(CURRENT_DATE(), INTERVAL (SELECT COALESCE(credits, 30) FROM tgg_volunteer_credits WHERE credit_key = 'renewal_grace_days' LIMIT 1) DAY)) THEN 1 ELSE 0 END as is_active
                   FROM tgg_contacts c
                   LEFT JOIN tgg_subscriptions s ON s.contact_id = c.id
                   LEFT JOIN tgg_subscription_plans p ON s.plan_id = p.id

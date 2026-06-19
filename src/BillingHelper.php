@@ -11,6 +11,24 @@ use Exception;
 class BillingHelper {
 
     /**
+     * Get the renewal grace period limit in days.
+     * Stored in tgg_volunteer_credits setting 'renewal_grace_days'.
+     * Defaults to 30 days.
+     * @return int
+     */
+    public static function getRenewalGraceDays(): int {
+        try {
+            $db = Database::getAppConnection();
+            $stmt = $db->query("SELECT credits FROM tgg_volunteer_credits WHERE credit_key = 'renewal_grace_days' LIMIT 1");
+            $val = $stmt->fetchColumn();
+            return $val !== false ? (int)$val : 30;
+        } catch (Exception $e) {
+            return 30;
+        }
+    }
+
+
+    /**
      * Add a number of calendar months/years to a date and subtract one day, giving the
      * last day of an N-month/year membership period that starts on $startDate (e.g. a
      * 1-month join on 2026-06-05 ends 2026-07-04; a 1-month renewal starting the day
@@ -102,18 +120,19 @@ class BillingHelper {
                 // Positive once end_date is in the past; negative/zero while still within the paid period.
                 $daysSinceExpiry = (strtotime($today) - strtotime($row['end_date'])) / 86400;
 
-                // Members remain in good standing (is_active) through a 30-day grace window past expiry,
+                $graceDays = self::getRenewalGraceDays();
+                // Members remain in good standing (is_active) through a grace window past expiry,
                 // matching the 'Grace Period' entry in tgg_membership_statuses.
-                $row['is_active'] = ($isActiveStatus && $daysSinceExpiry <= 30) ? 1 : 0;
+                $row['is_active'] = ($isActiveStatus && $daysSinceExpiry <= $graceDays) ? 1 : 0;
 
                 if (!$row['is_active']) {
                     $row['status_label'] = 'Expired';
                 } elseif ($daysSinceExpiry > 0) {
                     $row['status_label'] = 'Grace Period';
                 } else {
-                    // Members read as "New" for their first 30 days after joining, then "Current".
+                    // Members read as "New" for their first grace period days after joining, then "Current".
                     $daysSinceJoin = (strtotime($today) - strtotime($row['join_date'])) / 86400;
-                    $row['status_label'] = ($daysSinceJoin < 30) ? 'New' : 'Current';
+                    $row['status_label'] = ($daysSinceJoin < $graceDays) ? 'New' : 'Current';
                 }
             }
             
@@ -223,12 +242,12 @@ class BillingHelper {
 
             if ($existingEndDate) {
                 // Extend from the day after the old expiry if the membership is still active,
-                // or lapsed by 30 days or less (a grace window). Beyond 30 days lapsed, start a
+                // or lapsed by the configured grace period days or less. Beyond that, start a
                 // brand-new period from today instead of stacking the term on a stale expiry.
                 // join_date is never touched by the UPDATE below, so this never resets how long
                 // someone has been a member -- it only affects this period's start/end dates.
                 $daysSinceExpiry = (strtotime($today) - strtotime($existingEndDate)) / 86400;
-                if ($daysSinceExpiry <= 30) {
+                if ($daysSinceExpiry <= self::getRenewalGraceDays()) {
                     $startDate = date('Y-m-d', strtotime($existingEndDate . ' +1 day'));
                 }
             }
@@ -628,12 +647,12 @@ class BillingHelper {
 
             if ($existingSub) {
                 $existingEndDate = $existingSub['end_date'];
-                // Extend from the day after the old expiry if still active, or lapsed by 30 days or
-                // less (grace period). Beyond that, start a fresh period from today instead. join_date
+                // Extend from the day after the old expiry if still active, or lapsed by the configured grace period
+                // days or less. Beyond that, start a fresh period from today instead. join_date
                 // is never touched here (no UPDATE below includes it), so this never resets how long
                 // someone has been a member.
                 $daysSinceExpiry = (strtotime($today) - strtotime($existingEndDate)) / 86400;
-                if ($daysSinceExpiry <= 30) {
+                if ($daysSinceExpiry <= self::getRenewalGraceDays()) {
                     $startDate = date('Y-m-d', strtotime($existingEndDate . ' +1 day'));
                 }
             }
