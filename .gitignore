@@ -25,3 +25,9 @@ Desktop.ini
 [Dd]esktop.ini
 $RECYCLE.BIN/
 *.lnk
+
+# Local Caddy files
+caddy.exe
+Caddyfile
+start-proxy.bat
+
