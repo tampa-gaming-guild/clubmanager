@@ -277,8 +277,8 @@ a:hover {
 }
 
 select option {
-    background-color: #ffffff !important;
-    color: #111827 !important;
+    background-color: var(--color-surface-glass-solid) !important;
+    color: #fff !important;
 }
 
 .form-group input:focus,
