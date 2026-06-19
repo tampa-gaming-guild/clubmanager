@@ -322,17 +322,20 @@ try {
                                         } elseif (!isset($_GET['status']) && (isset($_GET['level']) || isset($_GET['search']))) {
                                             $allStatusesSelected = true;
                                         }
+
+                                        $activeSelected = false;
+                                        if (isset($_GET['status'])) {
+                                            if ($_GET['status'] === 'Active') {
+                                                $activeSelected = true;
+                                            }
+                                        } elseif (!isset($_GET['search']) && !isset($_GET['level'])) {
+                                            $activeSelected = true;
+                                        }
                                         ?>
                                         <option value="" <?php echo $allStatusesSelected ? 'selected' : ''; ?>>All Statuses</option>
-                                        <?php foreach ($statuses as $stat): 
-                                            $selected = '';
-                                            if (isset($_GET['status'])) {
-                                                if ($_GET['status'] === $stat['label']) {
-                                                    $selected = 'selected';
-                                                }
-                                            } elseif (!isset($_GET['search']) && !isset($_GET['level']) && $stat['label'] === 'Current') {
-                                                $selected = 'selected';
-                                            }
+                                        <option value="Active" <?php echo $activeSelected ? 'selected' : ''; ?>>Active</option>
+                                        <?php foreach ($statuses as $stat):
+                                            $selected = (isset($_GET['status']) && $_GET['status'] === $stat['label']) ? 'selected' : '';
                                         ?>
                                             <option value="<?php echo e($stat['label']); ?>" <?php echo $selected; ?>><?php echo e($stat['label']); ?></option>
                                         <?php endforeach; ?>
@@ -390,6 +393,16 @@ try {
 
     <!-- Client-side filter and sort script -->
     <script>
+        const activeStatusLabels = <?php
+            $activeStatusLabels = [];
+            foreach ($statuses as $s) {
+                if ($s['is_active']) {
+                    $activeStatusLabels[] = strtolower($s['label']);
+                }
+            }
+            echo json_encode($activeStatusLabels);
+        ?>;
+
         function filterMembersTable() {
             const searchInput = document.getElementById('member-search');
             const searchFilter = searchInput.value.toLowerCase();
@@ -422,7 +435,7 @@ try {
                     const matchesLevel = levelFilter === "" || levelTxt === levelFilter;
                     
                     // Match Status
-                    const matchesStatus = statusFilter === "" || statusTxt === statusFilter;
+                    const matchesStatus = statusFilter === "" || (statusFilter === "active" ? activeStatusLabels.includes(statusTxt) : statusTxt === statusFilter);
                     
                     if (matchesSearch && matchesLevel && matchesStatus) {
                         trs[i].style.display = "";
