@@ -8,6 +8,7 @@ require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 use App\Auth;
 use App\Database;
 use App\CiviCRMImporter;
+use App\Event;
 
 // Enforce permission
 Auth::requirePermission('edit checkins');
@@ -43,8 +44,8 @@ $errorMsg = null;
 $successMsg = null;
 $memberDetails = null;
 
-// Determine if geolocation check is required
-$isGeoEnabled = ($_ENV['GEOLOCATION_CHECK_ENABLED'] ?? 'false') === 'true' && !has_role('superadmin');
+// Determine if geolocation check is required (same rule as the standard member checkin.php)
+$isGeoEnabled = ($_ENV['GEOLOCATION_CHECK_ENABLED'] ?? 'false') === 'true';
 
 // Distance helper
 if (!function_exists('get_distance_meters')) {
@@ -66,8 +67,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $contactId = (int)($_POST['contact_id'] ?? 0);
     $notes = trim($_POST['notes'] ?? 'Checked in by Host');
     $isAjax = isset($_POST['ajax']) || (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && $_SERVER['HTTP_X_REQUESTED_WITH'] === 'XMLHttpRequest');
-    
-    if ($contactId <= 0) {
+
+    if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
+        $errorMsg = "Invalid security token. Please refresh the page and try again.";
+        if ($isAjax) {
+            json_response(['success' => false, 'error' => $errorMsg], 403);
+        }
+    } else if ($contactId <= 0) {
         $errorMsg = "Invalid member selected.";
     } else {
         try {
@@ -95,15 +101,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             
             if ($geoValid) {
-                // Session Check
-                $sessionStmt = $appDb->prepare("
-                    SELECT COUNT(*) FROM tgg_events
-                    WHERE DATE(start_time) = CURDATE()
-                      AND NOW() >= DATE_SUB(start_time, INTERVAL 1 HOUR)
-                      AND NOW() <= end_time
-                ");
-                $sessionStmt->execute();
-                $sessionOpen = (int)$sessionStmt->fetchColumn() > 0 || has_role('superadmin');
+                // Session Check (same rule as the standard member checkin.php)
+                $activeSession = Event::getActiveSession();
+                $sessionOpen = $activeSession !== null;
                 
                 if (!$sessionOpen) {
                     $errorMsg = "Check-in Denied: There is no session open for check-in right now.";
@@ -221,7 +221,7 @@ if (isset($_GET['contact_id'])) {
 </head>
 <body>
     <div class="app-container">
-        <?php $navActive = 'host'; include __DIR__ . '/partials/navbar.php'; ?>
+        <?php $navActive = 'dashboard'; include __DIR__ . '/partials/navbar.php'; ?>
 
         <main class="main-content centered-content">
             <div class="terminal-panel glass-panel" style="max-width: 600px; width: 100%;">
@@ -268,7 +268,7 @@ if (isset($_GET['contact_id'])) {
                 </div>
 
                 <div class="terminal-footer" style="margin-top: 30px;">
-                    <a href="host.php" style="color: var(--color-primary); text-decoration: none; font-weight: 600;">← Back to Host Portal</a>
+                    <a href="index.php" style="color: var(--color-primary); text-decoration: none; font-weight: 600;">← Back to Dashboard</a>
                 </div>
             </div>
         </main>
@@ -281,6 +281,7 @@ if (isset($_GET['contact_id'])) {
             const searchInput = document.getElementById('search-input');
             const resultsList = document.getElementById('search-results-list');
             const isGeoEnabled = <?php echo $isGeoEnabled ? 'true' : 'false'; ?>;
+            const csrfToken = <?php echo json_encode(get_csrf_token()); ?>;
             const feedbackArea = document.getElementById('feedback-area');
             
             let searchTimeout = null;
@@ -392,6 +393,7 @@ if (isset($_GET['contact_id'])) {
                 const data = new URLSearchParams();
                 data.append('contact_id', memberId);
                 data.append('ajax', '1');
+                data.append('csrf_token', csrfToken);
                 data.append('notes', 'Checked in by Host Override');
                 if (lat !== null && lon !== null) {
                     data.append('latitude', lat);

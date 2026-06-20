@@ -381,6 +381,18 @@ select option {
     transform: translateY(-2px);
 }
 
+.btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    line-height: 1;
+}
+
 .btn-warning {
     background: var(--color-warning);
     color: #fff;
@@ -458,10 +470,14 @@ select option {
 .dashboard-header {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: baseline;
     border-bottom: 1px solid var(--border-glass);
     padding-bottom: 20px;
     margin-bottom: 25px;
+}
+
+.dashboard-header h2 {
+    margin-bottom: 0;
 }
 
 .user-role-badge {
@@ -476,6 +492,12 @@ select option {
     display: grid;
     grid-template-columns: 1fr 1.2fr;
     gap: 25px;
+}
+
+.hosting-view-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
 }
 
 .dashboard-card {
@@ -755,8 +777,12 @@ select option {
 .calendar-controls {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: baseline;
     margin-bottom: 20px;
+}
+
+.calendar-controls h2 {
+    margin-bottom: 0;
 }
 
 .calendar-table {
@@ -1005,8 +1031,13 @@ select option {
 .table-card-header {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: baseline;
     margin-bottom: 20px;
+}
+
+.table-card-header h2,
+.table-card-header h3 {
+    margin-bottom: 0;
 }
 
 .search-bar input {
@@ -1052,6 +1083,10 @@ select option {
 .table-datetime {
     font-size: 0.8rem;
     color: var(--color-text-secondary);
+}
+
+.th-compact {
+    display: none;
 }
 
 /* Scheduler Splits */
@@ -1256,6 +1291,7 @@ select option {
     }
     .dashboard-grid {
         grid-template-columns: 1fr;
+        gap: 15px;
     }
     .reports-grid {
         grid-template-columns: 1fr;
@@ -1265,6 +1301,58 @@ select option {
     }
     .form-row {
         grid-template-columns: 1fr;
+    }
+
+    .glass-panel {
+        padding: 18px;
+    }
+
+    .dashboard-header {
+        padding-bottom: 15px;
+        margin-bottom: 15px;
+    }
+
+    .hosting-view-stack {
+        gap: 12px;
+    }
+
+    .dashboard-card {
+        padding: 16px;
+    }
+
+    .stat-card {
+        padding: 12px 14px;
+    }
+    .stat-card .stat-icon {
+        font-size: 1.4rem;
+        margin-right: 10px;
+    }
+    .stat-card .stat-vals {
+        flex-direction: row;
+        align-items: baseline;
+        gap: 6px;
+    }
+    .stat-card .stat-vals strong {
+        font-size: 1.1rem;
+    }
+    .stat-card .stat-vals span {
+        font-size: 0.7rem;
+    }
+
+    .th-full {
+        display: none;
+    }
+    .th-compact {
+        display: inline;
+    }
+    .col-firstname,
+    .col-lastname,
+    .col-notes {
+        display: none;
+    }
+    .admin-table th,
+    .admin-table td {
+        padding: 10px 8px;
     }
 }
 
@@ -1284,7 +1372,15 @@ select option {
     }
 
     .main-content {
-        padding: 16px 12px;
+        padding: 16px 8px;
+    }
+
+    .glass-panel {
+        padding: 14px;
+    }
+
+    .dashboard-card {
+        padding: 12px;
     }
 
     .large-input input {

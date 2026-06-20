@@ -68,6 +68,50 @@ class Event {
     }
 
     /**
+     * Get the currently active session event, if any.
+     * "Active" = today's event where NOW() is within 1hr before start_time
+     * through end_time.
+     */
+    public static function getActiveSession(): ?array {
+        $appDb = Database::getAppConnection();
+        $stmt = $appDb->prepare("
+            SELECT id, title, description, start_time, end_time, max_volunteers
+            FROM tgg_events
+            WHERE DATE(start_time) = CURDATE()
+              AND NOW() >= DATE_SUB(start_time, INTERVAL 1 HOUR)
+              AND NOW() <= end_time
+            ORDER BY start_time ASC
+            LIMIT 1
+        ");
+        $stmt->execute();
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    /**
+     * Get today's check-ins (same shape/order as the admin check-in list) for hosting dashboard widgets.
+     */
+    public static function getTodaysCheckins(): array {
+        $appDb = Database::getAppConnection();
+        $stmt = $appDb->prepare("
+            SELECT c.id AS checkin_id, c.contact_id, c.checked_in_at, c.notes,
+                   con.display_name, con.first_name, con.last_name
+            FROM tgg_checkins c
+            LEFT JOIN tgg_contacts con ON con.id = c.contact_id
+            WHERE DATE(c.checked_in_at) = CURDATE()
+            ORDER BY COALESCE(NULLIF(con.first_name, ''), con.display_name) ASC, con.last_name ASC
+        ");
+        $stmt->execute();
+        $rows = $stmt->fetchAll();
+        foreach ($rows as &$row) {
+            if (empty($row['display_name'])) {
+                $row['display_name'] = "Member #{$row['contact_id']}";
+            }
+        }
+        return $rows;
+    }
+
+    /**
      * Register a volunteer for an event
      */
     public static function signupVolunteer(int $eventId, int $contactId, string $role): bool {
@@ -81,7 +125,9 @@ class Event {
 
         // Check capacity
         if ($event['max_volunteers'] > 0) {
-            $currentCount = (int)$appDb->query("SELECT COUNT(*) FROM tgg_volunteer_signups WHERE event_id = {$eventId}")->fetchColumn();
+            $countStmt = $appDb->prepare("SELECT COUNT(*) FROM tgg_volunteer_signups WHERE event_id = :event_id");
+            $countStmt->execute(['event_id' => $eventId]);
+            $currentCount = (int)$countStmt->fetchColumn();
             if ($currentCount >= $event['max_volunteers']) {
                 throw new Exception("Volunteer capacity reached for this event.");
             }

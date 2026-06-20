@@ -8,7 +8,6 @@ require_once dirname(dirname(dirname(__DIR__))) . '/config/bootstrap.php';
 
 use App\Auth;
 use App\Database;
-use App\CiviCRMImporter;
 
 Auth::requirePermission('edit checkins');
 
@@ -180,46 +179,11 @@ try {
                     <?php endif; ?>
 
                     <div class="table-card glass-panel span-full-row">
-                        <div class="admin-table-container">
-                            <table class="admin-table">
-                                <thead>
-                                    <tr>
-                                        <th>First Name</th>
-                                        <th>Last Name</th>
-                                        <th>Display Name</th>
-                                        <th>Check-In Time</th>
-                                        <th>Notes</th>
-                                        <th style="text-align: center;">+1</th>
-                                        <th style="text-align: center; width: 120px;">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php if (empty($checkinsList)): ?>
-                                        <tr>
-                                            <td colspan="7" class="text-center" style="padding: 30px; color: var(--color-text-muted);">No check-in records found for <?php echo e(date('M d, Y', strtotime($selectedDate))); ?>.</td>
-                                        </tr>
-                                    <?php else: ?>
-                                        <?php foreach ($checkinsList as $chk): ?>
-                                            <tr>
-                                                <td><strong><?php echo e($chk['first_name'] ?: '-'); ?></strong></td>
-                                                <td><strong><?php echo e($chk['last_name'] ?: '-'); ?></strong></td>
-                                                <td><?php echo e($chk['display_name']); ?></td>
-                                                <td><span class="table-datetime"><?php echo date('g:i A', strtotime($chk['checked_in_at'])); ?></span></td>
-                                                <td><?php echo e($chk['notes'] ?: 'Regular Visit'); ?></td>
-                                                <td style="text-align: center; color: var(--color-text-muted);">-</td>
-                                                <td style="text-align: center;">
-                                                    <form action="checkins.php?date=<?php echo urlencode($selectedDate); ?>" method="POST" onsubmit="return confirm('Are you sure you want to delete this check-in record?');" style="margin: 0;">
-                                                        <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
-                                                        <input type="hidden" name="checkin_id" value="<?php echo e($chk['checkin_id']); ?>">
-                                                        <button type="submit" name="delete_checkin" class="btn btn-danger btn-sm" style="padding: 6px 12px; font-size: 0.75rem; border-radius: 4px; border: none; width: 100%;">Delete</button>
-                                                    </form>
-                                                </td>
-                                            </tr>
-                                        <?php endforeach; ?>
-                                    <?php endif; ?>
-                                </tbody>
-                            </table>
-                        </div>
+                        <?php
+                        $checkinDeleteFormAction = "checkins.php?date=" . urlencode($selectedDate);
+                        $checkinEmptyMessage = "No check-in records found for " . date('M d, Y', strtotime($selectedDate)) . ".";
+                        include __DIR__ . '/../partials/checkin_list_table.php';
+                        ?>
                     </div>
                 </section>
             </div>
