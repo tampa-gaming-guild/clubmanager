@@ -145,6 +145,29 @@ class Event {
     }
 
     /**
+     * Sign a contact up for every role in $roles that isn't already taken,
+     * skipping ones that are filled and capturing per-role failures (e.g. capacity).
+     */
+    public static function signupVolunteerAllOpenRoles(int $eventId, int $contactId, array $roles): array {
+        $vols = self::getVolunteers($eventId);
+        $takenRoles = array_column($vols, 'role');
+
+        $results = [];
+        foreach ($roles as $role) {
+            if (in_array($role, $takenRoles, true)) {
+                continue;
+            }
+            try {
+                self::signupVolunteer($eventId, $contactId, $role);
+                $results[] = ['role' => $role, 'success' => true];
+            } catch (Exception $e) {
+                $results[] = ['role' => $role, 'success' => false, 'error' => $e->getMessage()];
+            }
+        }
+        return $results;
+    }
+
+    /**
      * Cancel a volunteer signup
      */
     public static function cancelVolunteer(int $eventId, int $contactId, string $role = null): bool {

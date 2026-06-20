@@ -49,6 +49,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && Auth::check()) {
             } catch (Exception $e) {
                 $errorMsg = safe_err("Volunteer signup failed: ", $e);
             }
+        } elseif (isset($_POST['action_signup_all'])) {
+            try {
+                if (empty($contactId)) {
+                    throw new Exception("Member selection is required.");
+                }
+
+                // If not admin, force contactId to the logged-in user
+                if (!has_role('admin')) {
+                    $contactId = $_SESSION['user']['contact_id'];
+                }
+
+                $results = Event::signupVolunteerAllOpenRoles($eventId, $contactId, ['Open', 'Close', 'Greeter']);
+
+                $appDb = Database::getAppConnection();
+                $stmtName = $appDb->prepare("SELECT display_name FROM tgg_contacts WHERE id = :id LIMIT 1");
+                $stmtName->execute(['id' => $contactId]);
+                $displayName = $stmtName->fetchColumn() ?: "Member #{$contactId}";
+
+                $signedUp = array_column(array_filter($results, fn($r) => $r['success']), 'role');
+                $failed = array_filter($results, fn($r) => !$r['success']);
+
+                if (empty($results)) {
+                    $errorMsg = "All volunteer roles for this event are already filled.";
+                } elseif (empty($failed)) {
+                    $successMsg = "Success! Signed up {$displayName} as " . implode(', ', $signedUp) . " volunteer.";
+                } else {
+                    $errorMsg = "Could not fill: " . implode('; ', array_map(fn($r) => "{$r['role']} ({$r['error']})", $failed));
+                    if (!empty($signedUp)) {
+                        $successMsg = "Signed up {$displayName} as " . implode(', ', $signedUp) . ".";
+                    }
+                }
+            } catch (Exception $e) {
+                $errorMsg = safe_err("Bulk volunteer signup failed: ", $e);
+            }
         } elseif (isset($_POST['action_delete'])) {
             try {
                 if (empty($role)) {
@@ -246,7 +280,8 @@ try {
                                         foreach ($vols as $vol) {
                                             $roleVolunteers[$vol['role']] = $vol;
                                         }
-                                        
+                                        $openRolesForEvent = array_values(array_diff(['Open', 'Close', 'Greeter'], array_keys($roleVolunteers)));
+
                                         $eventDate = date('F d, Y (l)', strtotime($evt['start_time']));
                                         $eventTime = date('g:i A', strtotime($evt['start_time'])) . ' - ' . date('g:i A', strtotime($evt['end_time']));
                                         
@@ -262,10 +297,52 @@ try {
                                     <!-- Event Header Row -->
                                     <tr class="<?php echo $trClass; ?>"<?php echo $trIdAttr; ?>>
                                         <td colspan="3">
-                                            📅 <?php echo $eventDate; ?> — <?php echo e($evt['title']); ?>
-                                            <span style="font-size: 0.8rem; font-weight: normal; color: var(--color-text-secondary); margin-left: 10px;">
-                                                (⏰ <?php echo $eventTime; ?>)
-                                            </span>
+                                            <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+                                                <div style="min-width: 0;">
+                                                    📅 <?php echo $eventDate; ?> — <?php echo e($evt['title']); ?>
+                                                    <span style="font-size: 0.8rem; font-weight: normal; color: var(--color-text-secondary); margin-left: 10px;">
+                                                        (⏰ <?php echo $eventTime; ?>)
+                                                    </span>
+                                                </div>
+                                                <?php if (Auth::check() && !empty($openRolesForEvent)): ?>
+                                                    <div style="font-weight: normal; font-family: var(--font-body); flex-shrink: 0;">
+                                                        <div id="btn-container-<?php echo $evtId; ?>-ALL">
+                                                            <button class="btn btn-success btn-small" onclick="showSignupConfirm(<?php echo $evtId; ?>, 'ALL')" style="padding: 6px 12px; font-size: 0.8rem; white-space: nowrap;">
+                                                                Sign Up for All Open Slots &rarr;
+                                                            </button>
+                                                        </div>
+                                                        <div id="confirm-container-<?php echo $evtId; ?>-ALL" style="display: none; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-glass); border-radius: 8px; padding: 10px; min-width: 240px; text-align: left;">
+                                                            <?php if (has_role('admin')): ?>
+                                                                <div style="margin-bottom: 8px;">
+                                                                    <label style="font-size: 0.8rem; margin-right: 12px; cursor: pointer; color: #fff;">
+                                                                        <input type="radio" name="signup_type_<?php echo $evtId; ?>_ALL" value="self" checked onclick="toggleAdminSignupType(<?php echo $evtId; ?>, 'ALL', 'self')" style="margin-right: 4px;"> Myself
+                                                                    </label>
+                                                                    <label style="font-size: 0.8rem; cursor: pointer; color: #fff;">
+                                                                        <input type="radio" name="signup_type_<?php echo $evtId; ?>_ALL" value="other" onclick="toggleAdminSignupType(<?php echo $evtId; ?>, 'ALL', 'other')" style="margin-right: 4px;"> Other Member
+                                                                    </label>
+                                                                </div>
+                                                                <div id="admin-search-<?php echo $evtId; ?>-ALL" style="display: none; margin-bottom: 8px;">
+                                                                    <input type="text" list="members-list" placeholder="Type member name..." oninput="updateMemberId(this, <?php echo $evtId; ?>, 'ALL')" style="width: 100%; padding: 6px 10px; font-size: 0.8rem; border-radius: 4px; border: 1px solid var(--border-glass); background: rgba(255, 255, 255, 0.05); color: #fff; outline: none;">
+                                                                </div>
+                                                            <?php endif; ?>
+                                                            <form action="volunteers.php?highlight=<?php echo $evtDateStr; ?><?php echo isset($_GET['filter']) ? '&filter=' . urlencode($_GET['filter']) : ''; ?>" method="POST" style="display: inline;" onsubmit="return validateAdminSignup(this, <?php echo $evtId; ?>, 'ALL')">
+                                                                <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                                                <input type="hidden" name="event_id" value="<?php echo $evtId; ?>">
+                                                                <input type="hidden" name="contact_id" id="contact-id-<?php echo $evtId; ?>-ALL" value="<?php echo $_SESSION['user']['contact_id']; ?>">
+
+                                                                <?php if (!has_role('admin')): ?>
+                                                                    <span style="font-size: 0.8rem; color: var(--color-text-secondary); display: block; margin-bottom: 8px;">Sign up for all open slots?</span>
+                                                                <?php endif; ?>
+
+                                                                <div style="display: flex; gap: 6px;">
+                                                                    <button type="submit" name="action_signup_all" class="btn btn-success btn-small" style="padding: 4px 8px; font-size: 0.75rem;">Confirm</button>
+                                                                    <button type="button" class="btn btn-secondary btn-small" onclick="cancelSignup(<?php echo $evtId; ?>, 'ALL')" style="padding: 4px 8px; font-size: 0.75rem; background: rgba(255,255,255,0.05); color: #fff; border: 1px solid var(--border-glass);">Cancel</button>
+                                                                </div>
+                                                            </form>
+                                                        </div>
+                                                    </div>
+                                                <?php endif; ?>
+                                            </div>
                                         </td>
                                     </tr>
                                     
