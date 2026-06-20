@@ -285,7 +285,7 @@ if (Auth::check() && has_role('admin')) {
                 <div class="dashboard-panel glass-panel">
                     <div class="dashboard-header">
                         <?php if ($showHostingView): ?>
-                            <h2>Hosting <?php echo e($activeSession['title']); ?></h2>
+                            <h2><?php echo e($_SESSION['user']['display_name']); ?>, Hosting: <?php echo e($activeSession['title']); ?></h2>
                             <span class="user-role-badge"><?php echo date('g:i A', strtotime($activeSession['start_time'])); ?> &ndash; <?php echo date('g:i A', strtotime($activeSession['end_time'])); ?></span>
                         <?php else: ?>
                             <h2>Welcome Back, <?php echo e($_SESSION['user']['display_name']); ?>!</h2>
