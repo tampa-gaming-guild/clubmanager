@@ -29,7 +29,7 @@ if (isset($_GET['status']) && $_GET['status'] === 'success' && isset($_GET['sess
                 redirect("index.php?renew_success=1&amount=" . ($session['amount_total'] / 100));
             }
             
-            $successMsg = "Your renewal payment of $" . number_format($session['amount_total'] / 100, 2) . " was processed successfully! Your membership status is updated.";
+            $successMsg = "Your renewal payment of $" . htmlspecialchars(number_format($session['amount_total'] / 100, 2), ENT_QUOTES, 'UTF-8') . " was processed successfully! Your membership status is updated.";
         } else {
             $errorMsg = "Payment verification is pending.";
         }

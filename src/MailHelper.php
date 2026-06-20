@@ -127,11 +127,13 @@ class MailHelper {
         $subject = $template['subject'];
         $body = $template['body'];
 
-        // Replace placeholders in subject and body
+        // Replace placeholders in subject and body. Values are escaped since the
+        // body is sent as HTML and some placeholders (e.g. display_name) come
+        // from user-editable profile data.
         foreach ($placeholders as $key => $val) {
             $placeholder = '{' . $key . '}';
-            $subject = str_replace($placeholder, $val, $subject);
-            $body = str_replace($placeholder, $val, $body);
+            $subject = str_replace($placeholder, htmlspecialchars((string)$val, ENT_QUOTES, 'UTF-8'), $subject);
+            $body = str_replace($placeholder, htmlspecialchars((string)$val, ENT_QUOTES, 'UTF-8'), $body);
         }
 
         return self::send($to, $subject, $body, '', $recipientId, $senderId);

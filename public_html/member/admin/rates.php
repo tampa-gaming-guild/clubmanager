@@ -34,7 +34,7 @@ try {
         exit;
     }
 } catch (Exception $e) {
-    die("Database Connection Error: " . $e->getMessage());
+    die(safe_err("Database Connection Error: ", $e));
 }
 
 // Handle Form Submission (Add/Edit Rate)

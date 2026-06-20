@@ -101,6 +101,13 @@ class StripeHelper {
             throw new Exception("Stripe API Error: " . $error);
         }
 
+        // Defense-in-depth: callers redirect the browser straight to $data['url'],
+        // so confirm it actually points at Stripe before handing it back.
+        $host = parse_url($data['url'] ?? '', PHP_URL_HOST);
+        if ($host !== 'checkout.stripe.com') {
+            throw new Exception("Unexpected Stripe checkout URL host: " . ($host ?? 'none'));
+        }
+
         return $data;
     }
 

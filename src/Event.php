@@ -120,7 +120,8 @@ class Event {
         // Check if event exists
         $event = self::getEvent($eventId);
         if (!$event) {
-            throw new Exception("Event not found.");
+            // Code 423 marks this as a deliberate, user-safe message (see safe_err()).
+            throw new Exception("Event not found.", 423);
         }
 
         // Check capacity
@@ -129,7 +130,7 @@ class Event {
             $countStmt->execute(['event_id' => $eventId]);
             $currentCount = (int)$countStmt->fetchColumn();
             if ($currentCount >= $event['max_volunteers']) {
-                throw new Exception("Volunteer capacity reached for this event.");
+                throw new Exception("Volunteer capacity reached for this event.", 423);
             }
         }
 
@@ -161,7 +162,7 @@ class Event {
                 self::signupVolunteer($eventId, $contactId, $role);
                 $results[] = ['role' => $role, 'success' => true];
             } catch (Exception $e) {
-                $results[] = ['role' => $role, 'success' => false, 'error' => $e->getMessage()];
+                $results[] = ['role' => $role, 'success' => false, 'error' => safe_err('Signup failed: ', $e)];
             }
         }
         return $results;
