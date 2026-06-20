@@ -197,7 +197,7 @@ try {
             
             flatpickr("#date-filter", {
                 dateFormat: "Y-m-d",
-                defaultDate: "<?php echo $selectedDate; ?>",
+                defaultDate: <?php echo json_encode($selectedDate); ?>,
                 disableMobile: true,
                 onDayCreate: function(dObj, dStr, fp, dayElem) {
                     const date = dayElem.dateObj;
