@@ -183,11 +183,25 @@ $wantsStandardView = ($_GET['view'] ?? '') === 'standard';
 $showHostingView = $isHostingNow && !$wantsStandardView;
 
 $todaysCheckins = [];
+$pendingPayments = [];
 if ($showHostingView) {
     try {
         $todaysCheckins = Event::getTodaysCheckins();
     } catch (Exception $e) {
         $todaysCheckins = [];
+    }
+    try {
+        $appDb = Database::getAppConnection();
+        $pendingStmt = $appDb->query("
+            SELECT pp.id, pp.contact_id, pp.type, pp.amount, pp.requested_at, c.display_name
+            FROM tgg_pending_payments pp
+            LEFT JOIN tgg_contacts c ON c.id = pp.contact_id
+            WHERE pp.status = 'pending'
+            ORDER BY pp.requested_at ASC
+        ");
+        $pendingPayments = $pendingStmt->fetchAll();
+    } catch (Exception $e) {
+        $pendingPayments = [];
     }
 }
 
@@ -330,6 +344,17 @@ if (Auth::check() && has_role('admin')) {
                                     <p style="margin-top: 12px; text-align: center;">
                                         <a href="host_checkin.php" class="card-link">Check In With Name Search &rarr;</a>
                                     </p>
+                                </div>
+                            </div>
+
+                            <!-- Pending Cash Approvals -->
+                            <div class="table-card glass-panel">
+                                <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 15px 0; flex-wrap: wrap; gap: 10px;">
+                                    <h3 style="margin: 0;">Pending Cash Approvals <span id="pending-count-badge"></span></h3>
+                                    <button type="button" id="enable-alerts-btn" class="btn btn-secondary btn-small" style="display: none;">Enable Alerts</button>
+                                </div>
+                                <div id="pending-payments-list" style="padding: 15px;">
+                                    <p id="pending-payments-empty" style="color: var(--color-text-secondary); margin: 0;">No pending cash payments right now.</p>
                                 </div>
                             </div>
 
@@ -587,6 +612,120 @@ if (Auth::check() && has_role('admin')) {
         </main>
 
         <?php include __DIR__ . '/partials/footer.php'; ?>
+    <?php if ($showHostingView): ?>
+    <script>
+        (function () {
+            const csrfToken = <?php echo json_encode(get_csrf_token()); ?>;
+            const enableBtn = document.getElementById('enable-alerts-btn');
+            const listEl = document.getElementById('pending-payments-list');
+            const emptyEl = document.getElementById('pending-payments-empty');
+            const badgeEl = document.getElementById('pending-count-badge');
+            let knownIds = new Set();
+            let firstPoll = true;
+
+            if ('Notification' in window) {
+                if (Notification.permission === 'default') {
+                    enableBtn.style.display = 'inline-block';
+                }
+                enableBtn.addEventListener('click', () => {
+                    Notification.requestPermission().then(() => {
+                        enableBtn.style.display = (Notification.permission === 'default') ? 'inline-block' : 'none';
+                    });
+                });
+            }
+
+            function escapeHtml(str) {
+                return String(str || '')
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+            }
+
+            function typeLabel(type) {
+                return type === 'entrance_fee' ? 'Entrance Fee' : 'Membership Renewal';
+            }
+
+            function renderList(pending) {
+                badgeEl.textContent = pending.length > 0 ? `(${pending.length})` : '';
+
+                if (pending.length === 0) {
+                    listEl.innerHTML = '';
+                    emptyEl.style.display = 'block';
+                    listEl.appendChild(emptyEl);
+                    return;
+                }
+
+                listEl.innerHTML = '';
+                pending.forEach((p) => {
+                    const row = document.createElement('div');
+                    row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.08); flex-wrap: wrap;';
+                    row.innerHTML = `
+                        <div>
+                            <strong>${escapeHtml(p.display_name)}</strong>
+                            <div style="font-size: 0.85rem; color: var(--color-text-secondary);">${escapeHtml(typeLabel(p.type))} &mdash; $${escapeHtml(p.amount)} cash</div>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <button type="button" class="btn btn-primary btn-small approve-btn" data-id="${p.id}">Approve</button>
+                            <button type="button" class="btn btn-secondary btn-small deny-btn" data-id="${p.id}">Deny</button>
+                        </div>
+                    `;
+                    listEl.appendChild(row);
+                });
+
+                listEl.querySelectorAll('.approve-btn').forEach((btn) => {
+                    btn.addEventListener('click', () => resolvePending(btn.getAttribute('data-id'), 'approve', btn));
+                });
+                listEl.querySelectorAll('.deny-btn').forEach((btn) => {
+                    btn.addEventListener('click', () => resolvePending(btn.getAttribute('data-id'), 'deny', btn));
+                });
+            }
+
+            function resolvePending(pendingId, action, btn) {
+                btn.disabled = true;
+                const data = new URLSearchParams();
+                data.append('pending_id', pendingId);
+                data.append('action', action);
+                data.append('csrf_token', csrfToken);
+
+                fetch('pending-payments.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: data
+                })
+                    .then((res) => res.json())
+                    .then(() => poll())
+                    .catch(() => { btn.disabled = false; });
+            }
+
+            function poll() {
+                fetch('pending-payments.php')
+                    .then((res) => res.json())
+                    .then((data) => {
+                        if (!data.success) return;
+                        const pending = data.pending || [];
+
+                        if (!firstPoll) {
+                            const newOnes = pending.filter((p) => !knownIds.has(p.id));
+                            if (newOnes.length > 0 && 'Notification' in window && Notification.permission === 'granted') {
+                                newOnes.forEach((p) => {
+                                    new Notification('Payment Pending', {
+                                        body: `${p.display_name} owes $${p.amount} cash (${typeLabel(p.type)})`
+                                    });
+                                });
+                            }
+                        }
+                        firstPoll = false;
+                        knownIds = new Set(pending.map((p) => p.id));
+
+                        renderList(pending);
+                    })
+                    .catch(() => {});
+            }
+
+            poll();
+            setInterval(poll, 12000);
+        })();
+    </script>
+    <?php endif; ?>
     <script>
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {

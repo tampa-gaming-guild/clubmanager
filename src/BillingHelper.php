@@ -207,6 +207,14 @@ class BillingHelper {
                 'action_type' => $action
             ]);
 
+            // Entrance fee charges are a one-off per-visit charge, not a membership
+            // renewal -- the ledger entry above is all that's needed, so skip the
+            // subscription extension and dues emails below entirely.
+            if ($action === 'entrance_fee') {
+                $appDb->commit();
+                return true;
+            }
+
             // B. Calculate start and end dates
             $durationInterval = (int)$plan['duration_interval'];
             $durationUnit = strtolower($plan['duration_unit']);
@@ -354,6 +362,20 @@ class BillingHelper {
      */
     public static function isTrialPlan(array $plan): bool {
         return stripos(trim($plan['name'] ?? ''), 'trial') !== false;
+    }
+
+    /**
+     * Check whether a plan is the Associate membership tier, which charges a per-visit
+     * entrance fee on every check-in except the one immediately after a dues payment.
+     * Matches any plan name containing "associate".
+     * @param array $plan Plan row (must include 'name')
+     * @return bool
+     */
+    public static function isAssociatePlan(array $plan): bool {
+        // Accepts either a tgg_subscription_plans row ('name') or a
+        // CiviCRMImporter::getMemberMembershipDetails() row ('membership_name').
+        $name = $plan['name'] ?? $plan['membership_name'] ?? '';
+        return stripos(trim($name), 'associate') !== false;
     }
 
     /**
@@ -766,5 +788,174 @@ class BillingHelper {
             }
             throw $e;
         }
+    }
+
+    /**
+     * Check whether an Associate member owes a per-visit entrance fee on this check-in.
+     * Associates get exactly one free check-in after each dues payment; every check-in
+     * after that, until their next payment, requires the fee. Computed by counting
+     * check-ins since their most recent paid join/renew ledger entry for this plan --
+     * entrance fee payments themselves don't reset the count, since paying one doesn't
+     * grant a new free visit.
+     * @param int $contactId
+     * @param array $membership Row from CiviCRMImporter::getMemberMembershipDetails()
+     * @return bool
+     */
+    public static function entranceFeeOwed(int $contactId, array $membership): bool {
+        if (!self::isAssociatePlan($membership)) {
+            return false;
+        }
+
+        $planId = (int)($membership['membership_id'] ?? 0);
+        if ($planId <= 0) {
+            return false;
+        }
+
+        $appDb = Database::getAppConnection();
+
+        $stmt = $appDb->prepare("
+            SELECT created_at FROM tgg_billing_ledger
+            WHERE contact_id = :contact_id AND plan_id = :plan_id
+              AND payment_status = 'paid' AND action_type IN ('join', 'renew')
+            ORDER BY created_at DESC LIMIT 1
+        ");
+        $stmt->execute(['contact_id' => $contactId, 'plan_id' => $planId]);
+        $lastPaymentAt = $stmt->fetchColumn();
+
+        if (!$lastPaymentAt) {
+            // No recorded dues payment to anchor a free visit to -- charge to be safe.
+            return true;
+        }
+
+        $checkinStmt = $appDb->prepare("
+            SELECT COUNT(*) FROM tgg_checkins
+            WHERE contact_id = :contact_id AND checked_in_at >= :since
+        ");
+        $checkinStmt->execute(['contact_id' => $contactId, 'since' => $lastPaymentAt]);
+        return (int)$checkinStmt->fetchColumn() > 0;
+    }
+
+    /**
+     * Record a cash payment request that needs in-person host approval before the
+     * member's check-in is completed (cash is never trusted automatically).
+     * @param int $contactId
+     * @param string $type 'entrance_fee' or 'membership_renewal'
+     * @param int|null $planId Required for 'membership_renewal'; null for 'entrance_fee'
+     * @param float $amount
+     * @return int The new tgg_pending_payments row id
+     * @throws Exception
+     */
+    public static function createPendingPayment(int $contactId, string $type, ?int $planId, float $amount): int {
+        if (!in_array($type, ['entrance_fee', 'membership_renewal'], true)) {
+            throw new Exception("Invalid pending payment type: " . htmlspecialchars($type));
+        }
+
+        $appDb = Database::getAppConnection();
+        $stmt = $appDb->prepare("
+            INSERT INTO tgg_pending_payments (contact_id, type, plan_id, amount, payment_method, status, requested_at)
+            VALUES (:contact_id, :type, :plan_id, :amount, 'cash', 'pending', NOW())
+        ");
+        $stmt->execute([
+            'contact_id' => $contactId,
+            'type' => $type,
+            'plan_id' => $planId,
+            'amount' => $amount
+        ]);
+
+        return (int)$appDb->lastInsertId();
+    }
+
+    /**
+     * Approve a pending cash payment request: records the payment, then completes the
+     * member's check-in (this is the only place a cash-flagged visit actually checks in).
+     * @param int $pendingId
+     * @param int $resolverContactId The host's contact_id
+     * @return array Details for the host's confirmation UI (display_name, type, amount)
+     * @throws Exception
+     */
+    public static function approvePendingPayment(int $pendingId, int $resolverContactId): array {
+        $appDb = Database::getAppConnection();
+
+        $stmt = $appDb->prepare("SELECT * FROM tgg_pending_payments WHERE id = :id LIMIT 1");
+        $stmt->execute(['id' => $pendingId]);
+        $pending = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$pending) {
+            throw new Exception("Pending payment request not found.");
+        }
+        if ($pending['status'] !== 'pending') {
+            throw new Exception("This payment request has already been {$pending['status']}.");
+        }
+
+        $contactId = (int)$pending['contact_id'];
+        $amount = (float)$pending['amount'];
+
+        if ($pending['type'] === 'entrance_fee') {
+            $uniqueId = uniqid('offline_cash_entrance_', true);
+            $insertLedger = $appDb->prepare("
+                INSERT INTO tgg_billing_ledger (contact_id, plan_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type)
+                VALUES (:contact_id, :plan_id, :stripe_session_id, :payment_intent_id, :amount, 'usd', 'paid', 'entrance_fee')
+            ");
+            $insertLedger->execute([
+                'contact_id' => $contactId,
+                'plan_id' => $pending['plan_id'],
+                'stripe_session_id' => $uniqueId,
+                'payment_intent_id' => $uniqueId,
+                'amount' => $amount
+            ]);
+        } elseif ($pending['type'] === 'membership_renewal') {
+            self::processOfflineRenewal($contactId, (int)$pending['plan_id'], 'cash', 'renew', 'extend_current', 'standard', null, $amount);
+        } else {
+            throw new Exception("Unknown pending payment type: " . $pending['type']);
+        }
+
+        // Complete the check-in now that payment is confirmed (same duplicate-checkin
+        // guard the kiosks use -- a host could be approving this well after the member
+        // walked away, so don't assume it's still "today" in the same sense).
+        $dupCheck = $appDb->prepare("SELECT COUNT(*) FROM tgg_checkins WHERE contact_id = :contact_id AND DATE(checked_in_at) = CURDATE()");
+        $dupCheck->execute(['contact_id' => $contactId]);
+        if ((int)$dupCheck->fetchColumn() === 0) {
+            $insertCheckin = $appDb->prepare("INSERT INTO tgg_checkins (contact_id, checked_in_at, notes) VALUES (:contact_id, NOW(), :notes)");
+            $insertCheckin->execute([
+                'contact_id' => $contactId,
+                'notes' => $pending['type'] === 'entrance_fee' ? 'Cash entrance fee approved by host' : 'Cash renewal approved by host'
+            ]);
+        }
+
+        $resolve = $appDb->prepare("UPDATE tgg_pending_payments SET status = 'approved', resolved_at = NOW(), resolved_by = :resolved_by WHERE id = :id");
+        $resolve->execute(['resolved_by' => $resolverContactId, 'id' => $pendingId]);
+
+        $contactStmt = $appDb->prepare("SELECT display_name FROM tgg_contacts WHERE id = :id LIMIT 1");
+        $contactStmt->execute(['id' => $contactId]);
+
+        return [
+            'contact_id' => $contactId,
+            'display_name' => $contactStmt->fetchColumn() ?: "Member #{$contactId}",
+            'type' => $pending['type'],
+            'amount' => $amount
+        ];
+    }
+
+    /**
+     * Deny a pending cash payment request (e.g. the member left without paying).
+     * Does not touch billing ledger, subscriptions, or check-ins.
+     * @param int $pendingId
+     * @param int $resolverContactId The host's contact_id
+     * @throws Exception
+     */
+    public static function denyPendingPayment(int $pendingId, int $resolverContactId): void {
+        $appDb = Database::getAppConnection();
+
+        $stmt = $appDb->prepare("SELECT status FROM tgg_pending_payments WHERE id = :id LIMIT 1");
+        $stmt->execute(['id' => $pendingId]);
+        $status = $stmt->fetchColumn();
+        if ($status === false) {
+            throw new Exception("Pending payment request not found.");
+        }
+        if ($status !== 'pending') {
+            throw new Exception("This payment request has already been {$status}.");
+        }
+
+        $update = $appDb->prepare("UPDATE tgg_pending_payments SET status = 'denied', resolved_at = NOW(), resolved_by = :resolved_by WHERE id = :id");
+        $update->execute(['resolved_by' => $resolverContactId, 'id' => $pendingId]);
     }
 }

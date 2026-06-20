@@ -8,6 +8,7 @@ require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
 use App\Database;
 use App\CiviCRMImporter;
+use App\BillingHelper;
 
 /**
  * Calculate physical distance between two GPS coordinates using Haversine formula
@@ -33,6 +34,7 @@ if (!function_exists('get_distance_meters')) {
 $errorMsg = null;
 $successMsg = null;
 $memberDetails = null;
+$redirectUrl = null;
 $isLoggedIn = \App\Auth::check();
 $loggedInName = $isLoggedIn ? ($_SESSION['user']['display_name'] ?? 'Member') : '';
 
@@ -152,7 +154,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $membership = CiviCRMImporter::getMemberMembershipDetails($contactId);
 
                             if (!$membership || !$membership['is_active']) {
-                                $errorMsg = "Check-in Denied: Membership is currently expired or inactive for {$contactName}.";
+                                // Expired/inactive membership: send them to renew (Card or Cash) instead of a flat denial.
+                                $redirectUrl = 'pay-entrance.php?contact_id=' . $contactId . '&reason=renewal&return=checkin.php';
+                            } elseif (BillingHelper::entranceFeeOwed($contactId, $membership)) {
+                                // Associate member's 2nd+ check-in since their last dues payment: pay the entrance fee first.
+                                $redirectUrl = 'pay-entrance.php?contact_id=' . $contactId . '&reason=entrance_fee&return=checkin.php';
                             } else {
                                 // 4. Log the check-in
                                 $insertStmt = $appDb->prepare("INSERT INTO tgg_checkins (contact_id, checked_in_at, notes) VALUES (:contact_id, NOW(), :notes)");
@@ -179,7 +185,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Return AJAX Response
     if ($isAjax) {
-        if ($errorMsg) {
+        if ($redirectUrl) {
+            json_response(['success' => false, 'redirect' => $redirectUrl], 200);
+        } elseif ($errorMsg) {
             json_response(['success' => false, 'error' => $errorMsg], 400);
         } else {
             json_response([
@@ -188,6 +196,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'details' => $memberDetails
             ], 200);
         }
+    } elseif ($redirectUrl) {
+        header("Location: {$redirectUrl}");
+        exit;
     }
 }
 ?>
@@ -368,6 +379,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 })
                 .then(response => response.json().then(json => ({ status: response.status, body: json })))
                 .then(res => {
+                    if (res.body.redirect) {
+                        window.location.href = res.body.redirect;
+                        return;
+                    }
                     if (!isLoggedIn) {
                         inputField.value = ''; // Clear for next member
                     }

@@ -19,13 +19,16 @@ class StripeHelper {
      * @param string $action 'join' or 'renew'
      * @param string|null $email Member email to pre-fill on the Stripe-hosted checkout page
      * @param string|null $name Member name to pre-fill on the Stripe-hosted checkout page
-     * @param string $returnPage Which page Stripe should redirect back to ('join.php' or 'renew.php') --
-     *        this is the page that initiated the session, not necessarily implied by $action, since
-     *        join.php now also handles self-service renewals for the public (no-login) entry point.
+     * @param string $returnPage Which page Stripe should redirect back to ('join.php', 'renew.php',
+     *        or 'pay-entrance.php') -- this is the page that initiated the session, not necessarily
+     *        implied by $action, since join.php now also handles self-service renewals for the
+     *        public (no-login) entry point.
+     * @param array $returnParams Extra query params appended to the pay-entrance.php success/cancel
+     *        URLs (e.g. 'reason', 'return') so it knows which kiosk and flow to resume.
      * @return array Checkout session response from Stripe
      * @throws Exception
      */
-    public static function createCheckoutSession(int $contactId, int $planId, int $membershipTypeId, string $membershipTypeName, float $amount, string $action, ?string $email = null, ?string $name = null, string $returnPage = 'join.php'): array {
+    public static function createCheckoutSession(int $contactId, int $planId, int $membershipTypeId, string $membershipTypeName, float $amount, string $action, ?string $email = null, ?string $name = null, string $returnPage = 'join.php', array $returnParams = []): array {
         $secretKey = $_ENV['STRIPE_SECRET_KEY'] ?? '';
         if (empty($secretKey)) {
             throw new Exception("Stripe Secret Key is not configured in environment.");
@@ -36,6 +39,13 @@ class StripeHelper {
         if ($returnPage === 'renew.php') {
             $successUrl = "{$baseUrl}/renew.php?status=success&session_id={CHECKOUT_SESSION_ID}&contact_id={$contactId}";
             $cancelUrl = "{$baseUrl}/renew.php?status=cancelled&contact_id={$contactId}";
+        } elseif ($returnPage === 'pay-entrance.php') {
+            $extra = '';
+            foreach ($returnParams as $key => $val) {
+                $extra .= '&' . urlencode($key) . '=' . urlencode($val);
+            }
+            $successUrl = "{$baseUrl}/pay-entrance.php?status=success&session_id={CHECKOUT_SESSION_ID}&contact_id={$contactId}{$extra}";
+            $cancelUrl = "{$baseUrl}/pay-entrance.php?status=cancelled&contact_id={$contactId}{$extra}";
         } else {
             $successUrl = "{$baseUrl}/join.php?status=success&session_id={CHECKOUT_SESSION_ID}";
             $cancelUrl = "{$baseUrl}/join.php?status=cancelled";

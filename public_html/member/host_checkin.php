@@ -9,6 +9,7 @@ use App\Auth;
 use App\Database;
 use App\CiviCRMImporter;
 use App\Event;
+use App\BillingHelper;
 
 // Enforce permission
 Auth::requirePermission('edit checkins');
@@ -43,6 +44,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'search') {
 $errorMsg = null;
 $successMsg = null;
 $memberDetails = null;
+$redirectUrl = null;
 
 // Determine if geolocation check is required (same rule as the standard member checkin.php)
 $isGeoEnabled = ($_ENV['GEOLOCATION_CHECK_ENABLED'] ?? 'false') === 'true';
@@ -125,7 +127,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             // Active membership verification
                             $membership = CiviCRMImporter::getMemberMembershipDetails($contactId);
                             if (!$membership || !$membership['is_active']) {
-                                $errorMsg = "Check-in Denied: Membership is currently expired or inactive for {$contactName}.";
+                                // Expired/inactive membership: send to renew (Card or Cash) instead of a flat denial.
+                                $redirectUrl = 'pay-entrance.php?contact_id=' . $contactId . '&reason=renewal&return=host_checkin.php';
+                            } elseif (BillingHelper::entranceFeeOwed($contactId, $membership)) {
+                                // Associate member's 2nd+ check-in since their last dues payment: pay the entrance fee first.
+                                $redirectUrl = 'pay-entrance.php?contact_id=' . $contactId . '&reason=entrance_fee&return=host_checkin.php';
                             } else {
                                 // Log the check-in
                                 $insert = $appDb->prepare("INSERT INTO tgg_checkins (contact_id, checked_in_at, notes) VALUES (:contact_id, NOW(), :notes)");
@@ -151,11 +157,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     
     if ($isAjax) {
-        if ($errorMsg) {
+        if ($redirectUrl) {
+            json_response(['success' => false, 'redirect' => $redirectUrl], 200);
+        } elseif ($errorMsg) {
             json_response(['success' => false, 'error' => $errorMsg], 400);
         } else {
             json_response(['success' => true, 'message' => $successMsg, 'details' => $memberDetails], 200);
         }
+    } elseif ($redirectUrl) {
+        header("Location: {$redirectUrl}");
+        exit;
     }
 }
 
@@ -410,14 +421,19 @@ if (isset($_GET['contact_id'])) {
                 })
                 .then(response => response.json().then(json => ({ status: response.status, body: json })))
                 .then(res => {
+                    if (res.body.redirect) {
+                        window.location.href = res.body.redirect;
+                        return;
+                    }
+
                     buttonElement.disabled = false;
                     buttonElement.textContent = originalText;
-                    
+
                     // Clear search
                     searchInput.value = '';
                     resultsList.style.display = 'none';
                     resultsList.innerHTML = '';
-                    
+
                     if (res.status === 200 && res.body.success) {
                         renderFeedback(true, res.body.message, res.body.details);
                     } else {
