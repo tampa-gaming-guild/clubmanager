@@ -51,13 +51,14 @@ try {
     // Fetch Check-Ins for the selected date, ordered by first name
     // Falls back to display_name if first_name is empty/null.
     $stmt = $appDb->prepare("
-        SELECT 
-            c.id AS checkin_id, 
-            c.checked_in_at, 
-            c.notes, 
-            con.display_name, 
-            con.first_name, 
-            con.last_name, 
+        SELECT
+            c.id AS checkin_id,
+            c.checked_in_at,
+            c.notes,
+            c.guest_name,
+            con.display_name,
+            con.first_name,
+            con.last_name,
             con.id AS contact_id
         FROM tgg_checkins c
         JOIN tgg_contacts con ON con.id = c.contact_id

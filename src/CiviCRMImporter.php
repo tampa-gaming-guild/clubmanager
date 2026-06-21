@@ -336,6 +336,7 @@ class CiviCRMImporter {
                          COALESCE(r.price, p.price) as price,
                          COALESCE(r.billing_frequency, p.duration_unit) as duration_unit,
                          COALESCE(CASE WHEN r.billing_frequency IS NOT NULL THEN 1 ELSE p.duration_interval END, p.duration_interval) as duration_interval,
+                         p.guests_per_month,
                          CASE
                              WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE() AND s.join_date >= DATE_SUB(CURRENT_DATE(), INTERVAL (SELECT COALESCE(credits, 30) FROM tgg_volunteer_credits WHERE credit_key = 'renewal_grace_days' LIMIT 1) DAY)) THEN 'New'
                              WHEN (s.status = 'active' AND s.end_date >= CURRENT_DATE()) THEN 'Current'

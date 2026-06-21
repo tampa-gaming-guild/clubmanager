@@ -51,6 +51,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_plan'])) {
         $durationInterval = (int)($_POST['duration_interval'] ?? 1);
         $durationUnit = strtolower($_POST['duration_unit'] ?? 'year');
         $active = trim($_POST['active'] ?? 'active');
+        $guestsPerMonth = (int)($_POST['guests_per_month'] ?? 0);
 
         try {
             $data = [
@@ -60,7 +61,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_plan'])) {
                 'price' => $price,
                 'duration_interval' => $durationInterval,
                 'duration_unit' => $durationUnit,
-                'active' => $active
+                'active' => $active,
+                'guests_per_month' => $guestsPerMonth
             ];
 
             BillingHelper::savePlan($data);
@@ -184,6 +186,7 @@ $renewalGraceDays = BillingHelper::getRenewalGraceDays();
                                         <th>Name</th>
                                         <th>Price</th>
                                         <th>Billing Cycle</th>
+                                        <th>Guests/mo</th>
                                         <th>Status</th>
                                         <th style="width: 100px; text-align: center;">Actions</th>
                                     </tr>
@@ -202,6 +205,7 @@ $renewalGraceDays = BillingHelper::getRenewalGraceDays();
                                                         Every <?php echo (int)$plan['duration_interval']; ?> <?php echo e(ucfirst($plan['duration_unit'])); ?>(s)
                                                     <?php endif; ?>
                                                 </td>
+                                                <td style="font-size: 0.85rem;"><?php echo (int)($plan['guests_per_month'] ?? 0); ?></td>
                                                 <td style="font-size: 0.85rem;">
                                                     <span class="badge <?php echo $plan['active'] === 'active' ? 'badge-active' : 'badge-expired'; ?>" style="font-size: 0.7rem; padding: 2px 6px;">
                                                         <?php echo e(ucfirst($plan['active'] ?? 'active')); ?>
@@ -215,7 +219,7 @@ $renewalGraceDays = BillingHelper::getRenewalGraceDays();
                                         <?php endforeach; ?>
                                     <?php else: ?>
                                         <tr>
-                                            <td colspan="4" class="text-center text-muted">No membership levels defined.</td>
+                                            <td colspan="6" class="text-center text-muted">No membership levels defined.</td>
                                         </tr>
                                     <?php endif; ?>
                                 </tbody>
@@ -260,6 +264,11 @@ $renewalGraceDays = BillingHelper::getRenewalGraceDays();
                                     </div>
                                 </div>
                                 
+                                <div class="form-group">
+                                    <label for="guests_per_month">Guest Passes per Month</label>
+                                    <input type="number" id="guests_per_month" name="guests_per_month" required min="0" step="1" placeholder="0" value="<?php echo $editPlan ? (int)$editPlan['guests_per_month'] : '0'; ?>">
+                                </div>
+
                                 <div class="form-group">
                                     <label for="active">Status</label>
                                     <select id="active" name="active" required>

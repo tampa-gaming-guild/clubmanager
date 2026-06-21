@@ -41,6 +41,23 @@ if (isset($_GET['action']) && $_GET['action'] === 'search') {
     }
 }
 
+// Handle AJAX guest-pass lookup for the selected member, shown in the guest confirmation panel
+if (isset($_GET['action']) && $_GET['action'] === 'guest_status') {
+    $contactId = (int)($_GET['contact_id'] ?? 0);
+    $result = ['allowance' => 0, 'used' => 0, 'remaining' => 0];
+    if ($contactId > 0) {
+        try {
+            $membership = CiviCRMImporter::getMemberMembershipDetails($contactId);
+            if ($membership && $membership['is_active']) {
+                $result = BillingHelper::getGuestPassesRemaining($contactId, $membership);
+            }
+        } catch (Exception $e) {
+            // Fall through with the default zeroed result.
+        }
+    }
+    json_response($result);
+}
+
 $errorMsg = null;
 $successMsg = null;
 $memberDetails = null;
@@ -68,6 +85,18 @@ if (!function_exists('get_distance_meters')) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $contactId = (int)($_POST['contact_id'] ?? 0);
     $notes = trim($_POST['notes'] ?? 'Checked in by Host');
+    $guestNames = [];
+    if (isset($_POST['guest_names']) && is_array($_POST['guest_names'])) {
+        foreach ($_POST['guest_names'] as $guestName) {
+            $guestName = trim(mb_substr((string)$guestName, 0, 100));
+            if ($guestName !== '') {
+                $guestNames[] = $guestName;
+            }
+            if (count($guestNames) >= 10) {
+                break;
+            }
+        }
+    }
     $isAjax = isset($_POST['ajax']) || (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && $_SERVER['HTTP_X_REQUESTED_WITH'] === 'XMLHttpRequest');
 
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
@@ -118,10 +147,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if (!$contactName) {
                         $errorMsg = "Member not found.";
                     } else {
-                        // Double check-in prevention
-                        $dupCheck = $appDb->prepare("SELECT COUNT(*) FROM tgg_checkins WHERE contact_id = :contact_id AND DATE(checked_in_at) = CURDATE()");
+                        // Double check-in prevention (guest visits don't count toward this)
+                        $dupCheck = $appDb->prepare("SELECT COUNT(*) FROM tgg_checkins WHERE contact_id = :contact_id AND guest_name IS NULL AND DATE(checked_in_at) = CURDATE()");
                         $dupCheck->execute(['contact_id' => $contactId]);
-                        if ((int)$dupCheck->fetchColumn() > 0) {
+                        $hasCheckedInToday = (int)$dupCheck->fetchColumn() > 0;
+
+                        if ($hasCheckedInToday && empty($guestNames)) {
                             $errorMsg = "Check-in Denied: {$contactName} has already checked in today.";
                         } else {
                             // Active membership verification
@@ -133,19 +164,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 // Associate member's 2nd+ check-in since their last dues payment: pay the entrance fee first.
                                 $redirectUrl = 'pay-entrance.php?contact_id=' . $contactId . '&reason=entrance_fee&return=host_checkin.php';
                             } else {
-                                // Log the check-in
-                                $insert = $appDb->prepare("INSERT INTO tgg_checkins (contact_id, checked_in_at, notes) VALUES (:contact_id, NOW(), :notes)");
-                                $insert->execute([
-                                    'contact_id' => $contactId,
-                                    'notes' => $notes
-                                ]);
-                                
-                                $successMsg = "Check-In Successful! Welcome, {$contactName}.";
-                                $memberDetails = [
-                                    'name' => $contactName,
-                                    'membership' => $membership['membership_name'],
-                                    'expires' => date('M d, Y', strtotime($membership['end_date']))
-                                ];
+                                // Enforce the monthly guest pass allowance before logging anything
+                                $guestLimitExceeded = false;
+                                if (!empty($guestNames)) {
+                                    $passes = BillingHelper::getGuestPassesRemaining($contactId, $membership);
+                                    if (count($guestNames) > $passes['remaining']) {
+                                        $guestLimitExceeded = true;
+                                        $errorMsg = "Only {$passes['remaining']} guest pass(es) remaining this month for {$contactName}.";
+                                    }
+                                }
+
+                                if (!$guestLimitExceeded) {
+                                    // Log the check-in (and any guests)
+                                    if (!$hasCheckedInToday) {
+                                        $insert = $appDb->prepare("INSERT INTO tgg_checkins (contact_id, checked_in_at, notes) VALUES (:contact_id, NOW(), :notes)");
+                                        $insert->execute([
+                                            'contact_id' => $contactId,
+                                            'notes' => $notes
+                                        ]);
+                                    }
+
+                                    if (!empty($guestNames)) {
+                                        $insertGuest = $appDb->prepare("INSERT INTO tgg_checkins (contact_id, checked_in_at, guest_name) VALUES (:contact_id, NOW(), :guest_name)");
+                                        foreach ($guestNames as $guestName) {
+                                            $insertGuest->execute([
+                                                'contact_id' => $contactId,
+                                                'guest_name' => $guestName
+                                            ]);
+                                        }
+                                    }
+
+                                    $successMsg = "Check-In Successful! Welcome, {$contactName}.";
+                                    if (!empty($guestNames)) {
+                                        $successMsg .= " Checked in with " . count($guestNames) . " guest(s).";
+                                    }
+                                    $memberDetails = [
+                                        'name' => $contactName,
+                                        'membership' => $membership['membership_name'],
+                                        'expires' => date('M d, Y', strtotime($membership['end_date']))
+                                    ];
+                                }
                             }
                         }
                     }
@@ -276,6 +334,20 @@ if (isset($_GET['contact_id'])) {
                     <div id="search-results-list" class="search-results-container" style="display: none;">
                         <!-- Live Search Results Go Here -->
                     </div>
+
+                    <div id="guest-confirm-panel" class="glass-panel" style="display: none; margin-top: 15px; padding: 15px;">
+                        <p style="margin: 0 0 10px 0;">Checking in <strong id="guest-confirm-name"></strong></p>
+                        <p id="guest-confirm-status" class="subtext" style="margin: 0 0 8px 0; display: none;"></p>
+                        <button type="button" id="guest-confirm-toggle-btn" class="btn btn-secondary btn-block" style="display: none;">Add guest(s)?</button>
+                        <div id="guest-confirm-section" style="display: none; margin-top: 12px;">
+                            <div id="guest-confirm-fields"></div>
+                            <button type="button" id="guest-confirm-add-btn" class="btn btn-secondary btn-small" style="margin-top: 8px;">+ Add another guest</button>
+                        </div>
+                        <div style="display: flex; gap: 10px; margin-top: 15px;">
+                            <button type="button" id="guest-confirm-submit-btn" class="btn btn-primary" style="flex: 1;">Confirm Check-In</button>
+                            <button type="button" id="guest-confirm-cancel-btn" class="btn btn-secondary">Cancel</button>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="terminal-footer" style="margin-top: 30px;">
@@ -351,13 +423,156 @@ if (isset($_GET['contact_id'])) {
                 });
                 resultsList.style.display = 'block';
                 
-                // Add click handlers for check in buttons
+                // Add click handlers for check in buttons: open the guest confirmation panel
+                // instead of checking in immediately, so a guest can be added first.
                 resultsList.querySelectorAll('.checkin-btn').forEach(btn => {
                     btn.addEventListener('click', (e) => {
                         const memberId = e.target.getAttribute('data-id');
-                        triggerCheckin(memberId, e.target);
+                        const member = members.find(m => String(m.id) === String(memberId));
+                        openGuestConfirmPanel(memberId, member ? member.display_name : '');
                     });
                 });
+            }
+
+            // Guest confirmation panel: shown after selecting a member, before the check-in is submitted.
+            const guestConfirmPanel = document.getElementById('guest-confirm-panel');
+            const guestConfirmName = document.getElementById('guest-confirm-name');
+            const guestConfirmStatus = document.getElementById('guest-confirm-status');
+            const guestConfirmToggleBtn = document.getElementById('guest-confirm-toggle-btn');
+            const guestConfirmSection = document.getElementById('guest-confirm-section');
+            const guestConfirmFields = document.getElementById('guest-confirm-fields');
+            const guestConfirmAddBtn = document.getElementById('guest-confirm-add-btn');
+            const guestConfirmSubmitBtn = document.getElementById('guest-confirm-submit-btn');
+            const guestConfirmCancelBtn = document.getElementById('guest-confirm-cancel-btn');
+            let selectedMemberId = null;
+            let currentGuestRemaining = 0;
+            let guestPromptAcknowledged = false;
+            let guestStatusPromise = Promise.resolve({ allowance: 0, remaining: 0 });
+
+            function addGuestConfirmField() {
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'guest-confirm-name-input';
+                input.placeholder = "Guest's name";
+                input.autocomplete = 'off';
+                input.style.marginBottom = '8px';
+                guestConfirmFields.appendChild(input);
+                return input;
+            }
+
+            // "+ Add another guest" can't add more fields than there are passes left.
+            function updateGuestConfirmAddBtnVisibility() {
+                guestConfirmAddBtn.style.display = guestConfirmFields.children.length < currentGuestRemaining ? '' : 'none';
+            }
+
+            // Shows/hides the guest pass UI based on this member's allowance for their plan.
+            // allowance === 0 means guest passes don't apply to them at all -- hide everything.
+            function applyGuestConfirmPassInfo(allowance, remaining) {
+                currentGuestRemaining = remaining > 0 ? remaining : 0;
+
+                if (allowance <= 0) {
+                    guestConfirmStatus.style.display = 'none';
+                    guestConfirmToggleBtn.style.display = 'none';
+                    guestConfirmSection.style.display = 'none';
+                    guestConfirmFields.innerHTML = '';
+                    return;
+                }
+                guestConfirmStatus.style.display = 'block';
+                if (remaining > 0) {
+                    guestConfirmStatus.textContent = remaining + ' of ' + allowance + ' guest pass' + (allowance === 1 ? '' : 'es') + ' available this month';
+                    guestConfirmToggleBtn.style.display = '';
+                    while (guestConfirmFields.children.length > currentGuestRemaining) {
+                        guestConfirmFields.removeChild(guestConfirmFields.lastElementChild);
+                    }
+                    updateGuestConfirmAddBtnVisibility();
+                } else {
+                    guestConfirmStatus.textContent = 'No guest passes remaining this month.';
+                    guestConfirmToggleBtn.style.display = 'none';
+                    guestConfirmSection.style.display = 'none';
+                    guestConfirmFields.innerHTML = '';
+                }
+            }
+
+            function openGuestConfirmPanel(memberId, memberName) {
+                selectedMemberId = memberId;
+                guestPromptAcknowledged = false;
+                guestConfirmSubmitBtn.textContent = 'Confirm Check-In';
+                guestConfirmName.textContent = memberName;
+                guestConfirmFields.innerHTML = '';
+                guestConfirmSection.style.display = 'none';
+                guestConfirmStatus.style.display = 'none';
+                guestConfirmToggleBtn.style.display = 'none';
+                guestConfirmPanel.style.display = 'block';
+                resultsList.style.display = 'none';
+
+                // Look up this member's guest-pass status as soon as the panel opens. The submit
+                // button awaits this same promise, so even tapping Confirm immediately can't outrun it.
+                guestStatusPromise = fetch(`host_checkin.php?action=guest_status&contact_id=${encodeURIComponent(memberId)}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        const info = { allowance: data.allowance || 0, remaining: data.remaining || 0 };
+                        applyGuestConfirmPassInfo(info.allowance, info.remaining);
+                        return info;
+                    })
+                    .catch(() => {
+                        applyGuestConfirmPassInfo(0, 0);
+                        return { allowance: 0, remaining: 0 };
+                    });
+            }
+
+            guestConfirmToggleBtn.addEventListener('click', () => {
+                const opening = guestConfirmSection.style.display === 'none';
+                guestConfirmSection.style.display = opening ? 'block' : 'none';
+                if (opening) {
+                    guestConfirmSubmitBtn.textContent = 'Confirm Check-In';
+                    if (guestConfirmFields.children.length === 0) {
+                        addGuestConfirmField();
+                    }
+                    updateGuestConfirmAddBtnVisibility();
+                }
+            });
+
+            guestConfirmAddBtn.addEventListener('click', () => {
+                if (guestConfirmFields.children.length >= currentGuestRemaining) {
+                    return;
+                }
+                addGuestConfirmField();
+                updateGuestConfirmAddBtnVisibility();
+            });
+
+            guestConfirmCancelBtn.addEventListener('click', () => {
+                selectedMemberId = null;
+                guestConfirmPanel.style.display = 'none';
+            });
+
+            guestConfirmSubmitBtn.addEventListener('click', () => {
+                if (!selectedMemberId) {
+                    return;
+                }
+
+                // First tap: make sure we know this member's guest-pass status (waiting on the
+                // lookup if it's still in flight) before ever submitting. If they have a pass
+                // available and haven't already opened "Add guest(s)?", pause once instead of
+                // silently checking them in without the option.
+                if (!guestPromptAcknowledged) {
+                    guestPromptAcknowledged = true;
+                    guestStatusPromise.then(info => {
+                        if (info.remaining > 0 && guestConfirmSection.style.display !== 'block') {
+                            guestConfirmSubmitBtn.textContent = 'Tap again to continue without a guest';
+                        } else {
+                            triggerCheckin(selectedMemberId, guestConfirmSubmitBtn);
+                        }
+                    });
+                    return;
+                }
+
+                triggerCheckin(selectedMemberId, guestConfirmSubmitBtn);
+            });
+
+            function getGuestConfirmNames() {
+                return Array.from(document.querySelectorAll('.guest-confirm-name-input'))
+                    .map(el => el.value.trim())
+                    .filter(name => name !== '');
             }
 
             function triggerCheckin(memberId, buttonElement) {
@@ -406,6 +621,7 @@ if (isset($_GET['contact_id'])) {
                 data.append('ajax', '1');
                 data.append('csrf_token', csrfToken);
                 data.append('notes', 'Checked in by Host Override');
+                getGuestConfirmNames().forEach(name => data.append('guest_names[]', name));
                 if (lat !== null && lon !== null) {
                     data.append('latitude', lat);
                     data.append('longitude', lon);
@@ -429,10 +645,12 @@ if (isset($_GET['contact_id'])) {
                     buttonElement.disabled = false;
                     buttonElement.textContent = originalText;
 
-                    // Clear search
+                    // Clear search and guest confirmation panel
                     searchInput.value = '';
                     resultsList.style.display = 'none';
                     resultsList.innerHTML = '';
+                    guestConfirmPanel.style.display = 'none';
+                    selectedMemberId = null;
 
                     if (res.status === 200 && res.body.success) {
                         renderFeedback(true, res.body.message, res.body.details);

@@ -41,6 +41,58 @@ $loggedInName = $isLoggedIn ? ($_SESSION['user']['display_name'] ?? 'Member') : 
 // Determine if geolocation check is required for the current user
 $isGeoEnabled = ($_ENV['GEOLOCATION_CHECK_ENABLED'] ?? 'false') === 'true';
 
+/**
+ * Resolve a contact ID from an email or numeric ID identifier, the same way the
+ * check-in POST handler does.
+ */
+function resolve_checkin_contact_id(string $identifier): int {
+    $appDb = Database::getAppConnection();
+    if (filter_var($identifier, FILTER_VALIDATE_EMAIL)) {
+        $stmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE email = :email AND is_deleted = 0 LIMIT 1");
+        $stmt->execute(['email' => strtolower($identifier)]);
+        $row = $stmt->fetch();
+        return $row ? (int)$row['id'] : 0;
+    }
+    if (is_numeric($identifier)) {
+        return (int)$identifier;
+    }
+    return 0;
+}
+
+/**
+ * Look up a contact's guest pass allowance/remaining for the current calendar month.
+ * Returns allowance=0 when there's no active membership, so callers can hide the
+ * guest UI entirely for plans/members that don't support guest passes.
+ */
+function lookup_guest_pass_info(int $contactId): array {
+    $default = ['allowance' => 0, 'used' => 0, 'remaining' => 0];
+    if ($contactId <= 0) {
+        return $default;
+    }
+    try {
+        $membership = CiviCRMImporter::getMemberMembershipDetails($contactId);
+        if (!$membership || !$membership['is_active']) {
+            return $default;
+        }
+        return BillingHelper::getGuestPassesRemaining($contactId, $membership);
+    } catch (Exception $e) {
+        return $default;
+    }
+}
+
+// AJAX: dynamic guest-pass lookup as the (unauthenticated) member types their email/ID
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['action'] ?? '') === 'guest_status') {
+    $contactId = resolve_checkin_contact_id(trim($_GET['identifier'] ?? ''));
+    json_response(lookup_guest_pass_info($contactId));
+}
+
+// For a logged-in member, we already know who they are -- compute their guest pass
+// status up front so the page can render it immediately and decide whether to auto-submit.
+$guestPassInfo = ['allowance' => 0, 'used' => 0, 'remaining' => 0];
+if ($isLoggedIn) {
+    $guestPassInfo = lookup_guest_pass_info((int)($_SESSION['user']['contact_id'] ?? 0));
+}
+
 // Handle Check-In POST (Standard & AJAX)
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Basic Origin Validation to prevent CSRF in the absence of a token (kiosk use-case)
@@ -62,6 +114,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $identifier = trim($_POST['identifier'] ?? '');
     $notes = trim($_POST['notes'] ?? 'Regular Visit');
+    $guestNames = [];
+    if (isset($_POST['guest_names']) && is_array($_POST['guest_names'])) {
+        foreach ($_POST['guest_names'] as $guestName) {
+            $guestName = trim(mb_substr((string)$guestName, 0, 100));
+            if ($guestName !== '') {
+                $guestNames[] = $guestName;
+            }
+            if (count($guestNames) >= 10) {
+                break;
+            }
+        }
+    }
     $isAjax = isset($_POST['ajax']) || (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && $_SERVER['HTTP_X_REQUESTED_WITH'] === 'XMLHttpRequest');
 
     if (empty($identifier)) {
@@ -142,12 +206,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     } else {
                         $contactName = CiviCRMImporter::getFormattedName($contactId);
 
-                        // 2b. Prevent double check-in on the same day
-                        $dupCheckStmt = $appDb->prepare("SELECT COUNT(*) FROM tgg_checkins WHERE contact_id = :contact_id AND DATE(checked_in_at) = CURDATE()");
+                        // 2b. Prevent double check-in on the same day (guest visits don't count toward this)
+                        $dupCheckStmt = $appDb->prepare("SELECT COUNT(*) FROM tgg_checkins WHERE contact_id = :contact_id AND guest_name IS NULL AND DATE(checked_in_at) = CURDATE()");
                         $dupCheckStmt->execute(['contact_id' => $contactId]);
                         $hasCheckedInToday = (int)$dupCheckStmt->fetchColumn() > 0;
 
-                        if ($hasCheckedInToday) {
+                        if ($hasCheckedInToday && empty($guestNames)) {
                             $errorMsg = "Check-in Denied: {$contactName} has already checked in today.";
                         } else {
                             // 3. Verify Active Membership
@@ -160,19 +224,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 // Associate member's 2nd+ check-in since their last dues payment: pay the entrance fee first.
                                 $redirectUrl = 'pay-entrance.php?contact_id=' . $contactId . '&reason=entrance_fee&return=checkin.php';
                             } else {
-                                // 4. Log the check-in
-                                $insertStmt = $appDb->prepare("INSERT INTO tgg_checkins (contact_id, checked_in_at, notes) VALUES (:contact_id, NOW(), :notes)");
-                                $insertStmt->execute([
-                                    'contact_id' => $contactId,
-                                    'notes' => $notes
-                                ]);
+                                // 3b. Enforce the monthly guest pass allowance before logging anything
+                                $guestLimitExceeded = false;
+                                if (!empty($guestNames)) {
+                                    $passes = BillingHelper::getGuestPassesRemaining($contactId, $membership);
+                                    if (count($guestNames) > $passes['remaining']) {
+                                        $guestLimitExceeded = true;
+                                        $errorMsg = "Only {$passes['remaining']} guest pass(es) remaining this month for {$contactName}.";
+                                    }
+                                }
 
-                                $successMsg = "Check-In Successful! Welcome, {$contactName}.";
-                                $memberDetails = [
-                                    'name' => $contactName,
-                                    'membership' => $membership['membership_name'],
-                                    'expires' => date('M d, Y', strtotime($membership['end_date']))
-                                ];
+                                if (!$guestLimitExceeded) {
+                                    // 4. Log the check-in (and any guests)
+                                    if (!$hasCheckedInToday) {
+                                        $insertStmt = $appDb->prepare("INSERT INTO tgg_checkins (contact_id, checked_in_at, notes) VALUES (:contact_id, NOW(), :notes)");
+                                        $insertStmt->execute([
+                                            'contact_id' => $contactId,
+                                            'notes' => $notes
+                                        ]);
+                                    }
+
+                                    if (!empty($guestNames)) {
+                                        $insertGuestStmt = $appDb->prepare("INSERT INTO tgg_checkins (contact_id, checked_in_at, guest_name) VALUES (:contact_id, NOW(), :guest_name)");
+                                        foreach ($guestNames as $guestName) {
+                                            $insertGuestStmt->execute([
+                                                'contact_id' => $contactId,
+                                                'guest_name' => $guestName
+                                            ]);
+                                        }
+                                    }
+
+                                    $successMsg = "Check-In Successful! Welcome, {$contactName}.";
+                                    if (!empty($guestNames)) {
+                                        $successMsg .= " Checked in with " . count($guestNames) . " guest(s).";
+                                    }
+                                    $memberDetails = [
+                                        'name' => $contactName,
+                                        'membership' => $membership['membership_name'],
+                                        'expires' => date('M d, Y', strtotime($membership['end_date']))
+                                    ];
+                                }
                             }
                         }
                     }
@@ -265,6 +356,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <input type="text" id="identifier" name="identifier" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" required placeholder="Enter Email or ID..." autofocus>
                         </div>
                     <?php endif; ?>
+
+                    <div class="form-group" id="guest-pass-area" style="margin-bottom: 15px; display: none;">
+                        <p id="guest-pass-status" class="subtext" style="margin: 0 0 8px 0; text-align: center;"></p>
+                        <button type="button" id="guest-toggle-btn" class="btn btn-secondary btn-block">Bring a guest?</button>
+                        <div id="guest-section" style="display: none; margin-top: 12px;">
+                            <div id="guest-name-fields"></div>
+                            <button type="button" id="add-guest-btn" class="btn btn-secondary btn-small" style="margin-top: 8px;">+ Add another guest</button>
+                        </div>
+                    </div>
+
                     <button type="submit" class="btn btn-primary btn-large btn-block">Check-In</button>
                 </form>
 
@@ -280,10 +381,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const inputField = document.getElementById('identifier');
-            
-            // Keep input focused at all times for quick barcode scanner entry (only if text input)
+            const guestPassArea = document.getElementById('guest-pass-area');
+
+            // Keep input focused at all times for quick barcode scanner entry (only if text input),
+            // but not while the user is interacting with the guest pass controls.
             if (inputField && inputField.type !== 'hidden') {
-                document.addEventListener('click', () => {
+                document.addEventListener('click', (e) => {
+                    if (e.target.closest('#guest-pass-area')) {
+                        return;
+                    }
                     inputField.focus();
                 });
             }
@@ -309,9 +415,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 submitBtn.style.color = '';
             }
 
-            form.addEventListener('submit', (e) => {
-                e.preventDefault();
-                
+            function proceedWithCheckin() {
                 if (isGeoEnabled) {
                     setButtonChecking();
 
@@ -350,20 +454,180 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     submitBtn.textContent = 'Check-In';
                     submitCheckin();
                 }
+            }
+
+            form.addEventListener('submit', (e) => {
+                e.preventDefault();
+
+                // Unauthenticated kiosk flow: someone who types fast and taps Check-In right away
+                // could otherwise outrun the guest-pass lookup entirely. Make sure we know their
+                // guest-pass status (using a fresh lookup if needed) before ever submitting, and if
+                // they have a pass available and haven't already opened "Bring a guest?", pause once
+                // so they get a real chance to use it instead of silently skipping it.
+                if (!isLoggedIn && !guestPromptAcknowledged) {
+                    const identifier = inputField.value.trim();
+                    guestPromptAcknowledged = true;
+
+                    if (identifier === lastCheckedIdentifier) {
+                        if (currentGuestRemaining > 0 && guestSection.style.display !== 'block') {
+                            submitBtn.textContent = 'Tap Check-In again to continue without a guest';
+                            return;
+                        }
+                        proceedWithCheckin();
+                        return;
+                    }
+
+                    lastCheckedIdentifier = identifier;
+                    fetch(`checkin.php?action=guest_status&identifier=${encodeURIComponent(identifier)}`)
+                        .then(res => res.json())
+                        .then(data => {
+                            applyGuestPassInfo(data.allowance || 0, data.remaining || 0);
+                            if ((data.remaining || 0) > 0 && guestSection.style.display !== 'block') {
+                                submitBtn.textContent = 'Tap Check-In again to continue without a guest';
+                            } else {
+                                proceedWithCheckin();
+                            }
+                        })
+                        .catch(() => proceedWithCheckin());
+                    return;
+                }
+
+                proceedWithCheckin();
             });
 
-            // Automatically trigger check-in if user is logged in
+            // Guest pass section: lets a member add one or more guest names before checking in.
+            const guestPassStatus = document.getElementById('guest-pass-status');
+            const guestToggleBtn = document.getElementById('guest-toggle-btn');
+            const guestSection = document.getElementById('guest-section');
+            const guestNameFields = document.getElementById('guest-name-fields');
+            const addGuestBtn = document.getElementById('add-guest-btn');
+
             const isLoggedIn = <?php echo $isLoggedIn ? 'true' : 'false'; ?>;
+            let autoSubmitCancelled = false;
+            let currentGuestRemaining = 0;
+            let lastCheckedIdentifier = null;
+            let guestPromptAcknowledged = false;
+
+            function addGuestField() {
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'guest-name-input';
+                input.placeholder = "Guest's name";
+                input.autocomplete = 'off';
+                input.style.marginBottom = '8px';
+                guestNameFields.appendChild(input);
+                return input;
+            }
+
+            // The "+ Add another guest" button can't add more fields than there are passes left.
+            function updateAddGuestBtnVisibility() {
+                addGuestBtn.style.display = guestNameFields.children.length < currentGuestRemaining ? '' : 'none';
+            }
+
+            // Shows/hides the guest pass UI based on the member's allowance for their plan.
+            // allowance === 0 means guest passes don't apply to this member at all -- hide everything,
+            // rather than telling them "0 available" for a plan that was never meant to have any.
+            function applyGuestPassInfo(allowance, remaining) {
+                currentGuestRemaining = remaining > 0 ? remaining : 0;
+
+                if (allowance <= 0) {
+                    guestPassArea.style.display = 'none';
+                    guestSection.style.display = 'none';
+                    guestNameFields.innerHTML = '';
+                    return;
+                }
+                guestPassArea.style.display = 'block';
+                if (remaining > 0) {
+                    guestPassStatus.textContent = remaining + ' of ' + allowance + ' guest pass' + (allowance === 1 ? '' : 'es') + ' available this month';
+                    guestToggleBtn.style.display = '';
+                    // If a fresh lookup lowered the cap below what's already been entered, trim it.
+                    while (guestNameFields.children.length > currentGuestRemaining) {
+                        guestNameFields.removeChild(guestNameFields.lastElementChild);
+                    }
+                    updateAddGuestBtnVisibility();
+                } else {
+                    guestPassStatus.textContent = 'No guest passes remaining this month.';
+                    guestToggleBtn.style.display = 'none';
+                    guestSection.style.display = 'none';
+                    guestNameFields.innerHTML = '';
+                }
+            }
+
+            guestToggleBtn.addEventListener('click', () => {
+                const opening = guestSection.style.display === 'none';
+                guestSection.style.display = opening ? 'block' : 'none';
+                if (opening) {
+                    autoSubmitCancelled = true;
+                    submitBtn.textContent = 'Check-In';
+                    if (guestNameFields.children.length === 0) {
+                        addGuestField();
+                    }
+                    updateAddGuestBtnVisibility();
+                }
+            });
+
+            addGuestBtn.addEventListener('click', () => {
+                if (guestNameFields.children.length >= currentGuestRemaining) {
+                    return;
+                }
+                addGuestField();
+                updateAddGuestBtnVisibility();
+            });
+
             if (isLoggedIn) {
-                setTimeout(() => {
-                    submitBtn.click();
-                }, 300);
+                // We already know who's logged in, so render their guest pass status immediately.
+                const initialAllowance = <?php echo (int)$guestPassInfo['allowance']; ?>;
+                const initialRemaining = <?php echo (int)$guestPassInfo['remaining']; ?>;
+                applyGuestPassInfo(initialAllowance, initialRemaining);
+
+                // Don't auto-submit if they have a guest pass available this visit -- let them
+                // choose whether to bring a guest. Otherwise auto-submit quickly as before, since
+                // there's no decision to make.
+                if (initialRemaining > 0) {
+                    autoSubmitCancelled = true;
+                } else {
+                    setTimeout(() => {
+                        if (!autoSubmitCancelled) {
+                            submitBtn.click();
+                        }
+                    }, 300);
+                }
+            } else {
+                // Unauthenticated kiosk flow: look up guest pass status as they type, so it's ready
+                // to display well before they tap Check-In (the submit handler double-checks this
+                // anyway, in case they type and tap faster than this lookup can keep up).
+                let guestStatusTimeout = null;
+                inputField.addEventListener('input', () => {
+                    clearTimeout(guestStatusTimeout);
+                    guestPromptAcknowledged = false;
+                    submitBtn.textContent = 'Check-In';
+                    const identifier = inputField.value.trim();
+                    if (identifier.length < 3) {
+                        applyGuestPassInfo(0, 0);
+                        lastCheckedIdentifier = null;
+                        return;
+                    }
+                    guestStatusTimeout = setTimeout(() => {
+                        lastCheckedIdentifier = identifier;
+                        fetch(`checkin.php?action=guest_status&identifier=${encodeURIComponent(identifier)}`)
+                            .then(res => res.json())
+                            .then(data => applyGuestPassInfo(data.allowance || 0, data.remaining || 0))
+                            .catch(() => applyGuestPassInfo(0, 0));
+                    }, 400);
+                });
+            }
+
+            function getGuestNames() {
+                return Array.from(document.querySelectorAll('.guest-name-input'))
+                    .map(el => el.value.trim())
+                    .filter(name => name !== '');
             }
 
             function submitCheckin(lat = null, lon = null) {
                 const data = new URLSearchParams();
                 data.append('identifier', inputField.value);
                 data.append('ajax', '1');
+                getGuestNames().forEach(name => data.append('guest_names[]', name));
                 if (lat !== null && lon !== null) {
                     data.append('latitude', lat);
                     data.append('longitude', lon);
@@ -385,7 +649,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                     if (!isLoggedIn) {
                         inputField.value = ''; // Clear for next member
+                        applyGuestPassInfo(0, 0); // Hide guest pass status until the next member types in
+                        lastCheckedIdentifier = null;
+                        guestPromptAcknowledged = false;
                     }
+                    // Reset guest section for the next check-in
+                    guestNameFields.innerHTML = '';
+                    guestSection.style.display = 'none';
+                    autoSubmitCancelled = false;
                     resetButtonState();
                     if (res.status === 200 && res.body.success) {
                         playAudio(true);

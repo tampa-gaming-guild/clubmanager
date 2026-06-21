@@ -94,7 +94,7 @@ class Event {
     public static function getTodaysCheckins(): array {
         $appDb = Database::getAppConnection();
         $stmt = $appDb->prepare("
-            SELECT c.id AS checkin_id, c.contact_id, c.checked_in_at, c.notes,
+            SELECT c.id AS checkin_id, c.contact_id, c.checked_in_at, c.notes, c.guest_name,
                    con.display_name, con.first_name, con.last_name
             FROM tgg_checkins c
             LEFT JOIN tgg_contacts con ON con.id = c.contact_id

@@ -19,26 +19,28 @@ try {
 
     // Fetch Recent Attendance Log (Attendance Table Report)
     $chkLogStmt = $appDb->query("
-        SELECT contact_id, checked_in_at, notes 
-        FROM tgg_checkins 
-        ORDER BY checked_in_at DESC 
+        SELECT contact_id, checked_in_at, notes, guest_name
+        FROM tgg_checkins
+        ORDER BY checked_in_at DESC
         LIMIT 100
     ");
     $checkinsRaw = $chkLogStmt->fetchAll();
     if (!empty($checkinsRaw)) {
         $contactIds = array_unique(array_column($checkinsRaw, 'contact_id'));
         $placeholders = implode(',', array_fill(0, count($contactIds), '?'));
-        
+
         $civiContactStmt = $appDb->prepare("SELECT id, display_name FROM tgg_contacts WHERE id IN ({$placeholders})");
         $civiContactStmt->execute(array_values($contactIds));
         $contactsMap = $civiContactStmt->fetchAll(PDO::FETCH_KEY_PAIR);
-        
+
         foreach ($checkinsRaw as $row) {
             $cid = (int)$row['contact_id'];
+            $sponsorName = $contactsMap[$cid] ?? "Member #{$cid}";
+            $isGuestRow = !empty($row['guest_name']);
             $checkinsList[] = [
-                'display_name' => $contactsMap[$cid] ?? "Member #{$cid}",
+                'display_name' => $isGuestRow ? $row['guest_name'] : $sponsorName,
                 'checked_in_at' => $row['checked_in_at'],
-                'notes' => $row['notes']
+                'notes' => $isGuestRow ? 'Guest of ' . $sponsorName : $row['notes']
             ];
         }
     }

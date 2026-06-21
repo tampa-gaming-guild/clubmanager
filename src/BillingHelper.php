@@ -100,11 +100,12 @@ class BillingHelper {
             $db = Database::getAppConnection();
              $stmt = $db->prepare("
                  SELECT s.status, s.join_date, s.start_date, s.end_date, s.plan_id as membership_id, s.rate_id,
-                        p.name as plan_name, p.name as membership_name, 
-                        COALESCE(r.price, p.price) as price, 
-                        COALESCE(r.price, p.price) as minimum_fee, 
-                        COALESCE(r.billing_frequency, p.duration_unit) as duration_unit, 
-                        COALESCE(CASE WHEN r.billing_frequency IS NOT NULL THEN 1 ELSE p.duration_interval END, p.duration_interval) as duration_interval
+                        p.name as plan_name, p.name as membership_name,
+                        COALESCE(r.price, p.price) as price,
+                        COALESCE(r.price, p.price) as minimum_fee,
+                        COALESCE(r.billing_frequency, p.duration_unit) as duration_unit,
+                        COALESCE(CASE WHEN r.billing_frequency IS NOT NULL THEN 1 ELSE p.duration_interval END, p.duration_interval) as duration_interval,
+                        p.guests_per_month
                  FROM tgg_subscriptions s
                  INNER JOIN tgg_subscription_plans p ON s.plan_id = p.id
                  LEFT JOIN tgg_subscription_rates r ON s.rate_id = r.id
@@ -492,6 +493,7 @@ class BillingHelper {
         if (!in_array($active, ['active', 'inactive'])) {
             $active = 'active';
         }
+        $guestsPerMonth = max(0, (int)($data['guests_per_month'] ?? 0));
 
         if (empty($name)) {
             throw new Exception("Plan name cannot be empty.");
@@ -512,8 +514,8 @@ class BillingHelper {
             if ($id) {
                 // Update existing plan
                 $updateLocal = $appDb->prepare("
-                    UPDATE tgg_subscription_plans 
-                    SET name = :name, description = :description, price = :price, duration_unit = :duration_unit, duration_interval = :duration_interval, active = :active 
+                    UPDATE tgg_subscription_plans
+                    SET name = :name, description = :description, price = :price, duration_unit = :duration_unit, duration_interval = :duration_interval, active = :active, guests_per_month = :guests_per_month
                     WHERE id = :id
                 ");
                 $updateLocal->execute([
@@ -523,6 +525,7 @@ class BillingHelper {
                     'duration_unit' => $durationUnit,
                     'duration_interval' => $durationInterval,
                     'active' => $active,
+                    'guests_per_month' => $guestsPerMonth,
                     'id' => $id
                 ]);
 
@@ -533,8 +536,8 @@ class BillingHelper {
                 $civiTypeId = $maxCiviId + 1;
 
                  $insertLocal = $appDb->prepare("
-                     INSERT INTO tgg_subscription_plans (name, description, price, duration_unit, duration_interval, civicrm_membership_type_id, active) 
-                     VALUES (:name, :description, :price, :duration_unit, :duration_interval, :civicrm_membership_type_id, :active)
+                     INSERT INTO tgg_subscription_plans (name, description, price, duration_unit, duration_interval, civicrm_membership_type_id, active, guests_per_month)
+                     VALUES (:name, :description, :price, :duration_unit, :duration_interval, :civicrm_membership_type_id, :active, :guests_per_month)
                  ");
                  $insertLocal->execute([
                      'name' => $name,
@@ -543,7 +546,8 @@ class BillingHelper {
                      'duration_unit' => $durationUnit,
                      'duration_interval' => $durationInterval,
                      'civicrm_membership_type_id' => $civiTypeId,
-                     'active' => $active
+                     'active' => $active,
+                     'guests_per_month' => $guestsPerMonth
                  ]);
 
                  $planId = $appDb->lastInsertId();
@@ -833,6 +837,34 @@ class BillingHelper {
         ");
         $checkinStmt->execute(['contact_id' => $contactId, 'since' => $lastPaymentAt]);
         return (int)$checkinStmt->fetchColumn() > 0;
+    }
+
+    /**
+     * Calculate how many guest passes a member has left for the current calendar month.
+     * Passes are granted per the member's plan's guests_per_month and do not roll over --
+     * usage is counted by querying guest check-ins since the first of the current month.
+     * @param int $contactId
+     * @param array $membership Row from CiviCRMImporter::getMemberMembershipDetails() or getMemberSubscriptionDetails()
+     * @return array{allowance: int, used: int, remaining: int}
+     */
+    public static function getGuestPassesRemaining(int $contactId, array $membership): array {
+        $allowance = max(0, (int)($membership['guests_per_month'] ?? 0));
+
+        $appDb = Database::getAppConnection();
+        $stmt = $appDb->prepare("
+            SELECT COUNT(*) FROM tgg_checkins
+            WHERE contact_id = :contact_id
+              AND guest_name IS NOT NULL
+              AND checked_in_at >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+        ");
+        $stmt->execute(['contact_id' => $contactId]);
+        $used = (int)$stmt->fetchColumn();
+
+        return [
+            'allowance' => $allowance,
+            'used' => $used,
+            'remaining' => max(0, $allowance - $used)
+        ];
     }
 
     /**
