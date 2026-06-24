@@ -31,8 +31,12 @@ $navAuthed = $navAdminArea || \App\Auth::check();
     <?php endif; ?>
     <nav class="nav-links" id="navLinks">
         <?php if ($navKiosk): ?>
-            <a href="index.php" class="<?php echo $navActive === 'login' ? 'active' : ''; ?>">Login</a>
-            <a href="join.php" class="<?php echo $navActive === 'join' ? 'active' : ''; ?>">Join / Renew</a>
+            <?php if ($navAuthed): ?>
+                <a href="index.php" class="<?php echo $navActive === 'dashboard' ? 'active' : ''; ?>">Dashboard</a>
+            <?php else: ?>
+                <a href="index.php" class="<?php echo $navActive === 'login' ? 'active' : ''; ?>">Login</a>
+                <a href="join.php" class="<?php echo $navActive === 'join' ? 'active' : ''; ?>">Join / Renew</a>
+            <?php endif; ?>
             <a href="calendar.php" class="<?php echo $navActive === 'calendar' ? 'active' : ''; ?>">Calendar</a>
             <a href="volunteers.php" class="<?php echo $navActive === 'volunteers' ? 'active' : ''; ?>">Volunteers</a>
             <a href="checkin.php" class="<?php echo $navActive === 'checkin' ? 'active' : ''; ?>">Check-In</a>
