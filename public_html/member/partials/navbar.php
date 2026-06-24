@@ -31,10 +31,11 @@ $navAuthed = $navAdminArea || \App\Auth::check();
     <?php endif; ?>
     <nav class="nav-links" id="navLinks">
         <?php if ($navKiosk): ?>
-            <a href="<?php echo $navPrefix; ?>index.php">Portal Hub</a>
-            <a href="<?php echo $navPrefix; ?>calendar.php">Calendar</a>
-            <a href="<?php echo $navPrefix; ?>volunteers.php">Volunteers</a>
-            <a href="<?php echo $navPrefix; ?>checkin.php" class="active">Check-In Portal</a>
+            <a href="index.php" class="<?php echo $navActive === 'login' ? 'active' : ''; ?>">Login</a>
+            <a href="join.php" class="<?php echo $navActive === 'join' ? 'active' : ''; ?>">Join / Renew</a>
+            <a href="calendar.php" class="<?php echo $navActive === 'calendar' ? 'active' : ''; ?>">Calendar</a>
+            <a href="volunteers.php" class="<?php echo $navActive === 'volunteers' ? 'active' : ''; ?>">Volunteers</a>
+            <a href="checkin.php" class="<?php echo $navActive === 'checkin' ? 'active' : ''; ?>">Check-In</a>
         <?php elseif ($navAuthed): ?>
             <a href="<?php echo $navPrefix; ?>index.php" class="<?php echo $navActive === 'dashboard' ? 'active' : ''; ?>">Dashboard</a>
             <a href="<?php echo $navPrefix; ?>calendar.php" class="<?php echo $navActive === 'calendar' ? 'active' : ''; ?>">Calendar</a>

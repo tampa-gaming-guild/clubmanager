@@ -307,7 +307,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 <body class="terminal-body">
     <div class="app-container">
-        <?php $navKiosk = true; include __DIR__ . '/partials/navbar.php'; ?>
+        <?php $navKiosk = true; $navActive = 'checkin'; include __DIR__ . '/partials/navbar.php'; ?>
 
         <main class="main-content centered-content">
             <div class="terminal-panel glass-panel">
