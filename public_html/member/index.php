@@ -494,6 +494,15 @@ if (Auth::check() && has_role('admin')) {
                                             <span>Record a club visit or attendance</span>
                                         </div>
                                     </a>
+                                    <?php if (has_permission('edit checkins') && $activeSession): ?>
+                                        <a href="host_checkin.php" class="action-btn">
+                                            <span class="icon">🧑‍🤝‍🧑</span>
+                                            <div class="btn-text">
+                                                <strong>Host Check-In</strong>
+                                                <span>Check in another member</span>
+                                            </div>
+                                        </a>
+                                    <?php endif; ?>
                                 </div>
                             </div>
                         </div>

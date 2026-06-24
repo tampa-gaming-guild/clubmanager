@@ -37,9 +37,10 @@ $memberDetails = null;
 $redirectUrl = null;
 $isLoggedIn = \App\Auth::check();
 $loggedInName = $isLoggedIn ? ($_SESSION['user']['display_name'] ?? 'Member') : '';
+$isAdminUser = $isLoggedIn && has_role('admin');
 
-// Determine if geolocation check is required for the current user
-$isGeoEnabled = ($_ENV['GEOLOCATION_CHECK_ENABLED'] ?? 'false') === 'true';
+// Determine if geolocation check is required for the current user (admins are exempt)
+$isGeoEnabled = ($_ENV['GEOLOCATION_CHECK_ENABLED'] ?? 'false') === 'true' && !$isAdminUser;
 
 /**
  * Resolve a contact ID from an email or numeric ID identifier, the same way the
