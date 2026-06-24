@@ -45,6 +45,11 @@ try {
         // B. Fetch Membership Details
         $membership = CiviCRMImporter::getMemberMembershipDetails($profileId);
 
+        // B1. Fetch auto-renew / saved-card status
+        $subBillingStmt = $appDb->prepare("SELECT auto_renew, stripe_customer_id, stripe_payment_method_id FROM tgg_subscriptions WHERE contact_id = :id LIMIT 1");
+        $subBillingStmt->execute(['id' => $profileId]);
+        $subBilling = $subBillingStmt->fetch() ?: ['auto_renew' => 0, 'stripe_customer_id' => null, 'stripe_payment_method_id' => null];
+
         // C. Fetch Local Settings / Privacy Info
         $settingsStmt = $appDb->prepare("SELECT role, is_profile_public, public_fields, custom_display_name FROM tgg_member_settings WHERE contact_id = :id LIMIT 1");
         $settingsStmt->execute(['id' => $profileId]);
@@ -356,6 +361,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
 
             } catch (Exception $e) {
                 $errorMsg = safe_err("Failed to save settings: ", $e);
+            }
+        }
+
+        // A0. Handle Auto-Renew Toggle
+        if (isset($_POST['auto_renew_update'])) {
+            $newAutoRenew = isset($_POST['auto_renew']) ? 1 : 0;
+            try {
+                if (empty($subBilling['stripe_customer_id']) || empty($subBilling['stripe_payment_method_id'])) {
+                    throw new Exception("No card on file to enable auto-renew.");
+                }
+                $update = $appDb->prepare("UPDATE tgg_subscriptions SET auto_renew = :auto_renew WHERE contact_id = :id");
+                $update->execute(['auto_renew' => $newAutoRenew, 'id' => $profileId]);
+                $subBilling['auto_renew'] = $newAutoRenew;
+                $successMsg = $newAutoRenew ? "Auto-renew enabled." : "Auto-renew disabled.";
+            } catch (Exception $e) {
+                $errorMsg = safe_err("Failed to update auto-renew setting: ", $e);
             }
         }
 
@@ -789,6 +810,25 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                     </form>
                                 </div>
 
+                                <?php if (!empty($subBilling['stripe_customer_id']) && !empty($subBilling['stripe_payment_method_id'])): ?>
+                                <!-- Automatic Renewal Panel -->
+                                <div class="management-card mt-20">
+                                    <h4>Automatic Renewal</h4>
+                                    <p style="font-size: 0.85rem; color: rgba(255, 255, 255, 0.75); margin-bottom: 15px; line-height: 1.4;">
+                                        Your membership dues are automatically charged to your card on file when your current period ends.
+                                    </p>
+                                    <form action="profile.php?id=<?php echo $profileId; ?>" method="POST" class="settings-form">
+                                        <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                        <div class="form-group checkbox-group">
+                                            <input type="checkbox" id="auto_renew" name="auto_renew" value="1"
+                                                <?php echo $subBilling['auto_renew'] ? 'checked' : ''; ?>>
+                                            <label for="auto_renew">Automatically renew my membership</label>
+                                        </div>
+                                        <button type="submit" name="auto_renew_update" class="btn btn-success btn-block mt-15">Save Auto-Renew Setting</button>
+                                    </form>
+                                </div>
+                                <?php endif; ?>
+
                                 <!-- Password Reset Panel -->
                                 <div class="management-card mt-20">
                                     <h4>Portal Password Reset</h4>
@@ -1042,6 +1082,9 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                                      } elseif (strpos($trxnId, 'offline_check_') === 0) {
                                                          $badgeClass = 'badge-active';
                                                          $badgeLabel = 'Paid (Check)';
+                                                     } elseif (($tx['action_type'] ?? '') === 'auto_renew') {
+                                                         $badgeClass = 'badge-active';
+                                                         $badgeLabel = 'Paid (Auto-Renew)';
                                                      } else {
                                                          $badgeClass = 'badge-active';
                                                          $badgeLabel = 'Paid (Credit Card)';

@@ -165,7 +165,22 @@ MySQL/MariaDB DDL isn't fully transactional (some statements implicitly commit),
 3. Select the event: `checkout.session.completed`.
 4. Copy the **Signing secret** (starts with `whsec_`) and paste it into your `.env` file as `STRIPE_WEBHOOK_SECRET`.
 
-### 5. Login 
+### 5. Setup Auto-Renewal Cron Job
+Add a daily crontab entry to charge members whose auto-renew is enabled and whose
+membership period has just ended:
+```bash
+sudo crontab -e
+# Add the following line (adjust the path to your install directory):
+0 3 * * * php /path/to/app/bin/autorenew.php >> /var/log/tgg-autorenew.log 2>&1
+```
+Runs once daily at 3:00 AM. No new `.env` variables are needed -- the script reuses
+`STRIPE_SECRET_KEY`, `BASE_URL`, and the existing database credentials.
+
+Note: off-session auto-renewal charges that require Strong Customer Authentication (3D
+Secure) fail synchronously and are treated as a declined card; the member is notified
+and can complete the renewal manually.
+
+### 6. Login 
    Use the password reset function on the login page to set your password.
 
 ---

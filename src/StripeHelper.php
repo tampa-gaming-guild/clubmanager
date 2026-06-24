@@ -69,6 +69,9 @@ class StripeHelper {
             'mode' => 'payment',
             'success_url' => $successUrl,
             'cancel_url' => $cancelUrl,
+            // Saves the resulting payment method against the Customer so it can later be
+            // charged off-session (auto-renewal), not just used for this one payment.
+            'payment_intent_data' => ['setup_future_usage' => 'off_session'],
             'metadata' => [
                 'contact_id' => $contactId,
                 'plan_id' => $planId,
@@ -77,11 +80,11 @@ class StripeHelper {
             ]
         ];
 
-        if (!empty($email) && !empty($name)) {
-            $customer = self::createCustomer($email, $name);
+        // A Customer object is required (not just customer_email) so the saved payment
+        // method above has something to attach to for later off-session auto-renewal charges.
+        if (!empty($email)) {
+            $customer = self::createCustomer($email, $name ?? '');
             $fields['customer'] = $customer['id'];
-        } elseif (!empty($email)) {
-            $fields['customer_email'] = $email;
         }
 
         curl_setopt($ch, CURLOPT_USERPWD, $secretKey . ":");
@@ -114,23 +117,30 @@ class StripeHelper {
     /**
      * Create a Stripe Customer so both name and email can be pre-filled on the Checkout page
      * (the Checkout Session API only supports prefilling email directly via customer_email;
-     * prefilling name requires an associated Customer object)
+     * prefilling name requires an associated Customer object). Also used whenever $name is
+     * unavailable -- a Customer object is still required to attach a saved payment method to
+     * for later off-session auto-renewal charges, even without a name to pre-fill.
      * @param string $email
      * @param string $name
      * @return array Customer object response from Stripe
      * @throws Exception
      */
-    private static function createCustomer(string $email, string $name): array {
+    private static function createCustomer(string $email, string $name = ''): array {
         $secretKey = $_ENV['STRIPE_SECRET_KEY'] ?? '';
         if (empty($secretKey)) {
             throw new Exception("Stripe Secret Key is not configured in environment.");
+        }
+
+        $fields = ['email' => $email];
+        if (!empty($name)) {
+            $fields['name'] = $name;
         }
 
         $ch = curl_init("https://api.stripe.com/v1/customers");
         curl_setopt($ch, CURLOPT_USERPWD, $secretKey . ":");
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query(['email' => $email, 'name' => $name]));
+        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($fields));
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/x-www-form-urlencoded']);
 
         $response = curl_exec($ch);
@@ -175,6 +185,107 @@ class StripeHelper {
         }
 
         return $data;
+    }
+
+    /**
+     * Retrieve a PaymentIntent from Stripe (used to read back the payment_method and customer
+     * attached to a completed Checkout Session -- the webhook payload only includes the
+     * PaymentIntent ID as a string, not its expanded fields).
+     * @param string $paymentIntentId Stripe PaymentIntent ID (e.g. 'pi_...')
+     * @return array
+     * @throws Exception
+     */
+    public static function retrievePaymentIntent(string $paymentIntentId): array {
+        $secretKey = $_ENV['STRIPE_SECRET_KEY'] ?? '';
+        if (empty($secretKey)) {
+            throw new Exception("Stripe Secret Key is not configured.");
+        }
+
+        $ch = curl_init("https://api.stripe.com/v1/payment_intents/" . urlencode($paymentIntentId));
+        curl_setopt($ch, CURLOPT_USERPWD, $secretKey . ":");
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $data = json_decode($response, true);
+
+        if ($httpCode !== 200) {
+            $error = $data['error']['message'] ?? 'Unknown Stripe retrieve payment intent error';
+            throw new Exception("Stripe API Error: " . $error);
+        }
+
+        return $data;
+    }
+
+    /**
+     * Charge a previously-saved payment method off-session (no customer present), used for
+     * automatic membership renewals. Unlike the other Stripe methods here, a card decline is
+     * an expected, recoverable business outcome -- not an exception -- so it's returned as
+     * ['success' => false, ...] rather than thrown. Genuine API/network/configuration errors
+     * still throw.
+     *
+     * Known limitation: a PaymentIntent that comes back 'requires_action' (e.g. 3D Secure /
+     * Strong Customer Authentication challenges, which can't be completed off-session) is
+     * treated the same as a decline. There is no webhook-based async confirmation flow here.
+     *
+     * @param string $customerId Stripe Customer ID
+     * @param string $paymentMethodId Stripe PaymentMethod ID
+     * @param float $amount Amount to charge in USD
+     * @param string $currency Three-letter currency code (e.g. 'usd')
+     * @param string $description Shown on the charge in the Stripe dashboard/receipt
+     * @param array $metadata Arbitrary metadata to attach to the PaymentIntent
+     * @return array ['success' => bool, 'payment_intent_id' => ?string, 'message' => ?string, 'decline_code' => ?string, 'raw' => array]
+     * @throws Exception
+     */
+    public static function chargeOffSession(string $customerId, string $paymentMethodId, float $amount, string $currency, string $description, array $metadata = []): array {
+        $secretKey = $_ENV['STRIPE_SECRET_KEY'] ?? '';
+        if (empty($secretKey)) {
+            throw new Exception("Stripe Secret Key is not configured in environment.");
+        }
+
+        $fields = [
+            'amount' => (int)round($amount * 100),
+            'currency' => strtolower($currency),
+            'customer' => $customerId,
+            'payment_method' => $paymentMethodId,
+            'off_session' => 'true',
+            'confirm' => 'true',
+            'description' => $description,
+            'metadata' => $metadata
+        ];
+
+        $ch = curl_init("https://api.stripe.com/v1/payment_intents");
+        curl_setopt($ch, CURLOPT_USERPWD, $secretKey . ":");
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($fields));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/x-www-form-urlencoded']);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $data = json_decode($response, true);
+
+        if ($httpCode === 200 && ($data['status'] ?? '') === 'succeeded') {
+            return ['success' => true, 'payment_intent_id' => $data['id'], 'message' => null, 'decline_code' => null, 'raw' => $data];
+        }
+
+        if ($httpCode === 402 || in_array($data['status'] ?? '', ['requires_action', 'requires_payment_method'], true)) {
+            $error = $data['error'] ?? [];
+            return [
+                'success' => false,
+                'payment_intent_id' => $data['id'] ?? ($error['payment_intent']['id'] ?? null),
+                'message' => $error['message'] ?? 'Card declined',
+                'decline_code' => $error['decline_code'] ?? null,
+                'raw' => $data
+            ];
+        }
+
+        $error = $data['error']['message'] ?? 'Unknown Stripe off-session charge error';
+        throw new Exception("Stripe API Error: " . $error);
     }
 
     /**

@@ -17,24 +17,26 @@ $paymentsList = [];
 try {
     $appDb = Database::getAppConnection();
 
-    // Fetch Recent Payments Log (Financial Table Report) from local ledger
+    // Fetch Recent Payments Log (Financial Table Report) from local ledger. Includes
+    // failed attempts (e.g. declined auto-renewal charges) alongside successful ones, so
+    // admins have visibility into renewal charges that didn't go through.
     $payLogsRaw = $appDb->query("
-        SELECT l.contact_id, l.created_at as receive_date, l.amount as total_amount, l.payment_intent_id as trxn_id, p.name as plan_name
+        SELECT l.contact_id, l.created_at as receive_date, l.amount as total_amount, l.payment_intent_id as trxn_id,
+               l.payment_status, l.action_type, p.name as plan_name
         FROM tgg_billing_ledger l
         LEFT JOIN tgg_subscription_plans p ON l.plan_id = p.id
-        WHERE l.payment_status = 'paid'
         ORDER BY l.created_at DESC
         LIMIT 100
     ")->fetchAll();
-    
+
     if (!empty($payLogsRaw)) {
         $contactIds = array_unique(array_column($payLogsRaw, 'contact_id'));
         $placeholders = implode(',', array_fill(0, count($contactIds), '?'));
-        
+
         $civiContactStmt = $appDb->prepare("SELECT id, display_name FROM tgg_contacts WHERE id IN ({$placeholders})");
         $civiContactStmt->execute(array_values($contactIds));
         $contactsMap = $civiContactStmt->fetchAll(PDO::FETCH_KEY_PAIR);
-        
+
         foreach ($payLogsRaw as $row) {
             $cid = (int)$row['contact_id'];
             $paymentsList[] = [
@@ -42,6 +44,8 @@ try {
                 'receive_date' => $row['receive_date'],
                 'total_amount' => $row['total_amount'],
                 'trxn_id' => $row['trxn_id'],
+                'payment_status' => $row['payment_status'],
+                'action_type' => $row['action_type'],
                 'plan_name' => $row['plan_name'] ?? 'Unknown Plan'
             ];
         }
@@ -134,8 +138,11 @@ try {
                                                     $trxnId = $pay['trxn_id'] ?? '';
                                                     $badgeClass = 'badge-active';
                                                     $badgeLabel = 'Paid (Card)';
-                                                    
-                                                    if (strpos($trxnId, 'offline_volunteer_credit_') === 0) {
+
+                                                    if (($pay['payment_status'] ?? '') === 'failed') {
+                                                        $badgeClass = 'badge-expired';
+                                                        $badgeLabel = 'Declined';
+                                                    } elseif (strpos($trxnId, 'offline_volunteer_credit_') === 0) {
                                                         $badgeClass = 'badge-volunteer';
                                                         $badgeLabel = 'Volunteer';
                                                     } elseif (strpos($trxnId, 'offline_complimentary_') === 0) {
@@ -147,6 +154,8 @@ try {
                                                     } elseif (strpos($trxnId, 'offline_check_') === 0) {
                                                         $badgeClass = 'badge-active';
                                                         $badgeLabel = 'Paid (Check)';
+                                                    } elseif (($pay['action_type'] ?? '') === 'auto_renew') {
+                                                        $badgeLabel = 'Paid (Auto-Renew)';
                                                     }
                                                     ?>
                                                     <span class="badge <?php echo $badgeClass; ?>" style="font-size: 0.75rem; padding: 2px 6px; display: inline-block; margin-right: 5px;">

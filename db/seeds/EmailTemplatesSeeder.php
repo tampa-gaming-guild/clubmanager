@@ -57,6 +57,24 @@ final class EmailTemplatesSeeder extends AbstractSeed
                 'body' => '<h2>Hello, {display_name}!</h2><p>Your email has been verified and your 30-day Trial membership is now active.</p><p><strong>Membership Details:</strong></p><ul><li><strong>Start Date:</strong> {start_date}</li><li><strong>Expiration Date:</strong> {end_date}</li></ul><p>This Trial membership is a one-time offer and cannot be renewed. To continue your membership after it expires, you will need to sign up for a paid membership level.</p><p>You don\'t need to log in to use your Trial membership -- this email is all you need. But if you\'d like to access the member portal, click below to set up a password:</p><p><a href="{set_password_link}">{set_password_link}</a></p><p>Best regards,<br>TGG Club Team</p>',
                 'description' => 'Sent when a member confirms their email and their one-time Trial membership is activated. Doubles as their welcome email since Trial members never set a password at signup.',
             ],
+            [
+                'template_key' => 'auto_renew_upcoming',
+                'subject' => 'Your TGG Membership Will Auto-Renew Soon',
+                'body' => '<h2>Hello, {display_name}!</h2><p>Your <strong>{tier_name}</strong> membership is set to automatically renew on <strong>{renew_date}</strong> for <strong>${amount}</strong> using the card we have on file.</p><p>No action is needed if you\'d like this to happen automatically. If you\'d like to turn off auto-renew or update your payment method, visit your profile: <a href="{manage_url}">{manage_url}</a></p><p>Best regards,<br>TGG Club Team</p>',
+                'description' => 'Sent 5 days before an auto-renewal charge is attempted, once per renewal cycle.',
+            ],
+            [
+                'template_key' => 'auto_renew_failed',
+                'subject' => 'Action Needed: Your TGG Membership Card Was Declined',
+                'body' => '<h2>Hello, {display_name}!</h2><p>We tried to automatically renew your <strong>{tier_name}</strong> membership, but the card on file was declined.</p><p>Your membership remains active for now (it was due to renew on {end_date}), and we\'ll automatically try again. To avoid any interruption, please update your payment method or renew manually: <a href="{renew_url}">{renew_url}</a></p><p>Best regards,<br>TGG Club Team</p>',
+                'description' => 'Sent once per renewal cycle after the first failed automatic renewal charge attempt.',
+            ],
+            [
+                'template_key' => 'auto_renew_expired',
+                'subject' => 'Your TGG Membership Has Expired',
+                'body' => '<h2>Hello, {display_name}!</h2><p>We were unable to automatically renew your <strong>{tier_name}</strong> membership after several attempts, and your card on file was declined each time. Your membership (due to renew on {end_date}) has now expired.</p><p>To continue your membership, please renew manually: <a href="{renew_url}">{renew_url}</a></p><p>Best regards,<br>TGG Club Team</p>',
+                'description' => 'Sent when an automatic renewal charge fails for the 3rd and final consecutive attempt, and the membership is marked expired.',
+            ],
         ];
 
         $sql = 'INSERT INTO `tgg_email_templates` (`template_key`, `subject`, `body`, `description`)

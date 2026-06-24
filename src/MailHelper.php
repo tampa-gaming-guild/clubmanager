@@ -23,6 +23,10 @@ class MailHelper {
      * @throws Exception
      */
     public static function send(string $to, string $subject, string $body, string $plainTextBody = '', ?int $recipientId = null, ?int $senderId = null): bool {
+        if (!filter_var($to, FILTER_VALIDATE_EMAIL)) {
+            throw new Exception("Invalid recipient email address.");
+        }
+
         $mail = new PHPMailer(true);
 
         try {

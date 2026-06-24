@@ -221,7 +221,7 @@ class BillingHelper {
             $durationUnit = strtolower($plan['duration_unit']);
 
             // Query existing local subscription
-            $subStmt = $appDb->prepare("SELECT join_date, end_date, rate_id FROM tgg_subscriptions WHERE contact_id = :contact_id LIMIT 1");
+            $subStmt = $appDb->prepare("SELECT join_date, end_date, rate_id, stripe_payment_method_id FROM tgg_subscriptions WHERE contact_id = :contact_id LIMIT 1");
             $subStmt->execute(['contact_id' => $contactId]);
             $existingSub = $subStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -272,31 +272,62 @@ class BillingHelper {
                 $endDate = self::addPeriodMinusOneDay($startDate, $durationInterval, $unitString);
             }
 
-            // C. Insert or update local subscription
+            // C1. Capture/refresh the Stripe customer + payment method for future off-session
+            // auto-renewal charges. Best-effort: a Stripe hiccup here must never block an
+            // already-paid member's subscription activation.
+            $capturedCustomerId = $session['customer'] ?? null;
+            $capturedPaymentMethodId = null;
+            try {
+                if (!empty($paymentIntentId) && strpos($paymentIntentId, 'pi_') === 0) {
+                    $pi = StripeHelper::retrievePaymentIntent($paymentIntentId);
+                    $capturedPaymentMethodId = $pi['payment_method'] ?? null;
+                    $capturedCustomerId = $capturedCustomerId ?: ($pi['customer'] ?? null);
+                }
+            } catch (Exception $e) {
+                error_log("Failed to retrieve PaymentIntent for off-session card capture: " . $e->getMessage());
+            }
+
+            // auto_renew only ever gets switched ON the very first time a card is captured for
+            // this contact, regardless of join vs renew -- this is what lets an imported member's
+            // first in-app payment enable it too, while never re-enabling it on any later payment
+            // once a member has explicitly turned it off via their profile.
+            $isFirstCardCapture = empty($existingSub['stripe_payment_method_id'] ?? null);
+            $setAutoRenewOn = $capturedPaymentMethodId && $isFirstCardCapture && !self::isTrialPlan($plan);
+
+            // C2. Insert or update local subscription
             if ($existingSub) {
                 $updateSub = $appDb->prepare("
-                    UPDATE tgg_subscriptions 
-                    SET plan_id = :plan_id, status = 'active', start_date = :start_date, end_date = :end_date 
+                    UPDATE tgg_subscriptions
+                    SET plan_id = :plan_id, status = 'active', start_date = :start_date, end_date = :end_date,
+                        auto_renew_attempts = 0,
+                        stripe_customer_id = COALESCE(:stripe_customer_id, stripe_customer_id),
+                        stripe_payment_method_id = COALESCE(:stripe_payment_method_id, stripe_payment_method_id)"
+                        . ($setAutoRenewOn ? ", auto_renew = 1" : "") . "
                     WHERE contact_id = :contact_id
                 ");
                 $updateSub->execute([
                     'plan_id' => $planId,
                     'start_date' => $startDate,
                     'end_date' => $endDate,
+                    'stripe_customer_id' => $capturedCustomerId,
+                    'stripe_payment_method_id' => $capturedPaymentMethodId,
                     'contact_id' => $contactId
                 ]);
             } else {
                 $joinDate = $today;
                 $insertSub = $appDb->prepare("
-                    INSERT INTO tgg_subscriptions (contact_id, plan_id, status, join_date, start_date, end_date)
-                    VALUES (:contact_id, :plan_id, 'active', :join_date, :start_date, :end_date)
+                    INSERT INTO tgg_subscriptions (contact_id, plan_id, status, join_date, start_date, end_date, stripe_customer_id, stripe_payment_method_id, auto_renew)
+                    VALUES (:contact_id, :plan_id, 'active', :join_date, :start_date, :end_date, :stripe_customer_id, :stripe_payment_method_id, :auto_renew)
                 ");
                 $insertSub->execute([
                     'contact_id' => $contactId,
                     'plan_id' => $planId,
                     'join_date' => $joinDate,
                     'start_date' => $startDate,
-                    'end_date' => $endDate
+                    'end_date' => $endDate,
+                    'stripe_customer_id' => $capturedCustomerId,
+                    'stripe_payment_method_id' => $capturedPaymentMethodId,
+                    'auto_renew' => $setAutoRenewOn ? 1 : 0
                 ]);
             }
 
@@ -727,8 +758,8 @@ class BillingHelper {
             // C. Insert or update local subscription
             if ($existingSub) {
                 $updateSub = $appDb->prepare("
-                    UPDATE tgg_subscriptions 
-                    SET plan_id = :plan_id, status = 'active', start_date = :start_date, end_date = :end_date 
+                    UPDATE tgg_subscriptions
+                    SET plan_id = :plan_id, status = 'active', start_date = :start_date, end_date = :end_date, auto_renew_attempts = 0
                     WHERE contact_id = :contact_id
                 ");
                 $updateSub->execute([
@@ -795,6 +826,258 @@ class BillingHelper {
     }
 
     /**
+     * Charge a due auto-renewal off-session via the member's saved Stripe card. Allows up to
+     * 3 consecutive attempts per renewal cycle (this call plus 2 retries, one per daily cron
+     * run): the first failure sends a warning email, the 3rd failure marks the subscription
+     * expired immediately (rather than waiting out the full renewal grace period) and sends a
+     * distinct "membership expired" email. A successful charge resets the attempt counter,
+     * extends the subscription, and sends the existing payment_received receipt email.
+     * @param int $contactId
+     * @return array ['result' => 'charged'|'declined'|'expired'|'skipped', 'message' => string, 'end_date' => ?string]
+     */
+    public static function processAutoRenewalCharge(int $contactId): array {
+        try {
+            $appDb = Database::getAppConnection();
+
+            $subStmt = $appDb->prepare("
+                SELECT s.*, p.name AS plan_name, p.price, p.duration_interval, p.duration_unit
+                FROM tgg_subscriptions s
+                INNER JOIN tgg_subscription_plans p ON p.id = s.plan_id
+                WHERE s.contact_id = :contact_id
+                  AND s.auto_renew = 1 AND s.status = 'active' AND s.end_date <= CURRENT_DATE()
+                LIMIT 1
+            ");
+            $subStmt->execute(['contact_id' => $contactId]);
+            $sub = $subStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$sub) {
+                return ['result' => 'skipped', 'message' => 'Not due, auto-renew disabled, or already renewed today', 'end_date' => null];
+            }
+
+            $plan = ['name' => $sub['plan_name'], 'price' => $sub['price'], 'duration_interval' => $sub['duration_interval'], 'duration_unit' => $sub['duration_unit']];
+            if (self::isTrialPlan($plan)) {
+                return ['result' => 'skipped', 'message' => 'Trial plans are never auto-renewed', 'end_date' => null];
+            }
+            if (empty($sub['stripe_customer_id']) || empty($sub['stripe_payment_method_id'])) {
+                return ['result' => 'skipped', 'message' => 'No card on file', 'end_date' => null];
+            }
+
+            // Resolve billing period: a custom rate overrides the plan's own duration, exactly
+            // like processCheckoutSession().
+            $durationInterval = (int)$plan['duration_interval'];
+            $durationUnit = strtolower($plan['duration_unit']);
+            $amount = (float)$plan['price'];
+            if (!empty($sub['rate_id'])) {
+                $rateStmt = $appDb->prepare("SELECT * FROM tgg_subscription_rates WHERE id = :rate_id LIMIT 1");
+                $rateStmt->execute(['rate_id' => $sub['rate_id']]);
+                $rate = $rateStmt->fetch(PDO::FETCH_ASSOC);
+                if ($rate) {
+                    $durationInterval = 1;
+                    $amount = (float)$rate['price'];
+                    if ($rate['billing_frequency'] === 'annual') {
+                        $durationUnit = 'year';
+                    } elseif ($rate['billing_frequency'] === 'monthly') {
+                        $durationUnit = 'month';
+                    } elseif ($rate['billing_frequency'] === 'daily') {
+                        $durationUnit = 'day';
+                    }
+                }
+            }
+
+            $contactId = (int)$sub['contact_id'];
+            $existingEndDate = $sub['end_date'];
+            $attemptNumber = (int)$sub['auto_renew_attempts'] + 1;
+
+            // Each attempt gets its own permanent ledger row -- both successes and failures --
+            // so every charge attempt this cycle is logged, not just the latest outcome.
+            $syntheticId = "autorenew_{$contactId}_{$existingEndDate}_{$attemptNumber}";
+            $dupeCheck = $appDb->prepare("SELECT id FROM tgg_billing_ledger WHERE stripe_session_id = :id LIMIT 1");
+            $dupeCheck->execute(['id' => $syntheticId]);
+            if ($dupeCheck->fetch()) {
+                return ['result' => 'skipped', 'message' => 'This attempt was already logged today', 'end_date' => null];
+            }
+
+            $charge = StripeHelper::chargeOffSession(
+                $sub['stripe_customer_id'],
+                $sub['stripe_payment_method_id'],
+                $amount,
+                'usd',
+                "Auto-renewal: {$plan['name']}",
+                ['contact_id' => $contactId, 'plan_id' => (int)$sub['plan_id'], 'cycle_end_date' => $existingEndDate]
+            );
+
+            $contactQuery = $appDb->prepare("SELECT display_name, email FROM tgg_contacts WHERE id = :contact_id LIMIT 1");
+            $contactQuery->execute(['contact_id' => $contactId]);
+            $contact = $contactQuery->fetch(PDO::FETCH_ASSOC);
+
+            if ($charge['success']) {
+                $startDate = date('Y-m-d', strtotime($existingEndDate . ' +1 day'));
+                if ($durationUnit === 'day') {
+                    $endDate = $existingEndDate;
+                } else {
+                    $unitString = in_array($durationUnit, ['month', 'year'], true) ? $durationUnit : 'year';
+                    $endDate = self::addPeriodMinusOneDay($startDate, $durationInterval, $unitString);
+                }
+
+                $appDb->beginTransaction();
+                try {
+                    $insertLedger = $appDb->prepare("
+                        INSERT INTO tgg_billing_ledger (contact_id, plan_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type)
+                        VALUES (:contact_id, :plan_id, :stripe_session_id, :payment_intent_id, :amount, 'usd', 'paid', 'auto_renew')
+                    ");
+                    $insertLedger->execute([
+                        'contact_id' => $contactId,
+                        'plan_id' => (int)$sub['plan_id'],
+                        'stripe_session_id' => $syntheticId,
+                        'payment_intent_id' => $charge['payment_intent_id'],
+                        'amount' => $amount
+                    ]);
+
+                    $updateSub = $appDb->prepare("
+                        UPDATE tgg_subscriptions
+                        SET status = 'active', start_date = :start_date, end_date = :end_date, auto_renew_attempts = 0
+                        WHERE contact_id = :contact_id
+                    ");
+                    $updateSub->execute(['start_date' => $startDate, 'end_date' => $endDate, 'contact_id' => $contactId]);
+
+                    $appDb->commit();
+                } catch (Exception $e) {
+                    if ($appDb->inTransaction()) {
+                        $appDb->rollBack();
+                    }
+                    throw $e;
+                }
+
+                if ($contact && !empty($contact['email'])) {
+                    try {
+                        $loginUrl = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/index.php';
+                        MailHelper::sendTemplate($contact['email'], 'payment_received', [
+                            'display_name' => $contact['display_name'] ?? 'Member',
+                            'tier_name' => $plan['name'] ?? 'Membership Tier',
+                            'amount' => number_format($amount, 2),
+                            'start_date' => $startDate,
+                            'end_date' => $endDate,
+                            'login_url' => $loginUrl
+                        ], $contactId, null);
+                    } catch (Exception $mailEx) {
+                        error_log("Failed to send auto-renewal receipt email: " . $mailEx->getMessage());
+                    }
+                }
+
+                return ['result' => 'charged', 'message' => "Renewed through {$endDate}", 'end_date' => $endDate];
+            }
+
+            // Declined (or requires_action, treated as a decline for v1 -- see StripeHelper::chargeOffSession()).
+            $insertLedger = $appDb->prepare("
+                INSERT INTO tgg_billing_ledger (contact_id, plan_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type)
+                VALUES (:contact_id, :plan_id, :stripe_session_id, :payment_intent_id, :amount, 'usd', 'failed', 'auto_renew')
+            ");
+            $insertLedger->execute([
+                'contact_id' => $contactId,
+                'plan_id' => (int)$sub['plan_id'],
+                'stripe_session_id' => $syntheticId,
+                'payment_intent_id' => $charge['payment_intent_id'] ?? $syntheticId,
+                'amount' => $amount
+            ]);
+
+            $renewUrl = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/renew.php?contact_id=' . $contactId;
+
+            if ($attemptNumber >= 3) {
+                $appDb->prepare("UPDATE tgg_subscriptions SET status = 'expired', auto_renew_attempts = :attempts WHERE contact_id = :contact_id")
+                    ->execute(['attempts' => $attemptNumber, 'contact_id' => $contactId]);
+
+                if ($contact && !empty($contact['email'])) {
+                    try {
+                        MailHelper::sendTemplate($contact['email'], 'auto_renew_expired', [
+                            'display_name' => $contact['display_name'] ?? 'Member',
+                            'tier_name' => $plan['name'] ?? 'Membership Tier',
+                            'end_date' => $existingEndDate,
+                            'renew_url' => $renewUrl
+                        ], $contactId, null);
+                    } catch (Exception $mailEx) {
+                        error_log("Failed to send auto-renewal expired email: " . $mailEx->getMessage());
+                    }
+                }
+
+                return ['result' => 'expired', 'message' => $charge['message'] ?? 'Card declined on final attempt', 'end_date' => null];
+            }
+
+            $appDb->prepare("UPDATE tgg_subscriptions SET auto_renew_attempts = :attempts WHERE contact_id = :contact_id")
+                ->execute(['attempts' => $attemptNumber, 'contact_id' => $contactId]);
+
+            if ($attemptNumber === 1 && $contact && !empty($contact['email'])) {
+                try {
+                    MailHelper::sendTemplate($contact['email'], 'auto_renew_failed', [
+                        'display_name' => $contact['display_name'] ?? 'Member',
+                        'tier_name' => $plan['name'] ?? 'Membership Tier',
+                        'end_date' => $existingEndDate,
+                        'renew_url' => $renewUrl
+                    ], $contactId, null);
+                } catch (Exception $mailEx) {
+                    error_log("Failed to send auto-renewal declined email: " . $mailEx->getMessage());
+                }
+            }
+
+            return ['result' => 'declined', 'message' => $charge['message'] ?? 'Card declined', 'end_date' => null];
+
+        } catch (Exception $e) {
+            // A genuine API/config/network error (not a card decline) -- don't count it
+            // against the member's 3-attempt limit or log it as a card decline, since it
+            // isn't their card's fault. The cron will simply try again on its next run.
+            error_log("Auto-renewal charge failed for contact #{$contactId}: " . $e->getMessage());
+            return ['result' => 'error', 'message' => $e->getMessage(), 'end_date' => null];
+        }
+    }
+
+    /**
+     * Send the "your membership will auto-renew soon" reminder exactly 5 days before the
+     * scheduled charge, once per renewal cycle (deduped via auto_renew_reminder_sent_for).
+     * @return array ['sent' => int]
+     */
+    public static function sendAutoRenewalReminders(): array {
+        $appDb = Database::getAppConnection();
+        $sent = 0;
+
+        $stmt = $appDb->prepare("
+            SELECT s.contact_id, s.end_date, c.display_name, c.email, p.name AS plan_name,
+                   COALESCE(r.price, p.price) AS price
+            FROM tgg_subscriptions s
+            INNER JOIN tgg_contacts c ON c.id = s.contact_id
+            INNER JOIN tgg_subscription_plans p ON p.id = s.plan_id
+            LEFT JOIN tgg_subscription_rates r ON r.id = s.rate_id
+            WHERE s.auto_renew = 1 AND s.status = 'active'
+              AND s.end_date = CURRENT_DATE() + INTERVAL 5 DAY
+              AND (s.auto_renew_reminder_sent_for IS NULL OR s.auto_renew_reminder_sent_for <> s.end_date)
+        ");
+        $stmt->execute();
+        $due = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($due as $row) {
+            $contactId = (int)$row['contact_id'];
+            try {
+                if (!empty($row['email'])) {
+                    $manageUrl = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/profile.php?id=' . $contactId;
+                    MailHelper::sendTemplate($row['email'], 'auto_renew_upcoming', [
+                        'display_name' => $row['display_name'] ?? 'Member',
+                        'tier_name' => $row['plan_name'] ?? 'Membership Tier',
+                        'amount' => number_format((float)$row['price'], 2),
+                        'renew_date' => $row['end_date'],
+                        'manage_url' => $manageUrl
+                    ], $contactId, null);
+                }
+
+                $appDb->prepare("UPDATE tgg_subscriptions SET auto_renew_reminder_sent_for = :end_date WHERE contact_id = :contact_id")
+                    ->execute(['end_date' => $row['end_date'], 'contact_id' => $contactId]);
+                $sent++;
+            } catch (Exception $e) {
+                error_log("Failed to send auto-renewal reminder for contact #{$contactId}: " . $e->getMessage());
+            }
+        }
+
+        return ['sent' => $sent];
+    }
+
+    /**
      * Check whether an Associate member owes a per-visit entrance fee on this check-in.
      * Associates get exactly one free check-in after each dues payment; every check-in
      * after that, until their next payment, requires the fee. Computed by counting
@@ -820,7 +1103,7 @@ class BillingHelper {
         $stmt = $appDb->prepare("
             SELECT created_at FROM tgg_billing_ledger
             WHERE contact_id = :contact_id AND plan_id = :plan_id
-              AND payment_status = 'paid' AND action_type IN ('join', 'renew')
+              AND payment_status = 'paid' AND action_type IN ('join', 'renew', 'auto_renew')
             ORDER BY created_at DESC LIMIT 1
         ");
         $stmt->execute(['contact_id' => $contactId, 'plan_id' => $planId]);
