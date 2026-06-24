@@ -1,7 +1,8 @@
 <?php
 /**
  * Public Volunteer Schedule
- * Displays upcoming events and the signup status of the three roles: Open, Close, Greeter.
+ * Displays upcoming events and the signup status of the roles: Open, Close.
+ * (Greeter role is temporarily not offered here; existing credit logic for it is left intact.)
  */
 require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
@@ -60,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && Auth::check()) {
                     $contactId = $_SESSION['user']['contact_id'];
                 }
 
-                $results = Event::signupVolunteerAllOpenRoles($eventId, $contactId, ['Open', 'Close', 'Greeter']);
+                $results = Event::signupVolunteerAllOpenRoles($eventId, $contactId, ['Open', 'Close']);
 
                 $appDb = Database::getAppConnection();
                 $stmtName = $appDb->prepare("SELECT display_name FROM tgg_contacts WHERE id = :id LIMIT 1");
@@ -280,7 +281,7 @@ try {
                                         foreach ($vols as $vol) {
                                             $roleVolunteers[$vol['role']] = $vol;
                                         }
-                                        $openRolesForEvent = array_values(array_diff(['Open', 'Close', 'Greeter'], array_keys($roleVolunteers)));
+                                        $openRolesForEvent = array_values(array_diff(['Open', 'Close'], array_keys($roleVolunteers)));
 
                                         $eventDate = date('F d, Y (l)', strtotime($evt['start_time']));
                                         $eventTime = date('g:i A', strtotime($evt['start_time'])) . ' - ' . date('g:i A', strtotime($evt['end_time']));
@@ -347,7 +348,7 @@ try {
                                     </tr>
                                     
                                     <?php 
-                                        $roles = ['Open', 'Close', 'Greeter'];
+                                        $roles = ['Open', 'Close'];
                                         foreach ($roles as $role):
                                             $hasVol = isset($roleVolunteers[$role]);
                                             $volName = $hasVol ? $roleVolunteers[$role]['display_name'] : null;
@@ -371,7 +372,7 @@ try {
                                                     <span class="badge badge-active" style="display: inline-flex; align-items: center; gap: 8px;">
                                                         👤 <?php echo e($volName); ?>
                                                     </span>
-                                                <?php elseif ($role !== 'Greeter'): ?>
+                                                <?php else: ?>
                                                     <span class="volunteer-status-needed">
                                                         👋 Volunteer Needed
                                                     </span>
