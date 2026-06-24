@@ -8,6 +8,7 @@
 require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
 use App\Auth;
+use App\BillingHelper;
 use App\CiviCRMImporter;
 use App\Database;
 use App\Event;
@@ -127,6 +128,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['member_lookup_action'
             } catch (Exception $e) {
                 $errorMsg = safe_err("Lookup error: ", $e);
             }
+        }
+    }
+}
+
+// Handle Add Member submission (Hosting View quick action: a host adding a brand-new
+// walk-in always gets a free Trial membership and an immediate check-in for the
+// session they're hosting right now -- no plan/payment choices here. To upgrade or
+// renew past Trial, use the member's profile afterward. The Admin Dashboard's separate
+// Add Member, with full plan/payment control, is unaffected by this.)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_member'])) {
+    if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
+        $errorMsg = "Invalid security token.";
+    } elseif (!has_permission('edit checkins')) {
+        $errorMsg = "You do not have permission to perform this action.";
+    } else {
+        try {
+            $trialPlan = BillingHelper::getTrialPlan();
+            if (!$trialPlan) {
+                throw new Exception("No Trial membership plan is configured.");
+            }
+
+            $result = BillingHelper::addMember(
+                $_POST['first_name'] ?? '',
+                $_POST['last_name'] ?? '',
+                $_POST['email'] ?? '',
+                $_POST['phone'] ?? '',
+                (int)$trialPlan['id'],
+                '',
+                true,
+                $_SESSION['user']['contact_id'] ?? null
+            );
+
+            $appDb = Database::getAppConnection();
+            $insertCheckin = $appDb->prepare("INSERT INTO tgg_checkins (contact_id, checked_in_at, notes) VALUES (:contact_id, NOW(), :notes)");
+            $insertCheckin->execute([
+                'contact_id' => $result['contact_id'],
+                'notes' => 'New member -- Trial signup via Add Member'
+            ]);
+
+            redirect('index.php?success=' . urlencode("{$result['display_name']} was added with a free Trial membership and checked in!"));
+        } catch (Exception $e) {
+            $errorMsg = safe_err("Failed to add member: ", $e);
         }
     }
 }
@@ -343,6 +386,8 @@ if (Auth::check() && has_role('admin')) {
                                     </form>
                                     <p style="margin-top: 12px; text-align: center;">
                                         <a href="host_checkin.php" class="card-link">Check In With Name Search &rarr;</a>
+                                        &nbsp;|&nbsp;
+                                        <a href="#" class="card-link" onclick="openAddMemberModal(); return false;">+ Add Member</a>
                                     </p>
                                 </div>
                             </div>
@@ -612,7 +657,46 @@ if (Auth::check() && has_role('admin')) {
         </main>
 
         <?php include __DIR__ . '/partials/footer.php'; ?>
+
     <?php if ($showHostingView): ?>
+    <!-- Add Member Modal -->
+    <div id="add-member-modal" class="modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(5px);">
+        <div class="modal-content glass-panel" style="background: rgba(30, 30, 40, 0.95); margin: 5% auto; padding: 25px; border: 1px solid rgba(255, 255, 255, 0.1); width: 90%; max-width: 480px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+            <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 15px; margin-bottom: 20px;">
+                <h3 style="margin: 0; color: #fff; font-size: 1.2rem;">Add Member</h3>
+                <span class="close" onclick="closeAddMemberModal()" style="color: rgba(255,255,255,0.6); font-size: 28px; font-weight: bold; cursor: pointer; transition: color 0.2s;">&times;</span>
+            </div>
+            <form action="index.php" method="POST" class="auth-form">
+                <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="add_member_first_name">First Name</label>
+                        <input type="text" id="add_member_first_name" name="first_name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="add_member_last_name">Last Name</label>
+                        <input type="text" id="add_member_last_name" name="last_name" required>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="add_member_email">Email Address</label>
+                    <input type="email" id="add_member_email" name="email" required autocomplete="email">
+                </div>
+
+                <div class="form-group">
+                    <label for="add_member_phone">Phone Number (Optional)</label>
+                    <input type="tel" id="add_member_phone" name="phone">
+                </div>
+
+                <p class="field-hint" style="margin-bottom: 10px;">New members get a free 30-day Trial membership and are checked in for today's session right away. To upgrade or renew past Trial, use their profile afterward.</p>
+
+                <button type="submit" name="add_member" value="1" class="btn btn-primary btn-block">Add Member</button>
+            </form>
+        </div>
+    </div>
+
     <script>
         (function () {
             const csrfToken = <?php echo json_encode(get_csrf_token()); ?>;
@@ -724,6 +808,25 @@ if (Auth::check() && has_role('admin')) {
             poll();
             setInterval(poll, 12000);
         })();
+    </script>
+
+    <script>
+        function openAddMemberModal() {
+            document.getElementById('add-member-modal').style.display = 'block';
+        }
+        function closeAddMemberModal() {
+            document.getElementById('add-member-modal').style.display = 'none';
+        }
+        window.addEventListener('click', function(event) {
+            const modal = document.getElementById('add-member-modal');
+            if (event.target === modal) {
+                modal.style.display = 'none';
+            }
+        });
+
+        <?php if ($errorMsg && isset($_POST['add_member'])): ?>
+        document.addEventListener('DOMContentLoaded', openAddMemberModal);
+        <?php endif; ?>
     </script>
     <?php endif; ?>
     <script>

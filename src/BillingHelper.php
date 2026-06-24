@@ -397,6 +397,19 @@ class BillingHelper {
     }
 
     /**
+     * Get the active Trial plan, if one is configured.
+     * @return array|null
+     */
+    public static function getTrialPlan(): ?array {
+        foreach (self::getSubscriptionPlans(true) as $plan) {
+            if (self::isTrialPlan($plan)) {
+                return $plan;
+            }
+        }
+        return null;
+    }
+
+    /**
      * Check whether a plan is the Associate membership tier, which charges a per-visit
      * entrance fee on every check-in except the one immediately after a dues payment.
      * Matches any plan name containing "associate".
@@ -503,6 +516,154 @@ class BillingHelper {
             }
             throw $e;
         }
+    }
+
+    /**
+     * Create a brand-new local contact and member account (mirrors the self-service
+     * join.php flow), optionally activating a membership immediately. Used by both the
+     * Admin Dashboard's "Add Member" and the host-facing Hosting View's "Add Member",
+     * which share the same business rules but differ in who's allowed to activate a
+     * membership at creation time.
+     * @param string $firstName
+     * @param string $lastName
+     * @param string $email
+     * @param string $phone
+     * @param int $planId 0 if no membership should be activated
+     * @param string $paymentMethod Required for non-Trial plans: cash|check|complimentary|volunteer credit
+     * @param bool $allowMembershipActivation False for a host without admin rights -- the contact is still created, just without a plan
+     * @param int|null $senderId Contact ID of the admin/host performing the action, for email logging
+     * @return array{contact_id:int, display_name:string}
+     * @throws Exception
+     */
+    public static function addMember(
+        string $firstName,
+        string $lastName,
+        string $email,
+        string $phone,
+        int $planId,
+        string $paymentMethod,
+        bool $allowMembershipActivation,
+        ?int $senderId
+    ): array {
+        $firstName = trim($firstName);
+        $lastName = trim($lastName);
+        $email = trim(strtolower($email));
+        $phone = trim($phone);
+
+        if (empty($firstName) || empty($lastName)) {
+            throw new Exception("First and last name are required.");
+        }
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            throw new Exception("Please enter a valid email address.");
+        }
+
+        $appDb = Database::getAppConnection();
+
+        $existsStmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE email = :email AND is_deleted = 0 LIMIT 1");
+        $existsStmt->execute(['email' => $email]);
+        if ($existsStmt->fetch()) {
+            throw new Exception("A member with this email already exists. Use their existing profile to manage their membership instead.");
+        }
+
+        // Resolve and validate the selected plan up front, before creating the contact,
+        // the same order join.php uses for its own Trial-eligibility check.
+        $selectedPlan = null;
+        $isTrialActivation = false;
+        if ($allowMembershipActivation && $planId > 0) {
+            $planStmt = $appDb->prepare("SELECT * FROM tgg_subscription_plans WHERE id = :id LIMIT 1");
+            $planStmt->execute(['id' => $planId]);
+            $selectedPlan = $planStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$selectedPlan) {
+                throw new Exception("Invalid membership level selected.");
+            }
+
+            $isTrialActivation = self::isTrialPlan($selectedPlan);
+            if ($isTrialActivation) {
+                if (self::hasUsedOrPendingTrial($email)) {
+                    throw new Exception("This email address has already used its one-time Trial membership and is not eligible for another.");
+                }
+            } elseif (empty($paymentMethod)) {
+                throw new Exception("Please select a payment method to activate this membership level.");
+            }
+        }
+
+        $displayName = "{$firstName} {$lastName}";
+        $appDb->beginTransaction();
+
+        try {
+            // A. Create Local Contact
+            $insertContact = $appDb->prepare("INSERT INTO tgg_contacts (contact_type, display_name, first_name, last_name, email, phone, is_deleted)
+                                               VALUES ('Individual', :display_name, :first_name, :last_name, :email, :phone, 0)");
+            $insertContact->execute([
+                'display_name' => $displayName,
+                'first_name' => $firstName,
+                'last_name' => $lastName,
+                'email' => $email,
+                'phone' => !empty($phone) ? $phone : null
+            ]);
+            $newContactId = (int)$appDb->lastInsertId();
+
+            // B. Create Local Member Settings with a random, discarded password hash --
+            // they get a "set up your password" link by email if a membership is activated.
+            $randomPasswordHash = password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT);
+            $defaultPublicFields = json_encode(['display_name', 'membership_name', 'status_label']);
+            $insertSettings = $appDb->prepare("INSERT INTO tgg_member_settings (contact_id, password_hash, role, is_profile_public, public_fields)
+                                               VALUES (:contact_id, :password_hash, 'member', 1, :public_fields)");
+            $insertSettings->execute([
+                'contact_id' => $newContactId,
+                'password_hash' => $randomPasswordHash,
+                'public_fields' => $defaultPublicFields
+            ]);
+
+            $appDb->commit();
+        } catch (Exception $txException) {
+            if ($appDb->inTransaction()) {
+                $appDb->rollBack();
+            }
+            throw $txException;
+        }
+
+        // Activate the membership picked above, if any -- Trial uses the same one-time,
+        // no-payment activation as the email-verified self-service flow (skipping the
+        // verification link, since the admin/host is verifying the person in person);
+        // any other plan goes through the existing offline-payment recording.
+        if ($selectedPlan) {
+            if ($isTrialActivation) {
+                self::activateTrial($newContactId, $planId);
+            } else {
+                self::processOfflineRenewal($newContactId, $planId, $paymentMethod, 'join');
+            }
+
+            // Send a welcome email with a link to set up portal access, mirroring the welcome
+            // email sent after a self-service Stripe join (or, for Trial, after email verification).
+            try {
+                $membership = self::getMemberSubscriptionDetails($newContactId);
+                $rawToken = Auth::createPasswordSetupToken($email, '+7 days');
+                $setPasswordLink = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/reset-password.php?token=' . $rawToken;
+                if ($isTrialActivation) {
+                    $loginUrl = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/index.php';
+                    MailHelper::sendTemplate($email, 'trial_activated', [
+                        'display_name' => $displayName,
+                        'start_date' => $membership['start_date'] ?? date('Y-m-d'),
+                        'end_date' => $membership['end_date'] ?? 'N/A',
+                        'login_url' => $loginUrl,
+                        'set_password_link' => $setPasswordLink
+                    ], $newContactId, $senderId);
+                } else {
+                    MailHelper::sendTemplate($email, 'signup', [
+                        'display_name' => $displayName,
+                        'tier_name' => $membership['membership_name'] ?? 'Member',
+                        'start_date' => $membership['start_date'] ?? date('Y-m-d'),
+                        'end_date' => $membership['end_date'] ?? 'N/A',
+                        'set_password_link' => $setPasswordLink
+                    ], $newContactId, $senderId);
+                }
+            } catch (Exception $mailEx) {
+                error_log("Failed to send new member welcome email: " . $mailEx->getMessage());
+            }
+        }
+
+        return ['contact_id' => $newContactId, 'display_name' => $displayName];
     }
 
     /**

@@ -8,13 +8,45 @@ require_once dirname(dirname(dirname(__DIR__))) . '/config/bootstrap.php';
 use App\Auth;
 use App\Database;
 use App\CiviCRMImporter;
+use App\BillingHelper;
 
 Auth::requireAdmin();
 
 $errorMsg = null;
+$successMsg = null;
 $members = [];
 $tiers = [];
 $statuses = [];
+$addMemberPlans = [];
+
+if (isset($_GET['success'])) {
+    $successMsg = $_GET['success'];
+}
+
+// Handle Add Member submission
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_member'])) {
+    if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
+        $errorMsg = "Invalid security token. Please try again.";
+    } else {
+        try {
+            $result = BillingHelper::addMember(
+                $_POST['first_name'] ?? '',
+                $_POST['last_name'] ?? '',
+                $_POST['email'] ?? '',
+                $_POST['phone'] ?? '',
+                (int)($_POST['plan_id'] ?? 0),
+                $_POST['payment_method'] ?? '',
+                has_role('admin'),
+                $_SESSION['user']['contact_id'] ?? null
+            );
+            $successMsg = "{$result['display_name']} was added successfully!";
+            header("Location: dashboard.php?success=" . urlencode($successMsg));
+            exit;
+        } catch (Exception $e) {
+            $errorMsg = safe_err("Failed to add member: ", $e);
+        }
+    }
+}
 
 // Fetch statistics
 $totalMembers = 0;
@@ -31,6 +63,14 @@ try {
 
     // 1. Fetch Tiers & Statuses first for pivot matrix layout & dropdowns
     $tiers = CiviCRMImporter::getMembershipTiers();
+
+    // Add Member's plan dropdown needs the *local* tgg_subscription_plans.id (what
+    // BillingHelper::processOfflineRenewal/activateTrial expect), unlike $tiers above
+    // whose 'id' is actually the CiviCRM membership_type_id used for the pivot table
+    // and level filter. Trial is included -- unlike renew.php's tiers list -- since this
+    // is for brand-new joins, not renewals, and Trial is a valid one-time join option.
+    $addMemberPlans = BillingHelper::getSubscriptionPlans(true);
+
     $statuses = $appDb->query("
         SELECT id, name, label, is_active
         FROM tgg_membership_statuses
@@ -178,6 +218,10 @@ try {
                         <div class="alert alert-danger"><?php echo e($errorMsg); ?></div>
                     <?php endif; ?>
 
+                    <?php if ($successMsg): ?>
+                        <div class="alert alert-success"><?php echo htmlspecialchars($successMsg, ENT_QUOTES, 'UTF-8'); ?></div>
+                    <?php endif; ?>
+
                     <!-- Stat Cards Panel -->
                     <div class="stats-panel-grid">
                         <?php if (has_permission('edit checkins')): ?>
@@ -296,8 +340,11 @@ try {
                     <!-- Members List Table -->
                     <div class="table-card glass-panel mt-20">
                         <div class="table-card-header">
-                            <h3>Registered Members Directory</h3>
-                            
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                <h3>Registered Members Directory</h3>
+                                <button type="button" class="btn btn-primary btn-small" onclick="openAddMemberModal()">+ Add Member</button>
+                            </div>
+
                             <!-- Search & Filter Controls -->
                             <div class="filter-controls">
                                 <div class="search-bar">
@@ -390,6 +437,67 @@ try {
         </main>
 
         <?php include __DIR__ . '/../partials/footer.php'; ?>
+
+    <!-- Add Member Modal -->
+    <div id="add-member-modal" class="modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(5px);">
+        <div class="modal-content glass-panel" style="background: rgba(30, 30, 40, 0.95); margin: 5% auto; padding: 25px; border: 1px solid rgba(255, 255, 255, 0.1); width: 90%; max-width: 480px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+            <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 15px; margin-bottom: 20px;">
+                <h3 style="margin: 0; color: #fff; font-size: 1.2rem;">Add Member</h3>
+                <span class="close" onclick="closeAddMemberModal()" style="color: rgba(255,255,255,0.6); font-size: 28px; font-weight: bold; cursor: pointer; transition: color 0.2s;">&times;</span>
+            </div>
+            <form action="dashboard.php" method="POST" class="auth-form">
+                <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="add_member_first_name">First Name</label>
+                        <input type="text" id="add_member_first_name" name="first_name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="add_member_last_name">Last Name</label>
+                        <input type="text" id="add_member_last_name" name="last_name" required>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="add_member_email">Email Address</label>
+                    <input type="email" id="add_member_email" name="email" required autocomplete="email">
+                </div>
+
+                <div class="form-group">
+                    <label for="add_member_phone">Phone Number (Optional)</label>
+                    <input type="tel" id="add_member_phone" name="phone">
+                </div>
+
+                <?php if (has_role('admin')): ?>
+                    <p class="field-hint" style="margin-bottom: 10px;">Optionally activate a membership now -- Trial is free and one-time per email, other levels need an offline payment method. Leave blank to add the member without an active membership.</p>
+
+                    <div class="form-group">
+                        <label for="add_member_plan_id">Membership Level</label>
+                        <select id="add_member_plan_id" name="plan_id" onchange="updateAddMemberPaymentVisibility()">
+                            <option value="">-- None --</option>
+                            <?php foreach ($addMemberPlans as $plan): ?>
+                                <option value="<?php echo (int)$plan['id']; ?>" data-trial="<?php echo BillingHelper::isTrialPlan($plan) ? '1' : '0'; ?>"><?php echo e($plan['name']); ?> - $<?php echo number_format($plan['minimum_fee'], 2); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <div class="form-group" id="add_member_payment_method_group">
+                        <label for="add_member_payment_method">Payment Method</label>
+                        <select id="add_member_payment_method" name="payment_method">
+                            <option value="">-- None --</option>
+                            <option value="cash">Cash</option>
+                            <option value="check">Check</option>
+                            <option value="complimentary">Complimentary</option>
+                            <option value="volunteer credit">Volunteer Credit</option>
+                        </select>
+                    </div>
+                <?php endif; ?>
+
+                <button type="submit" name="add_member" value="1" class="btn btn-primary btn-block">Add Member</button>
+            </form>
+        </div>
+    </div>
 
     <!-- Client-side filter and sort script -->
     <script>
@@ -495,6 +603,39 @@ try {
 
         // Apply initial filter on page load
         document.addEventListener('DOMContentLoaded', filterMembersTable);
+
+        // Add Member Modal
+        function openAddMemberModal() {
+            document.getElementById('add-member-modal').style.display = 'block';
+        }
+        function closeAddMemberModal() {
+            document.getElementById('add-member-modal').style.display = 'none';
+        }
+        window.addEventListener('click', function(event) {
+            const modal = document.getElementById('add-member-modal');
+            if (event.target === modal) {
+                modal.style.display = 'none';
+            }
+        });
+
+        // Trial is free and one-time, so the payment method field doesn't apply to it.
+        function updateAddMemberPaymentVisibility() {
+            const planSelect = document.getElementById('add_member_plan_id');
+            const paymentGroup = document.getElementById('add_member_payment_method_group');
+            if (!planSelect || !paymentGroup) return;
+
+            const selectedOpt = planSelect.options[planSelect.selectedIndex];
+            const isTrial = selectedOpt && selectedOpt.getAttribute('data-trial') === '1';
+            paymentGroup.style.display = isTrial ? 'none' : '';
+            if (isTrial) {
+                document.getElementById('add_member_payment_method').value = '';
+            }
+        }
+        document.addEventListener('DOMContentLoaded', updateAddMemberPaymentVisibility);
+
+        <?php if ($errorMsg && isset($_POST['add_member'])): ?>
+        document.addEventListener('DOMContentLoaded', openAddMemberModal);
+        <?php endif; ?>
     </script>
 </body>
 </html>

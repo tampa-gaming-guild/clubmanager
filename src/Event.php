@@ -69,8 +69,9 @@ class Event {
 
     /**
      * Get the currently active session event, if any.
-     * "Active" = today's event where NOW() is within 1hr before start_time
-     * through end_time.
+     * "Active" = today's event where NOW() is within 2hrs before start_time
+     * through end_time -- hosts need to set up and members start arriving
+     * well before the official start time.
      */
     public static function getActiveSession(): ?array {
         $appDb = Database::getAppConnection();
@@ -78,7 +79,7 @@ class Event {
             SELECT id, title, description, start_time, end_time, max_volunteers
             FROM tgg_events
             WHERE DATE(start_time) = CURDATE()
-              AND NOW() >= DATE_SUB(start_time, INTERVAL 1 HOUR)
+              AND NOW() >= DATE_SUB(start_time, INTERVAL 2 HOUR)
               AND NOW() <= end_time
             ORDER BY start_time ASC
             LIMIT 1
