@@ -89,9 +89,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
             $amountReceivedInput = $_POST['amount_received'] ?? '';
             $customAmount = ($amountReceivedInput !== '') ? (float)$amountReceivedInput : null;
             
-            // For offline renewals, if durationMode is not 'standard', we use Plan 1 as a fallback for tierName retrieval
-            // but the resolved final plan will remain the current one.
-            $tierId = ($durationMode === 'standard') ? (int)($_POST['tier_id'] ?? 0) : 1; 
+            $tierId = ($durationMode === 'standard') ? (int)($_POST['tier_id'] ?? 0) : (int)($membership['membership_id'] ?? ($tiers[0]['id'] ?? 0));
 
             if (empty($tierId)) {
                 $errorMsg = "Please select a membership level.";
