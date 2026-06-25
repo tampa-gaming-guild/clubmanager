@@ -22,7 +22,9 @@ $current_page = basename($_SERVER['PHP_SELF']);
             <li><a href="import.php" class="<?php echo ($current_page === 'import.php') ? 'active' : ''; ?>">CiviCRM Importer</a></li>
         <?php endif; ?>
         
-        <li><a href="memberships.php" class="<?php echo ($current_page === 'memberships.php') ? 'active' : ''; ?>">Memberships</a></li>
+        <?php if (has_permission('manage configuration')): ?>
+            <li><a href="memberships.php" class="<?php echo ($current_page === 'memberships.php') ? 'active' : ''; ?>">Memberships</a></li>
+        <?php endif; ?>
         
         <?php if (has_permission('all')): ?>
             <li><a href="email_templates.php" class="<?php echo ($current_page === 'email_templates.php') ? 'active' : ''; ?>">Email Templates</a></li>

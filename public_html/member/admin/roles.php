@@ -24,6 +24,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         // 1. Save Role-Permission Matrix
         if (isset($_POST['save_matrix'])) {
+            if (!has_permission('manage roles') && !has_role('superadmin')) {
+                $errorMsg = "You do not have permission to edit the role-permission matrix.";
+            } else
             try {
                 $viewerIsSuperadmin = has_role('superadmin');
                 
@@ -423,6 +426,7 @@ $membersList = $stmtMembers->fetchAll();
                     <?php endif; ?>
 
                     <!-- Section 1: Role-Permission Matrix -->
+                    <?php if (has_permission('manage roles') || has_role('superadmin')): ?>
                     <div class="table-card glass-panel" style="padding: 25px;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                             <span style="font-size: 0.9rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary);">Role-Permission Mapping Matrix</span>
@@ -469,6 +473,7 @@ $membersList = $stmtMembers->fetchAll();
                             </div>
                         </form>
                     </div>
+                    <?php endif; ?>
 
                     <!-- Section 2: User Role Assignment -->
                     <div class="table-card glass-panel assignment-grid" style="padding: 25px;">
