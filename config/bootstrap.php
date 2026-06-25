@@ -93,7 +93,7 @@ if ((isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PRO
 }
 
 // 5. Secure Session Setup
-if (session_status() === PHP_SESSION_NONE) {
+if (session_status() === PHP_SESSION_NONE && php_sapi_name() !== 'cli') {
     // Dynamically determine cookie path from BASE_URL to support subdirectories and localhost root
     $cookiePath = '/';
     if (isset($_ENV['BASE_URL'])) {
