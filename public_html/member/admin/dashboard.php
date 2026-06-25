@@ -79,54 +79,49 @@ try {
         ORDER BY id ASC
     ")->fetchAll();
 
-    // 2. Initialize matrix with all membership levels and statuses
-    $matrix = [];
-    foreach ($tiers as $tier) {
-        $matrix[$tier['name']] = [];
-        foreach ($statuses as $stat) {
-            $matrix[$tier['name']][$stat['label']] = 0;
+    // 2. Build membership level/status pivot matrix (admin panel only)
+    if (has_permission('admin panel')) {
+        $matrix = [];
+        foreach ($tiers as $tier) {
+            $matrix[$tier['name']] = [];
+            foreach ($statuses as $stat) {
+                $matrix[$tier['name']][$stat['label']] = 0;
+            }
         }
-    }
-
-    // 3. Calculate Active/Expired counts & populate matrix
-    foreach ($members as $m) {
-        if ($m['is_active']) {
-            $activeMembers++;
-        } else if ($m['status_label'] === 'Expired') {
-            $expiredMembers++;
-        }
-        
-        $lvl = $m['membership_name'];
-        $stat = $m['status_label'];
-        
-        if ($lvl && $stat) {
-            if (!isset($matrix[$lvl])) {
-                $matrix[$lvl] = [];
-                foreach ($statuses as $s) {
-                    $matrix[$lvl][$s['label']] = 0;
+        foreach ($members as $m) {
+            $lvl = $m['membership_name'];
+            $stat = $m['status_label'];
+            if ($lvl && $stat) {
+                if (!isset($matrix[$lvl])) {
+                    $matrix[$lvl] = [];
+                    foreach ($statuses as $s) {
+                        $matrix[$lvl][$s['label']] = 0;
+                    }
                 }
+                if (!isset($matrix[$lvl][$stat])) {
+                    $matrix[$lvl][$stat] = 0;
+                }
+                $matrix[$lvl][$stat]++;
             }
-            if (!isset($matrix[$lvl][$stat])) {
-                $matrix[$lvl][$stat] = 0;
-            }
-            $matrix[$lvl][$stat]++;
         }
+        ksort($matrix);
     }
-    ksort($matrix);
 
-    // 4. Fetch Check-ins logged today
+    // 3. Fetch Check-ins logged today
     $checkinsToday = (int)$appDb->query("
         SELECT COUNT(*) FROM tgg_checkins 
         WHERE DATE(checked_in_at) = CURRENT_DATE()
     ")->fetchColumn();
 
-    // 5. Fetch Stripe transaction revenue this month from local ledger
-    $monthRevenue = (float)$appDb->query("
-        SELECT SUM(amount) FROM tgg_billing_ledger 
-        WHERE MONTH(created_at) = MONTH(CURRENT_DATE()) 
-          AND YEAR(created_at) = YEAR(CURRENT_DATE())
-          AND payment_status = 'paid'
-    ")->fetchColumn();
+    // 4. Fetch Stripe transaction revenue this month (admin panel only)
+    if (has_permission('admin panel')) {
+        $monthRevenue = (float)$appDb->query("
+            SELECT SUM(amount) FROM tgg_billing_ledger
+            WHERE MONTH(created_at) = MONTH(CURRENT_DATE())
+              AND YEAR(created_at) = YEAR(CURRENT_DATE())
+              AND payment_status = 'paid'
+        ")->fetchColumn();
+    }
 
 } catch (Exception $e) {
     $errorMsg = safe_err("Unable to fetch summary metrics: ", $e);
@@ -243,7 +238,7 @@ try {
                             </div>
                         </div>
 
-                        <?php if (has_permission('process payments')): ?>
+                        <?php if (has_permission('admin panel')): ?>
                         <div class="stat-card glass-panel border-left-yellow">
                             <span class="stat-icon">💲</span>
                             <div class="stat-vals">
@@ -255,7 +250,8 @@ try {
                         <?php endif; ?>
                     </div>
 
-                    <!-- Level & Status Pivot Table (Full Width) -->
+                    <!-- Level & Status Pivot Table (Admin Panel only) -->
+                    <?php if (has_permission('admin panel')): ?>
                     <div class="table-card glass-panel mt-20" style="padding: 20px;">
                         <span style="font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary); margin-bottom: 15px; display: block;">Members by Level & Status</span>
                         <div style="overflow-x: auto; font-size: 0.8rem;">
@@ -336,6 +332,7 @@ try {
                             </table>
                         </div>
                     </div>
+                    <?php endif; ?>
 
                     <!-- Members List Table -->
                     <div class="table-card glass-panel mt-20">
