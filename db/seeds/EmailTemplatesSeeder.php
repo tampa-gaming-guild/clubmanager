@@ -75,6 +75,18 @@ final class EmailTemplatesSeeder extends AbstractSeed
                 'body' => '<h2>Hello, {display_name}!</h2><p>We were unable to automatically renew your <strong>{tier_name}</strong> membership after several attempts, and your card on file was declined each time. Your membership (due to renew on {end_date}) has now expired.</p><p>To continue your membership, please renew manually: <a href="{renew_url}">{renew_url}</a></p><p>Best regards,<br>TGG Club Team</p>',
                 'description' => 'Sent when an automatic renewal charge fails for the 3rd and final consecutive attempt, and the membership is marked expired.',
             ],
+            [
+                'template_key' => 'renewal_reminder',
+                'subject' => 'Your TGG Membership Expires Soon',
+                'body' => '<h2>Hello, {display_name}!</h2><p>Your <strong>{tier_name}</strong> membership is set to expire on <strong>{end_date}</strong>.</p><p>To keep your membership active without any interruption, please renew before that date:</p><p><a href="{renew_url}">{renew_url}</a></p><p>Best regards,<br>TGG Club Team</p>',
+                'description' => 'Sent 5 days before expiry to members who do not have auto-renew enabled, once per renewal cycle.',
+            ],
+            [
+                'template_key' => 'membership_expired',
+                'subject' => 'Your TGG Membership Has Expired',
+                'body' => '<h2>Hello, {display_name}!</h2><p>Your <strong>{tier_name}</strong> membership expired on <strong>{end_date}</strong> and the grace period has now ended.</p><p>We\'d love to have you back! Click the link below to renew your membership:</p><p><a href="{renew_url}">{renew_url}</a></p><p>Best regards,<br>TGG Club Team</p>',
+                'description' => 'Sent once after a member\'s grace period ends and they have not renewed, for members without a failed auto-renewal (those get auto_renew_expired instead).',
+            ],
         ];
 
         $sql = 'INSERT INTO `tgg_email_templates` (`template_key`, `subject`, `body`, `description`)

@@ -1239,6 +1239,102 @@ class BillingHelper {
     }
 
     /**
+     * Send a "your membership expires soon" reminder 5 days before expiry to members
+     * who do not have auto-renew enabled, once per renewal cycle (deduped via
+     * renewal_reminder_sent_for). Mirrors sendAutoRenewalReminders() for manual-pay members.
+     * @return array ['sent' => int]
+     */
+    public static function sendManualRenewalReminders(): array {
+        $appDb = Database::getAppConnection();
+        $sent = 0;
+
+        $stmt = $appDb->prepare("
+            SELECT s.contact_id, s.end_date, c.display_name, c.email, p.name AS plan_name
+            FROM tgg_subscriptions s
+            INNER JOIN tgg_contacts c ON c.id = s.contact_id
+            INNER JOIN tgg_subscription_plans p ON p.id = s.plan_id
+            WHERE s.auto_renew = 0 AND s.status = 'active'
+              AND s.end_date = CURRENT_DATE() + INTERVAL 5 DAY
+              AND LOWER(p.name) NOT LIKE '%trial%'
+              AND (s.renewal_reminder_sent_for IS NULL OR s.renewal_reminder_sent_for <> s.end_date)
+        ");
+        $stmt->execute();
+        $due = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($due as $row) {
+            $contactId = (int)$row['contact_id'];
+            try {
+                if (!empty($row['email'])) {
+                    $renewUrl = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/join.php?email=' . urlencode($row['email']);
+                    MailHelper::sendTemplate($row['email'], 'renewal_reminder', [
+                        'display_name' => $row['display_name'] ?? 'Member',
+                        'tier_name' => $row['plan_name'] ?? 'Membership Tier',
+                        'end_date' => $row['end_date'],
+                        'renew_url' => $renewUrl
+                    ], $contactId, null);
+                }
+
+                $appDb->prepare("UPDATE tgg_subscriptions SET renewal_reminder_sent_for = :end_date WHERE contact_id = :contact_id")
+                    ->execute(['end_date' => $row['end_date'], 'contact_id' => $contactId]);
+                $sent++;
+            } catch (Exception $e) {
+                error_log("Failed to send manual renewal reminder for contact #{$contactId}: " . $e->getMessage());
+            }
+        }
+
+        return ['sent' => $sent];
+    }
+
+    /**
+     * Send a "your membership has expired" notice once after the grace period ends for
+     * members who never renewed, deduped via expired_notice_sent_for. Only fires for
+     * subscriptions still in 'active' status — members whose auto-renew failed 3 times
+     * already have status='expired' and received auto_renew_expired instead.
+     * @return array ['sent' => int]
+     */
+    public static function sendExpiredNotices(): array {
+        $appDb = Database::getAppConnection();
+        $graceDays = self::getRenewalGraceDays();
+        $sent = 0;
+
+        $stmt = $appDb->prepare("
+            SELECT s.contact_id, s.end_date, c.display_name, c.email, p.name AS plan_name
+            FROM tgg_subscriptions s
+            INNER JOIN tgg_contacts c ON c.id = s.contact_id
+            INNER JOIN tgg_subscription_plans p ON p.id = s.plan_id
+            WHERE s.status = 'active'
+              AND s.end_date < CURDATE() - INTERVAL :grace_days DAY
+              AND LOWER(p.name) NOT LIKE '%trial%'
+              AND (s.expired_notice_sent_for IS NULL OR s.expired_notice_sent_for <> s.end_date)
+        ");
+        $stmt->execute(['grace_days' => $graceDays]);
+        $due = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($due as $row) {
+            $contactId = (int)$row['contact_id'];
+            try {
+                if (!empty($row['email'])) {
+                    $renewUrl = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/join.php?email=' . urlencode($row['email']);
+                    MailHelper::sendTemplate($row['email'], 'membership_expired', [
+                        'display_name' => $row['display_name'] ?? 'Member',
+                        'tier_name' => $row['plan_name'] ?? 'Membership Tier',
+                        'end_date' => $row['end_date'],
+                        'renew_url' => $renewUrl
+                    ], $contactId, null);
+                }
+
+                $appDb->prepare("UPDATE tgg_subscriptions SET expired_notice_sent_for = :end_date WHERE contact_id = :contact_id")
+                    ->execute(['end_date' => $row['end_date'], 'contact_id' => $contactId]);
+                $sent++;
+            } catch (Exception $e) {
+                error_log("Failed to send expired membership notice for contact #{$contactId}: " . $e->getMessage());
+            }
+        }
+
+        return ['sent' => $sent];
+    }
+
+    /**
      * Check whether an Associate member owes a per-visit entrance fee on this check-in.
      * Associates get exactly one free check-in after each dues payment; every check-in
      * after that, until their next payment, requires the fee. Computed by counting
