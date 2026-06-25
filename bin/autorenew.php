@@ -16,7 +16,7 @@ if (PHP_SAPI !== 'cli') {
 }
 
 $reminders = BillingHelper::sendAutoRenewalReminders();
-error_log("[autorenew] Sent {$reminders['sent']} upcoming-renewal reminder(s).");
+echo "[autorenew] Sent {$reminders['sent']} upcoming-renewal reminder(s).\n";
 
 $appDb = Database::getAppConnection();
 $stmt = $appDb->query("
@@ -51,7 +51,7 @@ foreach ($contactIds as $contactId) {
                 $skipped++;
                 break;
         }
-        error_log("[autorenew] contact_id={$contactId}: {$result['result']} - {$result['message']}");
+        echo "[autorenew] contact_id={$contactId}: {$result['result']} - {$result['message']}\n";
     } catch (\Throwable $e) {
         $errors++;
         error_log("[autorenew] contact_id={$contactId}: ERROR - " . $e->getMessage());
@@ -60,5 +60,4 @@ foreach ($contactIds as $contactId) {
 
 $summary = "[autorenew] Summary: " . count($contactIds) . " due, {$charged} charged, {$declined} declined, "
     . "{$expired} expired, {$skipped} skipped, {$errors} errors.";
-error_log($summary);
 echo $summary . "\n";
