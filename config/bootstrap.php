@@ -101,6 +101,10 @@ if (session_status() === PHP_SESSION_NONE && php_sapi_name() !== 'cli') {
         $cookiePath = isset($parsedUrl['path']) ? rtrim($parsedUrl['path'], '/') . '/' : '/';
     }
 
+    // Dedicated session directory, isolated from other apps on the same server
+    // so their GC (which may use a shorter maxlifetime) can't purge our sessions.
+    ini_set('session.save_path', '/home/tgg/sessions');
+
     // Match server-side session GC lifetime to the cookie lifetime below.
     // PHP's default (1440s / 24min) is otherwise unrelated to the cookie's
     // expiration and silently destroys sessions long before the cookie does.
