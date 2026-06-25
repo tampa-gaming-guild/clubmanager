@@ -684,7 +684,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                     </tr>
                                     
                                     <?php if ($membership): ?>
-                                        <?php if ($hasPrivateAccess || in_array('membership_name', $publicFields)): ?>
+                                        <?php if ($hasPrivateAccess || $canViewBilling || in_array('membership_name', $publicFields)): ?>
                                         <tr>
                                             <td><strong>Membership Level:</strong></td>
                                             <td style="font-size: 0.85rem;">
@@ -709,7 +709,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                         </tr>
                                         <?php endif; ?>
 
-                                        <?php if ($hasPrivateAccess || in_array('status_label', $publicFields)): ?>
+                                        <?php if ($hasPrivateAccess || $canViewBilling || in_array('status_label', $publicFields)): ?>
                                         <tr>
                                             <td><strong>Status:</strong></td>
                                             <td>
