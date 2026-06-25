@@ -21,7 +21,7 @@ $navAuthed = $navAdminArea || \App\Auth::check();
         <span class="navbar-toggle-bar"></span>
         <span class="navbar-toggle-bar"></span>
     </button>
-    <?php if (has_role('admin')): ?>
+    <?php if (!empty($_SESSION['user']['permissions'] ?? [])): ?>
         <form action="<?php echo rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/admin/dashboard.php'; ?>" method="GET" class="navbar-search-form" style="margin: 0 20px; flex-grow: 1; max-width: 380px; position: relative;">
             <input type="text" name="search" placeholder="Search members by name..."
                 value="<?php echo isset($_GET['search']) ? e($_GET['search']) : ''; ?>"
@@ -45,7 +45,7 @@ $navAuthed = $navAdminArea || \App\Auth::check();
             <a href="<?php echo $navPrefix; ?>calendar.php" class="<?php echo $navActive === 'calendar' ? 'active' : ''; ?>">Calendar</a>
             <a href="<?php echo $navPrefix; ?>volunteers.php" class="<?php echo $navActive === 'volunteers' ? 'active' : ''; ?>">Volunteers</a>
             <a href="<?php echo $navPrefix; ?>checkin.php" class="<?php echo $navActive === 'checkin' ? 'active' : ''; ?>">Check-In</a>
-            <?php if ($navAdminArea || has_role('admin')): ?>
+            <?php if ($navAdminArea || !empty($_SESSION['user']['permissions'] ?? [])): ?>
                 <a href="<?php echo $navAdminArea ? 'dashboard.php' : 'admin/dashboard.php'; ?>" class="<?php echo $navActive === 'admin' ? 'active' : ''; ?>">Admin</a>
             <?php endif; ?>
             <a href="<?php echo $navPrefix; ?>index.php?action=logout&amp;csrf_token=<?php echo e(get_csrf_token()); ?>" class="btn-logout">Logout</a>

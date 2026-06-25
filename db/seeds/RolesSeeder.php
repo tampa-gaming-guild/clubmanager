@@ -14,15 +14,15 @@ final class RolesSeeder extends AbstractSeed
     public function run(): void
     {
         $rows = [
-            ['name' => 'superadmin', 'description' => 'Super Administrator with full access'],
-            ['name' => 'admin', 'description' => 'Administrator with management access'],
-            ['name' => 'host', 'description' => 'Event Host with scheduling and check-in access'],
-            ['name' => 'member', 'description' => 'Regular Club Member'],
-            ['name' => 'guest', 'description' => 'Guest visitor with limited access'],
+            ['name' => 'superadmin', 'description' => 'Super Administrator with full access',                              'sort_order' => 1],
+            ['name' => 'admin',      'description' => 'Administrator with management access',                              'sort_order' => 2],
+            ['name' => 'majordomo',  'description' => 'Volunteer coordinator who manages hosts and volunteer scheduling',  'sort_order' => 3],
+            ['name' => 'host',       'description' => 'Event Host with check-in access',                                   'sort_order' => 4],
+            ['name' => 'member',     'description' => 'Regular Club Member',                                               'sort_order' => 5],
         ];
 
-        $sql = 'INSERT INTO `tgg_roles` (`name`, `description`) VALUES (:name, :description)
-                ON DUPLICATE KEY UPDATE `description` = VALUES(`description`)';
+        $sql = 'INSERT INTO `tgg_roles` (`name`, `description`, `sort_order`) VALUES (:name, :description, :sort_order)
+                ON DUPLICATE KEY UPDATE `description` = VALUES(`description`), `sort_order` = VALUES(`sort_order`)';
         $stmt = $this->getAdapter()->getConnection()->prepare($sql);
         foreach ($rows as $row) {
             $stmt->execute($row);

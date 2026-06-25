@@ -8,7 +8,7 @@ require_once dirname(dirname(dirname(__DIR__))) . '/config/bootstrap.php';
 use App\Auth;
 use App\Database;
 
-Auth::requireAdmin();
+Auth::requirePermission('manage configuration');
 
 $errorMsg = null;
 $successMsg = null;

@@ -10,8 +10,7 @@ use App\Auth;
 use App\Database;
 use App\MailHelper;
 
-Auth::requireAdmin();
-Auth::requirePermission('edit volunteer slots');
+Auth::requirePermission('manage hosting');
 
 $errorMsg = null;
 $successMsg = null;

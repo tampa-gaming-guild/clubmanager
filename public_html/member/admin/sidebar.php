@@ -14,7 +14,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
             <li><a href="scheduler.php" class="<?php echo ($current_page === 'scheduler.php') ? 'active' : ''; ?>">Event Scheduler</a></li>
         <?php endif; ?>
         
-        <?php if (has_permission('edit volunteer slots')): ?>
+        <?php if (has_permission('manage hosting')): ?>
             <li><a href="volunteer_credits.php" class="<?php echo ($current_page === 'volunteer_credits.php') ? 'active' : ''; ?>">Volunteer Credits</a></li>
         <?php endif; ?>
         
@@ -28,7 +28,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
             <li><a href="email_templates.php" class="<?php echo ($current_page === 'email_templates.php') ? 'active' : ''; ?>">Email Templates</a></li>
         <?php endif; ?>
         
-        <?php if (has_permission('all') || has_role('admin')): ?>
+        <?php if (has_permission('manage roles') || has_permission('manage hosting')): ?>
             <li><a href="roles.php" class="<?php echo ($current_page === 'roles.php') ? 'active' : ''; ?>">Roles & Permissions</a></li>
         <?php endif; ?>
         

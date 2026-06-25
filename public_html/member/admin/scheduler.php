@@ -9,7 +9,6 @@ use App\Auth;
 use App\Event;
 use App\Database;
 
-Auth::requireAdmin();
 Auth::requirePermission('schedule events');
 
 $errorMsg = null;

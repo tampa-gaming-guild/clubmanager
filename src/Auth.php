@@ -247,11 +247,25 @@ class Auth {
     }
 
     /**
-     * Require administrative role for a page
+     * Require any staff-level permission (non-empty permissions set).
+     * Grants access to the admin section for all privileged roles.
+     * Members have no permissions so are naturally excluded.
+     */
+    public static function requireStaff(): void {
+        self::requireAuth();
+        if (empty($_SESSION['user']['permissions'] ?? [])) {
+            redirect('index.php?error=unauthorized');
+        }
+    }
+
+    /**
+     * Require the 'admin panel' permission.
+     * Used internally for admin-only inline UI capabilities.
+     * @deprecated Use Auth::requirePermission('admin panel') or Auth::requireStaff() directly.
      */
     public static function requireAdmin(): void {
         self::requireAuth();
-        if (!has_role('admin') && !has_role('host')) {
+        if (!has_permission('admin panel')) {
             redirect('index.php?error=unauthorized');
         }
     }

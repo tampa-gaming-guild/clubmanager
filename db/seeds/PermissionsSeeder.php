@@ -15,11 +15,15 @@ final class PermissionsSeeder extends AbstractSeed
     {
         $rows = [
             ['name' => 'all', 'description' => 'All permissions / full access'],
-            ['name' => 'process payments', 'description' => 'View payments ledger and process billing'],
+            ['name' => 'admin panel', 'description' => 'Access to admin-only member management UI (profile rate info, membership visibility)'],
+            ['name' => 'manage configuration', 'description' => 'Edit club configuration: membership plans and subscription rates'],
+            ['name' => 'manage roles', 'description' => 'Assign and remove roles for admin, majordomo, host, and member accounts'],
+            ['name' => 'process payments', 'description' => 'View payments ledger and member billing history'],
             ['name' => 'schedule events', 'description' => 'Create and edit calendar events'],
             ['name' => 'edit checkins', 'description' => 'Log and edit attendance check-ins'],
-            ['name' => 'edit volunteer slots', 'description' => 'Assign or cancel volunteer shifts and credits'],
+            ['name' => 'manage hosting', 'description' => 'Manage volunteer slots and credits for other members; assign the host role'],
             ['name' => 'password resets', 'description' => 'Perform password resets for contacts'],
+            ['name' => 'volunteer', 'description' => 'Sign up for volunteer slots at events'],
         ];
 
         $sql = 'INSERT INTO `tgg_permissions` (`name`, `description`) VALUES (:name, :description)

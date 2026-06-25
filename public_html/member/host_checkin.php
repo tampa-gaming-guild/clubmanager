@@ -63,9 +63,8 @@ $successMsg = null;
 $memberDetails = null;
 $redirectUrl = null;
 
-// Determine if geolocation check is required (same rule as the standard member checkin.php, admins are exempt)
-$isAdminUser = has_role('admin');
-$isGeoEnabled = ($_ENV['GEOLOCATION_CHECK_ENABLED'] ?? 'false') === 'true' && !$isAdminUser;
+// Host check-in is always authenticated; geolocation check is not required
+$isGeoEnabled = false;
 
 // Distance helper
 if (!function_exists('get_distance_meters')) {

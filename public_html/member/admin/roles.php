@@ -8,10 +8,8 @@ require_once dirname(dirname(dirname(__DIR__))) . '/config/bootstrap.php';
 use App\Auth;
 use App\Database;
 
-Auth::requireAdmin();
-
-// Only allow superadmin and admin to manage roles and permissions
-if (!has_role('superadmin') && !has_role('admin')) {
+Auth::requireAuth();
+if (!has_permission('manage roles') && !has_permission('manage hosting')) {
     redirect('index.php?error=unauthorized');
 }
 
@@ -133,7 +131,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     throw new Exception("Only superadmins can add or delete the superadmin role.");
                 }
 
-                // 3. Verify all selected roles exist in tgg_roles
+                // 3. Permission-based role assignment guards
+                if (!$viewerIsSuperadmin) {
+                    $canManageRoles   = has_permission('manage roles');
+                    $canManageHosting = has_permission('manage hosting');
+                    $rolesAdded   = array_diff($newRoles, $targetCurrentRoles);
+                    $rolesRemoved = array_diff($targetCurrentRoles, $newRoles);
+                    foreach (array_merge($rolesAdded, $rolesRemoved) as $changedRole) {
+                        if (in_array($changedRole, ['admin', 'majordomo', 'member'], true) && !$canManageRoles) {
+                            throw new Exception("You do not have permission to modify the '{$changedRole}' role.");
+                        }
+                        if ($changedRole === 'host' && !$canManageRoles && !$canManageHosting) {
+                            throw new Exception("You do not have permission to modify the 'host' role.");
+                        }
+                    }
+                }
+
+                // 4. Verify all selected roles exist in tgg_roles
                 if (!empty($newRoles)) {
                     $placeholders = implode(',', array_fill(0, count($newRoles), '?'));
                     $checkStmt = $appDb->prepare("SELECT COUNT(*) FROM `tgg_roles` WHERE name IN ($placeholders)");
@@ -198,7 +212,7 @@ if (isset($_GET['success']) && $_GET['success'] === 'impersonation_stopped') {
 }
 
 // Fetch all roles & permissions
-$rolesList = $appDb->query("SELECT * FROM `tgg_roles` ORDER BY id ASC")->fetchAll();
+$rolesList = $appDb->query("SELECT * FROM `tgg_roles` ORDER BY sort_order ASC, id ASC")->fetchAll();
 $permsList = $appDb->query("SELECT * FROM `tgg_permissions` ORDER BY id ASC")->fetchAll();
 
 // Fetch mappings: [role_name => [perm_name => true]]
@@ -510,16 +524,25 @@ $membersList = $stmtMembers->fetchAll();
                                                                 $memberRoles = ['member'];
                                                             }
 
-                                                            foreach ($rolesList as $roleOption): 
+                                                            $viewerIsSuperadmin     = has_role('superadmin');
+                                                            $viewerCanManageRoles   = has_permission('manage roles');
+                                                            $viewerCanManageHosting = has_permission('manage hosting');
+                                                            foreach ($rolesList as $roleOption):
                                                                 $isSuperadminRole = ($roleOption['name'] === 'superadmin');
                                                                 $targetHasSuperadmin = in_array('superadmin', $memberRoles, true);
-                                                                $viewerIsSuperadmin = has_role('superadmin');
-                                                                
+
                                                                 $disabled = '';
                                                                 if ($isSuperadminRole && !$viewerIsSuperadmin) {
                                                                     $disabled = 'disabled';
                                                                 } elseif ($targetHasSuperadmin && !$viewerIsSuperadmin) {
                                                                     $disabled = 'disabled';
+                                                                } elseif (!$viewerIsSuperadmin) {
+                                                                    $rn = $roleOption['name'];
+                                                                    if (in_array($rn, ['admin', 'majordomo', 'member'], true) && !$viewerCanManageRoles) {
+                                                                        $disabled = 'disabled';
+                                                                    } elseif ($rn === 'host' && !$viewerCanManageRoles && !$viewerCanManageHosting) {
+                                                                        $disabled = 'disabled';
+                                                                    }
                                                                 }
                                                                 
                                                                 $checked = in_array($roleOption['name'], $memberRoles, true) ? 'checked' : '';

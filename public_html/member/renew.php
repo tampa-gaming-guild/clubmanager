@@ -46,7 +46,7 @@ if (isset($_GET['status']) && $_GET['status'] === 'cancelled') {
 // 3. Auth Gate & Load Details
 Auth::requireAuth();
 $contactId = $_SESSION['user']['contact_id'];
-$isAdmin = has_role('admin') || has_permission('edit checkins');
+$isAdmin = has_permission('edit checkins');
 if ($isAdmin && isset($_GET['contact_id'])) {
     $contactId = (int)$_GET['contact_id'];
 }
@@ -81,7 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
     } else {
         $paymentFlow = $_POST['payment_flow'] ?? 'stripe';
 
-        if ($paymentFlow === 'offline' && has_role('admin')) {
+        if ($paymentFlow === 'offline' && has_permission('edit checkins')) {
             $paymentMethod = $_POST['payment_method'] ?? '';
             $durationMode = $_POST['duration_mode'] ?? 'standard';
             $levelChangeMode = $_POST['level_change_mode'] ?? 'extend_current';
@@ -246,7 +246,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                 </div>
 
                 <!-- Renewal Forms -->
-                <?php if (has_role('admin')): ?>
+                <?php if (has_permission('edit checkins')): ?>
                     <div class="renewal-sections-container" style="display: flex; flex-direction: column; gap: 25px; margin-top: 20px;">
                         
                         <!-- SECTION 1: STANDARD RENEWAL (STRIPE) -->

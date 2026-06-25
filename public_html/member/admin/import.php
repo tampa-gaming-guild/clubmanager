@@ -8,7 +8,6 @@ require_once dirname(dirname(dirname(__DIR__))) . '/config/bootstrap.php';
 use App\Auth;
 use App\CiviCRMImporter;
 
-Auth::requireAdmin();
 Auth::requirePermission('all');
 
 $connTest = CiviCRMImporter::testConnections();

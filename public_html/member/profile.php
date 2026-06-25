@@ -56,7 +56,7 @@ try {
         $settings = $settingsStmt->fetch();
 
         // D. Fetch all roles list
-        $rolesList = $appDb->query("SELECT * FROM `tgg_roles` ORDER BY id ASC")->fetchAll();
+        $rolesList = $appDb->query("SELECT * FROM `tgg_roles` ORDER BY sort_order ASC, id ASC")->fetchAll();
     }
 } catch (Exception $e) {
     $errorMsg = safe_err("Database Connection Error: ", $e);
@@ -95,8 +95,9 @@ $publicFields = json_decode($settings['public_fields'] ?? '[]', true) ?: [];
 
 // 2. Check Viewer Relationship
 $isOwner = Auth::check() && $_SESSION['user']['contact_id'] === $profileId;
-$isAdmin = Auth::check() && (has_role('admin') || has_role('superadmin'));
+$isAdmin = has_permission('admin panel');
 $hasPrivateAccess = $isOwner || $isAdmin;
+$canViewBilling = $isOwner || has_permission('process payments');
 
 // 3. Privacy Gate
 if (!$settings['is_profile_public'] && !$hasPrivateAccess) {
@@ -108,7 +109,7 @@ if (!$settings['is_profile_public'] && !$hasPrivateAccess) {
 
 // Fetch Billing Transactions if Viewer has Private Access
 $transactions = [];
-if ($hasPrivateAccess && $appDb) {
+if ($canViewBilling && $appDb) {
     try {
         $transStmt = $appDb->prepare("
             SELECT l.created_at, l.amount, l.currency, l.action_type, l.payment_status, l.payment_intent_id as trxn_id, p.name as plan_name
@@ -654,11 +655,15 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                         </div>
                     </div>
 
-                    <?php if ($hasPrivateAccess): ?>
+                    <?php if ($hasPrivateAccess || $canViewBilling): ?>
                         <div class="profile-tabs">
-                            <button class="tab-button active" onclick="switchTab('profile')">Profile</button>
-                            <button class="tab-button" onclick="switchTab('volunteering')">Volunteering</button>
-                            <button class="tab-button" onclick="switchTab('billing')">Billing History</button>
+                            <?php if ($hasPrivateAccess): ?>
+                                <button class="tab-button active" onclick="switchTab('profile')">Profile</button>
+                                <button class="tab-button" onclick="switchTab('volunteering')">Volunteering</button>
+                            <?php endif; ?>
+                            <?php if ($canViewBilling): ?>
+                                <button class="tab-button <?php echo !$hasPrivateAccess ? 'active' : ''; ?>" onclick="switchTab('billing')">Billing History</button>
+                            <?php endif; ?>
                         </div>
                     <?php endif; ?>
 
@@ -685,7 +690,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                             <td style="font-size: 0.85rem;">
                                                 <?php 
                                                 echo e($membership['membership_name']); 
-                                                $showRate = $isOwner || (Auth::check() && (has_role('host') || has_role('admin') || has_role('superadmin')));
+                                                $showRate = $isOwner || has_permission('admin panel');
                                                 if ($showRate && isset($membership['minimum_fee'])) {
                                                     $formattedPrice = '$' . number_format($membership['minimum_fee'], 2);
                                                     $intervalText = '';
@@ -1038,13 +1043,13 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                     </div>
                     <?php endif; ?>
 
-                    <?php if ($hasPrivateAccess): ?>
-                    <div id="tab-billing" class="tab-content">
+                    <?php if ($canViewBilling): ?>
+                    <div id="tab-billing" class="tab-content <?php echo !$hasPrivateAccess ? 'active' : ''; ?>">
                         <!-- BILLING HISTORY SECTION -->
                         <div class="detail-section private-detail-section full-width-section">
                             <div class="section-header">
                                 <h3 class="section-title">Billing History</h3>
-                                <span class="private-badge">🔒 Owner & Admins Only</span>
+                                <span class="private-badge">🔒 Owner & Staff Only</span>
                             </div>
                             
                             <?php if (empty($transactions)): ?>

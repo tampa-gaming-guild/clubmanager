@@ -255,7 +255,7 @@ $monthRevenue = 0.00;
 $hasEventToday = false;
 $statuses = [];
 $matrix = [];
-if (Auth::check() && has_role('admin')) {
+if (Auth::check() && has_permission('admin panel')) {
     try {
         $appDb = Database::getAppConnection();
         $hasEventToday = (bool)$appDb->query("SELECT COUNT(*) FROM tgg_events WHERE DATE(start_time) = CURDATE()")->fetchColumn();
@@ -430,10 +430,7 @@ if (Auth::check() && has_role('admin')) {
                                          <span class="membership-level" style="font-size: 0.9rem;">
                                              <?php
                                              echo e($membership['membership_name']);
-                                             $showRate = Auth::check() && (
-                                                 true // The user logged in always owns their dashboard view
-                                                 || has_role('host') || has_role('admin') || has_role('superadmin')
-                                             );
+                                             $showRate = Auth::check();
                                              if ($showRate && isset($membership['minimum_fee'])) {
                                                  $formattedPrice = '$' . number_format($membership['minimum_fee'], 2);
                                                  $intervalText = '';
@@ -508,7 +505,7 @@ if (Auth::check() && has_role('admin')) {
                         </div>
                     <?php endif; ?>
 
-                    <?php if (has_role('admin') && !$showHostingView): ?>
+                    <?php if (has_permission('admin panel') && !$showHostingView): ?>
                         <!-- ADMIN SNAPSHOT -->
                         <div class="dashboard-card" style="margin-top: 20px;">
                             <h3>Admin Snapshot</h3>

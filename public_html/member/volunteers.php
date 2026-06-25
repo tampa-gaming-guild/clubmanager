@@ -33,8 +33,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && Auth::check()) {
                     throw new Exception("Member selection is required.");
                 }
                 
-                // If not admin, force contactId to the logged-in user
-                if (!has_role('admin')) {
+                if (!has_permission('volunteer')) {
+                    throw new Exception("You do not have permission to sign up as a volunteer.");
+                }
+                // If not manage hosting, force contactId to the logged-in user
+                if (!has_permission('manage hosting')) {
                     $contactId = $_SESSION['user']['contact_id'];
                 }
                 
@@ -56,8 +59,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && Auth::check()) {
                     throw new Exception("Member selection is required.");
                 }
 
-                // If not admin, force contactId to the logged-in user
-                if (!has_role('admin')) {
+                if (!has_permission('volunteer')) {
+                    throw new Exception("You do not have permission to sign up as a volunteer.");
+                }
+                // If not manage hosting, force contactId to the logged-in user
+                if (!has_permission('manage hosting')) {
                     $contactId = $_SESSION['user']['contact_id'];
                 }
 
@@ -93,7 +99,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && Auth::check()) {
                     throw new Exception("Member ID is required.");
                 }
                 
-                $isAdmin = has_role('admin');
+                $isAdmin = has_permission('manage hosting');
                 $isSelf = ($contactId === (int)$_SESSION['user']['contact_id']);
                 
                 if (!$isAdmin && !$isSelf) {
@@ -144,7 +150,7 @@ try {
         }
     }
     
-    if (has_role('admin')) {
+    if (has_permission('manage hosting')) {
         $allActiveMembers = CiviCRMImporter::getMembersList();
     }
 } catch (Exception $e) {
@@ -305,7 +311,7 @@ try {
                                                         (⏰ <?php echo $eventTime; ?>)
                                                     </span>
                                                 </div>
-                                                <?php if (Auth::check() && !empty($openRolesForEvent)): ?>
+                                                <?php if (has_permission('volunteer') && !empty($openRolesForEvent)): ?>
                                                     <div style="font-weight: normal; font-family: var(--font-body); flex-shrink: 0;">
                                                         <div id="btn-container-<?php echo $evtId; ?>-ALL">
                                                             <button class="btn btn-success btn-small" onclick="showSignupConfirm(<?php echo $evtId; ?>, 'ALL')" style="padding: 6px 12px; font-size: 0.8rem; white-space: nowrap;">
@@ -313,7 +319,7 @@ try {
                                                             </button>
                                                         </div>
                                                         <div id="confirm-container-<?php echo $evtId; ?>-ALL" style="display: none; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-glass); border-radius: 8px; padding: 10px; min-width: 240px; text-align: left;">
-                                                            <?php if (has_role('admin')): ?>
+                                                            <?php if (has_permission('manage hosting')): ?>
                                                                 <div style="margin-bottom: 8px;">
                                                                     <label style="font-size: 0.8rem; margin-right: 12px; cursor: pointer; color: #fff;">
                                                                         <input type="radio" name="signup_type_<?php echo $evtId; ?>_ALL" value="self" checked onclick="toggleAdminSignupType(<?php echo $evtId; ?>, 'ALL', 'self')" style="margin-right: 4px;"> Myself
@@ -331,7 +337,7 @@ try {
                                                                 <input type="hidden" name="event_id" value="<?php echo $evtId; ?>">
                                                                 <input type="hidden" name="contact_id" id="contact-id-<?php echo $evtId; ?>-ALL" value="<?php echo $_SESSION['user']['contact_id']; ?>">
 
-                                                                <?php if (!has_role('admin')): ?>
+                                                                <?php if (!has_permission('manage hosting')): ?>
                                                                     <span style="font-size: 0.8rem; color: var(--color-text-secondary); display: block; margin-bottom: 8px;">Sign up for all open slots?</span>
                                                                 <?php endif; ?>
 
@@ -386,7 +392,7 @@ try {
                                                         $isTodayOrLater = ($evtDateOnly >= $todayDateOnly);
                                                         
                                                         $canDelete = Auth::check() && (
-                                                            has_role('admin') || 
+                                                            has_permission('manage hosting') || 
                                                             ($volContactId === (int)$_SESSION['user']['contact_id'] && $isTodayOrLater)
                                                         );
                                                     ?>
@@ -408,14 +414,14 @@ try {
                                                         <a href="index.php?action=login" class="btn btn-success btn-small" style="padding: 6px 12px; font-size: 0.8rem;">
                                                             Log In to Sign Up &rarr;
                                                         </a>
-                                                    <?php else: ?>
+                                                    <?php elseif (has_permission('volunteer')): ?>
                                                         <div id="btn-container-<?php echo $evtId; ?>-<?php echo $role; ?>">
                                                             <button class="btn btn-success btn-small" onclick="showSignupConfirm(<?php echo $evtId; ?>, '<?php echo $role; ?>')" style="padding: 6px 12px; font-size: 0.8rem;">
                                                                 Sign Up &rarr;
                                                             </button>
                                                         </div>
                                                         <div id="confirm-container-<?php echo $evtId; ?>-<?php echo $role; ?>" style="display: none; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-glass); border-radius: 8px; padding: 10px; min-width: 220px; text-align: left;">
-                                                            <?php if (has_role('admin')): ?>
+                                                            <?php if (has_permission('manage hosting')): ?>
                                                                 <div style="margin-bottom: 8px;">
                                                                     <label style="font-size: 0.8rem; margin-right: 12px; cursor: pointer; color: #fff;">
                                                                         <input type="radio" name="signup_type_<?php echo $evtId; ?>_<?php echo $role; ?>" value="self" checked onclick="toggleAdminSignupType(<?php echo $evtId; ?>, '<?php echo $role; ?>', 'self')" style="margin-right: 4px;"> Myself
@@ -434,7 +440,7 @@ try {
                                                                 <input type="hidden" name="role" value="<?php echo e($role); ?>">
                                                                 <input type="hidden" name="contact_id" id="contact-id-<?php echo $evtId; ?>-<?php echo $role; ?>" value="<?php echo $_SESSION['user']['contact_id']; ?>">
                                                                 
-                                                                <?php if (!has_role('admin')): ?>
+                                                                <?php if (!has_permission('manage hosting')): ?>
                                                                     <span style="font-size: 0.8rem; color: var(--color-text-secondary); display: block; margin-bottom: 8px;">Confirm volunteering?</span>
                                                                 <?php endif; ?>
                                                                 
@@ -459,7 +465,7 @@ try {
 
         <?php include __DIR__ . '/partials/footer.php'; ?>
 
-    <?php if (has_role('admin')): ?>
+    <?php if (has_permission('manage hosting')): ?>
         <datalist id="members-list">
             <?php foreach ($allActiveMembers as $member): ?>
                 <?php 

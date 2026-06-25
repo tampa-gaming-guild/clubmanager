@@ -10,7 +10,7 @@ use App\Database;
 use App\CiviCRMImporter;
 use App\BillingHelper;
 
-Auth::requireAdmin();
+Auth::requireStaff();
 
 $errorMsg = null;
 $successMsg = null;
@@ -36,7 +36,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_member'])) {
                 $_POST['phone'] ?? '',
                 (int)($_POST['plan_id'] ?? 0),
                 $_POST['payment_method'] ?? '',
-                has_role('admin'),
+                has_permission('admin panel'),
                 $_SESSION['user']['contact_id'] ?? null
             );
             $successMsg = "{$result['display_name']} was added successfully!";
@@ -469,7 +469,7 @@ try {
                     <input type="tel" id="add_member_phone" name="phone">
                 </div>
 
-                <?php if (has_role('admin')): ?>
+                <?php if (has_permission('admin panel')): ?>
                     <p class="field-hint" style="margin-bottom: 10px;">Optionally activate a membership now -- Trial is free and one-time per email, other levels need an offline payment method. Leave blank to add the member without an active membership.</p>
 
                     <div class="form-group">
