@@ -100,7 +100,7 @@ $hasPrivateAccess = $isOwner || $isAdmin;
 $canViewBilling = $isOwner || has_permission('process payments');
 
 // 3. Privacy Gate
-if (!$settings['is_profile_public'] && !$hasPrivateAccess) {
+if (!$settings['is_profile_public'] && !$hasPrivateAccess && !$canViewBilling) {
     // Hidden completely if profile is private and viewer is anonymous/different member
     $profileHidden = true;
 } else {
@@ -720,7 +720,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                         </tr>
                                         <?php endif; ?>
 
-                                        <?php if ($hasPrivateAccess): ?>
+                                        <?php if ($hasPrivateAccess || $canViewBilling): ?>
                                         <tr>
                                             <td></td>
                                             <td>
@@ -733,7 +733,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                             <td><strong>Membership:</strong></td>
                                             <td>No active membership records.</td>
                                         </tr>
-                                        <?php if ($hasPrivateAccess): ?>
+                                        <?php if ($hasPrivateAccess || $canViewBilling): ?>
                                         <tr>
                                             <td></td>
                                             <td>
@@ -749,10 +749,10 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                             <div class="detail-section private-detail-section">
                                 <div class="section-header">
                                     <h3 class="section-title">Private Details</h3>
-                                    <span class="private-badge">🔒 Owner & Admins Only</span>
+                                    <span class="private-badge">🔒 Owner & Staff Only</span>
                                 </div>
-                                
-                                <?php if ($hasPrivateAccess): ?>
+
+                                <?php if ($hasPrivateAccess || $canViewBilling): ?>
                                     <table class="profile-data-table">
                                         <tr>
                                             <td><strong>Email:</strong></td>
