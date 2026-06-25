@@ -308,6 +308,23 @@ if ($hasPrivateAccess && $appDb) {
     }
 }
 
+// Fetch Attendance Records if Viewer has Private Access
+$attendanceRecords = [];
+if ($hasPrivateAccess && $appDb) {
+    try {
+        $attStmt = $appDb->prepare("
+            SELECT id AS checkin_id, checked_in_at, notes, guest_name
+            FROM tgg_checkins
+            WHERE contact_id = :contact_id
+            ORDER BY checked_in_at DESC
+        ");
+        $attStmt->execute(['contact_id' => $profileId]);
+        $attendanceRecords = $attStmt->fetchAll();
+    } catch (Exception $e) {
+        $errorMsg = safe_err(($errorMsg ? $errorMsg . " | " : "") . "Failed to load attendance records: ", $e);
+    }
+}
+
 // 4. Handle Settings Updates (Only owner or admin)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
@@ -660,6 +677,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                             <?php if ($hasPrivateAccess): ?>
                                 <button class="tab-button active" onclick="switchTab('profile')">Profile</button>
                                 <button class="tab-button" onclick="switchTab('volunteering')">Volunteering</button>
+                                <button class="tab-button" onclick="switchTab('attendance')">Attendance</button>
                             <?php endif; ?>
                             <?php if ($canViewBilling): ?>
                                 <button class="tab-button <?php echo !$hasPrivateAccess ? 'active' : ''; ?>" onclick="switchTab('billing')">Billing History</button>
@@ -1031,6 +1049,50 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                                             <span class="badge badge-active" style="font-size: 0.75rem; padding: 2px 6px; display: inline-block;">Processed</span>
                                                         <?php else: ?>
                                                             <span class="badge badge-expired" style="font-size: 0.75rem; padding: 2px 6px; display: inline-block; background: rgba(234, 179, 8, 0.15); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3);">Pending</span>
+                                                        <?php endif; ?>
+                                                    </td>
+                                                </tr>
+                                            <?php endforeach; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+
+                    <?php if ($hasPrivateAccess): ?>
+                    <div id="tab-attendance" class="tab-content">
+                        <div class="detail-section private-detail-section full-width-section">
+                            <div class="section-header">
+                                <h3 class="section-title">Attendance History</h3>
+                                <span class="private-badge">🔒 Owner & Staff Only</span>
+                            </div>
+                            <?php if (empty($attendanceRecords)): ?>
+                                <p class="private-locked-msg">No attendance records found.</p>
+                            <?php else: ?>
+                                <div class="admin-table-container">
+                                    <table class="admin-table" style="font-size: 0.85rem; width: 100%;">
+                                        <thead>
+                                            <tr>
+                                                <th style="padding: 8px 10px;">Date</th>
+                                                <th style="padding: 8px 10px;">Time</th>
+                                                <th style="padding: 8px 10px;">Notes</th>
+                                                <th style="padding: 8px 10px; text-align: center;">+1</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php foreach ($attendanceRecords as $ar): ?>
+                                                <?php $isGuest = !empty($ar['guest_name']); ?>
+                                                <tr>
+                                                    <td style="padding: 8px 10px;"><span class="table-datetime"><?php echo date('Y-m-d', strtotime($ar['checked_in_at'])); ?></span></td>
+                                                    <td style="padding: 8px 10px;"><span class="table-datetime"><?php echo date('g:i A', strtotime($ar['checked_in_at'])); ?></span></td>
+                                                    <td style="padding: 8px 10px;"><?php echo $isGuest ? 'Guest: ' . e($ar['guest_name']) : e($ar['notes'] ?: 'Regular Visit'); ?></td>
+                                                    <td style="padding: 8px 10px; text-align: center;">
+                                                        <?php if ($isGuest): ?>
+                                                            <span title="Guest: <?php echo e($ar['guest_name']); ?>">&check;</span>
+                                                        <?php else: ?>
+                                                            <span style="color: var(--color-text-muted);">-</span>
                                                         <?php endif; ?>
                                                     </td>
                                                 </tr>
