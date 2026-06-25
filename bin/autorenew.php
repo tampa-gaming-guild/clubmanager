@@ -18,6 +18,12 @@ if (PHP_SAPI !== 'cli') {
 $reminders = BillingHelper::sendAutoRenewalReminders();
 echo "[" . date('Y-m-d H:i:s') . "] [autorenew] Sent {$reminders['sent']} upcoming-renewal reminder(s).\n";
 
+$manualReminders = BillingHelper::sendManualRenewalReminders();
+echo "[" . date('Y-m-d H:i:s') . "] [autorenew] Sent {$manualReminders['sent']} manual renewal reminder(s).\n";
+
+$expiredNotices = BillingHelper::sendExpiredNotices();
+echo "[" . date('Y-m-d H:i:s') . "] [autorenew] Sent {$expiredNotices['sent']} expired membership notice(s).\n";
+
 $appDb = Database::getAppConnection();
 $stmt = $appDb->query("
     SELECT contact_id FROM tgg_subscriptions

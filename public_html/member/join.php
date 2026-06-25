@@ -257,11 +257,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status']) && !$isAjax
 
 // Determine initial render mode: only relevant when redisplaying the form after a
 // server-side validation error, so the Renew UI doesn't flicker back to Join mode.
+// Also handles GET ?email= links (e.g. from renewal reminder emails) so the member
+// lookup fires immediately on arrival without requiring a form submission.
 $prefillExisting = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['email']) && !isset($successMsg)) {
     try {
         $appDb = $appDb ?? Database::getAppConnection();
         $prefillEmail = trim(strtolower($_POST['email']));
+        if (filter_var($prefillEmail, FILTER_VALIDATE_EMAIL)) {
+            $prefillExisting = lookup_member_by_email($appDb, $prefillEmail, $tiers);
+        }
+    } catch (Exception $e) {
+        $prefillExisting = null;
+    }
+} elseif ($_SERVER['REQUEST_METHOD'] === 'GET' && !empty($_GET['email']) && !isset($successMsg)) {
+    try {
+        $appDb = $appDb ?? Database::getAppConnection();
+        $prefillEmail = trim(strtolower($_GET['email']));
         if (filter_var($prefillEmail, FILTER_VALIDATE_EMAIL)) {
             $prefillExisting = lookup_member_by_email($appDb, $prefillEmail, $tiers);
         }
@@ -316,7 +328,7 @@ $displayTiers = $isRenewMode
 
                         <div class="form-group">
                             <label for="email">Email Address</label>
-                            <input type="email" id="email" name="email" required autocomplete="email" value="<?php echo e($_POST['email'] ?? ''); ?>">
+                            <input type="email" id="email" name="email" required autocomplete="email" value="<?php echo e($_POST['email'] ?? $_GET['email'] ?? ''); ?>">
                             <small id="email_lookup_status" class="field-hint" style="display:none;">Checking...</small>
                         </div>
 
