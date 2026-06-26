@@ -100,7 +100,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['member_lookup_action'
         $identifier = trim($_POST['identifier'] ?? '');
 
         if (empty($identifier)) {
-            $errorMsg = "Please enter an Email or Member ID.";
+            $errorMsg = "Please enter an Email, Phone Number, or Member ID.";
         } else {
             try {
                 $appDb = Database::getAppConnection();
@@ -110,14 +110,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['member_lookup_action'
                     $stmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE email = :email AND is_deleted = 0 LIMIT 1");
                     $stmt->execute(['email' => strtolower($identifier)]);
                     $contactId = (int)($stmt->fetchColumn() ?: 0);
-                } else if (is_numeric($identifier)) {
+                } elseif (is_numeric($identifier)) {
                     $stmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE id = :id AND is_deleted = 0 LIMIT 1");
                     $stmt->execute(['id' => $identifier]);
                     $contactId = (int)($stmt->fetchColumn() ?: 0);
+                } else {
+                    $digits = normalize_phone($identifier);
+                    if ($digits !== '') {
+                        $stmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE REGEXP_REPLACE(phone, '[^0-9]', '') = :phone AND is_deleted = 0");
+                        $stmt->execute(['phone' => $digits]);
+                        $phoneRows = $stmt->fetchAll();
+                        if (count($phoneRows) === 1) {
+                            $contactId = (int)$phoneRows[0]['id'];
+                        } elseif (count($phoneRows) > 1) {
+                            $errorMsg = "Multiple accounts share that phone number. Please use email or member ID.";
+                        }
+                    }
                 }
 
-                if ($contactId <= 0) {
-                    $errorMsg = "Member not found. Please check the Email or Member ID.";
+                if ($contactId <= 0 && empty($errorMsg)) {
+                    $errorMsg = "Member not found. Please check the email, phone number, or member ID.";
                 } else if ($action === 'renew') {
                     redirect("renew.php?contact_id={$contactId}");
                 } else if ($action === 'checkin') {
@@ -372,11 +384,11 @@ if (Auth::check() && has_permission('admin panel')) {
                                 <div class="dashboard-card">
                                     <h3>Quick Member Actions</h3>
                                     <p style="color: var(--color-text-secondary); font-size: 0.9rem; margin-bottom: 12px;">
-                                        Check in, renew, or manage a member by email or ID:
+                                        Check in, renew, or manage a member by email, phone, or ID:
                                     </p>
                                     <form action="index.php" method="POST" autocomplete="off" style="display: flex; flex-wrap: wrap; gap: 10px;">
                                         <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
-                                        <input type="text" id="identifier" name="identifier" required placeholder="Enter Email or Member ID..."
+                                        <input type="text" id="identifier" name="identifier" required placeholder="Enter email, phone, or ID…"
                                                style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 10px; border-radius: 6px; width: 100%; box-sizing: border-box;">
                                         <div style="display: flex; gap: 10px; width: 100%;">
                                             <button type="submit" name="member_lookup_action" value="checkin" class="btn btn-primary" style="flex: 1; padding: 10px; border-radius: 6px; font-weight: 600;">Check-In</button>
