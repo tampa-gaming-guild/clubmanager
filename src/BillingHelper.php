@@ -1207,7 +1207,8 @@ class BillingHelper {
             INNER JOIN tgg_subscription_plans p ON p.id = s.plan_id
             LEFT JOIN tgg_subscription_rates r ON r.id = s.rate_id
             WHERE s.auto_renew = 1 AND s.status = 'active'
-              AND s.end_date = CURRENT_DATE() + INTERVAL 5 DAY
+              AND s.end_date >= CURRENT_DATE() + INTERVAL 1 DAY
+              AND s.end_date <= CURRENT_DATE() + INTERVAL 5 DAY
               AND (s.auto_renew_reminder_sent_for IS NULL OR s.auto_renew_reminder_sent_for <> s.end_date)
         ");
         $stmt->execute();
@@ -1254,7 +1255,8 @@ class BillingHelper {
             INNER JOIN tgg_contacts c ON c.id = s.contact_id
             INNER JOIN tgg_subscription_plans p ON p.id = s.plan_id
             WHERE s.auto_renew = 0 AND s.status = 'active'
-              AND s.end_date = CURRENT_DATE() + INTERVAL 5 DAY
+              AND s.end_date >= CURRENT_DATE() + INTERVAL 1 DAY
+              AND s.end_date <= CURRENT_DATE() + INTERVAL 5 DAY
               AND LOWER(p.name) NOT LIKE '%trial%'
               AND (s.renewal_reminder_sent_for IS NULL OR s.renewal_reminder_sent_for <> s.end_date)
         ");
