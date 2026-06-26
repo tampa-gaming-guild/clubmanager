@@ -24,7 +24,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'search') {
             $sql = "
                 SELECT id, display_name, email, phone
                 FROM tgg_contacts
-                WHERE (display_name LIKE :q1 OR email LIKE :q2" . ($qPhone !== '' ? " OR phone LIKE :q3" : "") . ")
+                WHERE (display_name LIKE :q1 OR email LIKE :q2" . ($qPhone !== '' ? " OR REGEXP_REPLACE(phone, '[^0-9]', '') LIKE :q3" : "") . ")
                   AND is_deleted = 0
                 LIMIT 15
             ";

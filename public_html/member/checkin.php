@@ -57,7 +57,7 @@ function resolve_checkin_contact_id(string $identifier): int {
     }
     $digits = normalize_phone($identifier);
     if ($digits !== '') {
-        $stmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE phone = :phone AND is_deleted = 0");
+        $stmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE REGEXP_REPLACE(phone, '[^0-9]', '') = :phone AND is_deleted = 0");
         $stmt->execute(['phone' => $digits]);
         $rows = $stmt->fetchAll();
         if (count($rows) === 1) {
@@ -203,7 +203,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // Resolved via Phone
                     $digits = normalize_phone($identifier);
                     if ($digits !== '') {
-                        $phoneStmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE phone = :phone AND is_deleted = 0");
+                        $phoneStmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE REGEXP_REPLACE(phone, '[^0-9]', '') = :phone AND is_deleted = 0");
                         $phoneStmt->execute(['phone' => $digits]);
                         $phoneRows = $phoneStmt->fetchAll();
                         if (count($phoneRows) === 1) {
