@@ -52,17 +52,18 @@ function resolve_checkin_contact_id(string $identifier): int {
         $row = $stmt->fetch();
         return $row ? (int)$row['id'] : 0;
     }
-    if (is_numeric($identifier)) {
-        return (int)$identifier;
-    }
     $digits = normalize_phone($identifier);
-    if ($digits !== '') {
+    if (strlen($digits) === 10) {
         $stmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE REGEXP_REPLACE(phone, '[^0-9]', '') = :phone AND is_deleted = 0");
         $stmt->execute(['phone' => $digits]);
         $rows = $stmt->fetchAll();
         if (count($rows) === 1) {
             return (int)$rows[0]['id'];
         }
+        return 0;
+    }
+    if (is_numeric($identifier)) {
+        return (int)$identifier;
     }
     return 0;
 }
@@ -196,22 +197,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($row) {
                         $contactId = (int)$row['id'];
                     }
+                } elseif (strlen(normalize_phone($identifier)) === 10) {
+                    // Resolved via Phone
+                    $digits = normalize_phone($identifier);
+                    $phoneStmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE REGEXP_REPLACE(phone, '[^0-9]', '') = :phone AND is_deleted = 0");
+                    $phoneStmt->execute(['phone' => $digits]);
+                    $phoneRows = $phoneStmt->fetchAll();
+                    if (count($phoneRows) === 1) {
+                        $contactId = (int)$phoneRows[0]['id'];
+                    } elseif (count($phoneRows) > 1) {
+                        $errorMsg = "Multiple accounts share that phone number. Please use your email address or member ID.";
+                    }
                 } elseif (is_numeric($identifier)) {
                     // Resolved via Contact ID
                     $contactId = (int)$identifier;
-                } else {
-                    // Resolved via Phone
-                    $digits = normalize_phone($identifier);
-                    if ($digits !== '') {
-                        $phoneStmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE REGEXP_REPLACE(phone, '[^0-9]', '') = :phone AND is_deleted = 0");
-                        $phoneStmt->execute(['phone' => $digits]);
-                        $phoneRows = $phoneStmt->fetchAll();
-                        if (count($phoneRows) === 1) {
-                            $contactId = (int)$phoneRows[0]['id'];
-                        } elseif (count($phoneRows) > 1) {
-                            $errorMsg = "Multiple accounts share that phone number. Please use your email address or member ID.";
-                        }
-                    }
                 }
 
                 if ($contactId <= 0) {

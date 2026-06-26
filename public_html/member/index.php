@@ -110,22 +110,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['member_lookup_action'
                     $stmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE email = :email AND is_deleted = 0 LIMIT 1");
                     $stmt->execute(['email' => strtolower($identifier)]);
                     $contactId = (int)($stmt->fetchColumn() ?: 0);
+                } elseif (strlen(normalize_phone($identifier)) === 10) {
+                    $digits = normalize_phone($identifier);
+                    $stmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE REGEXP_REPLACE(phone, '[^0-9]', '') = :phone AND is_deleted = 0");
+                    $stmt->execute(['phone' => $digits]);
+                    $phoneRows = $stmt->fetchAll();
+                    if (count($phoneRows) === 1) {
+                        $contactId = (int)$phoneRows[0]['id'];
+                    } elseif (count($phoneRows) > 1) {
+                        $errorMsg = "Multiple accounts share that phone number. Please use email or member ID.";
+                    }
                 } elseif (is_numeric($identifier)) {
                     $stmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE id = :id AND is_deleted = 0 LIMIT 1");
                     $stmt->execute(['id' => $identifier]);
                     $contactId = (int)($stmt->fetchColumn() ?: 0);
-                } else {
-                    $digits = normalize_phone($identifier);
-                    if ($digits !== '') {
-                        $stmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE REGEXP_REPLACE(phone, '[^0-9]', '') = :phone AND is_deleted = 0");
-                        $stmt->execute(['phone' => $digits]);
-                        $phoneRows = $stmt->fetchAll();
-                        if (count($phoneRows) === 1) {
-                            $contactId = (int)$phoneRows[0]['id'];
-                        } elseif (count($phoneRows) > 1) {
-                            $errorMsg = "Multiple accounts share that phone number. Please use email or member ID.";
-                        }
-                    }
                 }
 
                 if ($contactId <= 0 && empty($errorMsg)) {
