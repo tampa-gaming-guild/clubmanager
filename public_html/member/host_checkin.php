@@ -20,17 +20,18 @@ if (isset($_GET['action']) && $_GET['action'] === 'search') {
     if (strlen($q) >= 2) {
         try {
             $appDb = Database::getAppConnection();
-            $stmt = $appDb->prepare("
-                SELECT id, display_name, email 
-                FROM tgg_contacts 
-                WHERE (display_name LIKE :q1 OR email LIKE :q2) 
-                  AND is_deleted = 0 
+            $qPhone = normalize_phone($q);
+            $sql = "
+                SELECT id, display_name, email, phone
+                FROM tgg_contacts
+                WHERE (display_name LIKE :q1 OR email LIKE :q2" . ($qPhone !== '' ? " OR phone LIKE :q3" : "") . ")
+                  AND is_deleted = 0
                 LIMIT 15
-            ");
-            $stmt->execute([
-                'q1' => '%' . $q . '%',
-                'q2' => '%' . $q . '%'
-            ]);
+            ";
+            $stmt = $appDb->prepare($sql);
+            $params = ['q1' => '%' . $q . '%', 'q2' => '%' . $q . '%'];
+            if ($qPhone !== '') $params['q3'] = '%' . $qPhone . '%';
+            $stmt->execute($params);
             $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
             json_response($results);
         } catch (Exception $e) {
@@ -233,7 +234,7 @@ $preloadedContact = null;
 if (isset($_GET['contact_id'])) {
     try {
         $appDb = Database::getAppConnection();
-        $stmt = $appDb->prepare("SELECT id, display_name, email FROM tgg_contacts WHERE id = :id AND is_deleted = 0 LIMIT 1");
+        $stmt = $appDb->prepare("SELECT id, display_name, email, phone FROM tgg_contacts WHERE id = :id AND is_deleted = 0 LIMIT 1");
         $stmt->execute(['id' => $_GET['contact_id']]);
         $preloadedContact = $stmt->fetch(PDO::FETCH_ASSOC);
     } catch (Exception $e) {
@@ -324,9 +325,9 @@ if (isset($_GET['contact_id'])) {
 
                 <div class="terminal-form">
                     <div class="form-group large-input">
-                        <label for="search-input">Search Member Name</label>
-                        <input type="text" id="search-input" autocomplete="off" 
-                               placeholder="Type member's name..." 
+                        <label for="search-input">Search Member</label>
+                        <input type="text" id="search-input" autocomplete="off"
+                               placeholder="Type name, email, or phone…"
                                value="<?php echo $preloadedContact ? e($preloadedContact['display_name']) : ''; ?>"
                                autofocus>
                     </div>
@@ -373,9 +374,10 @@ if (isset($_GET['contact_id'])) {
             const preloadedId = <?php echo $preloadedContact ? (int)$preloadedContact['id'] : 'null'; ?>;
             const preloadedName = <?php echo $preloadedContact ? json_encode($preloadedContact['display_name']) : 'null'; ?>;
             const preloadedEmail = <?php echo $preloadedContact ? json_encode($preloadedContact['email']) : 'null'; ?>;
+            const preloadedPhone = <?php echo $preloadedContact ? json_encode($preloadedContact['phone'] ?? '') : 'null'; ?>;
 
             if (preloadedId && preloadedName) {
-                renderResults([{ id: preloadedId, display_name: preloadedName, email: preloadedEmail }]);
+                renderResults([{ id: preloadedId, display_name: preloadedName, email: preloadedEmail, phone: preloadedPhone }]);
             }
 
             // Live Search input handler
@@ -415,7 +417,7 @@ if (isset($_GET['contact_id'])) {
                     item.innerHTML = `
                         <div class="search-result-info">
                             <span class="search-result-name">${escapeHtml(member.display_name)}</span>
-                            <span class="search-result-meta">ID: ${member.id} | ${escapeHtml(member.email)}</span>
+                            <span class="search-result-meta">ID: ${member.id} | ${escapeHtml(member.email)}${member.phone ? ' | ' + formatPhone(member.phone) : ''}</span>
                         </div>
                         <button type="button" class="btn btn-primary btn-small checkin-btn" data-id="${member.id}" style="padding: 8px 14px; font-size: 0.85rem; border-radius: 4px; font-weight: 600; cursor: pointer;">Check In</button>
                     `;
@@ -673,6 +675,13 @@ if (isset($_GET['contact_id'])) {
                     .replace(/>/g, '&gt;')
                     .replace(/"/g, '&quot;')
                     .replace(/'/g, '&#039;');
+            }
+
+            function formatPhone(digits) {
+                if (digits && digits.length === 10) {
+                    return '(' + digits.slice(0, 3) + ') ' + digits.slice(3, 6) + '-' + digits.slice(6);
+                }
+                return digits || '';
             }
 
             function renderFeedback(success, message, details = null) {

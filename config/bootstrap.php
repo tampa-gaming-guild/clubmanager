@@ -157,6 +157,23 @@ function e($string) {
     return htmlspecialchars($string ?? '', ENT_QUOTES, 'UTF-8');
 }
 
+/** Strip all non-digit characters; drop a leading country code '1' from 11-digit US numbers. */
+function normalize_phone(string $phone): string {
+    $digits = preg_replace('/\D/', '', $phone);
+    if (strlen($digits) === 11 && $digits[0] === '1') {
+        $digits = substr($digits, 1);
+    }
+    return $digits;
+}
+
+/** Format a 10-digit string as (NXX) NXX-XXXX; return raw value for any other length. */
+function format_phone(string $digits): string {
+    if (strlen($digits) === 10) {
+        return '(' . substr($digits, 0, 3) . ') ' . substr($digits, 3, 3) . '-' . substr($digits, 6);
+    }
+    return $digits;
+}
+
 /**
  * Cache-busting query string for a static asset, based on its last-modified time.
  * $relativePath is relative to public_html/member/ regardless of the URL prefix used to reach it.

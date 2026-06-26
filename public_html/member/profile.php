@@ -778,7 +778,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                         </tr>
                                         <tr>
                                             <td><strong>Phone:</strong></td>
-                                            <td><?php echo e($contact['phone'] ?: 'None registered'); ?></td>
+                                            <td><?php echo e($contact['phone'] ? format_phone($contact['phone']) : 'None registered'); ?></td>
                                         </tr>
                                         <?php if ($membership): ?>
                                             <tr>

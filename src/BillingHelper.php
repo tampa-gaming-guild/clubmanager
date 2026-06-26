@@ -548,7 +548,7 @@ class BillingHelper {
         $firstName = trim($firstName);
         $lastName = trim($lastName);
         $email = trim(strtolower($email));
-        $phone = trim($phone);
+        $phone = normalize_phone(trim($phone));
 
         if (empty($firstName) || empty($lastName)) {
             throw new Exception("First and last name are required.");

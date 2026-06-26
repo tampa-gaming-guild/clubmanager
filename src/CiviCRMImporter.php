@@ -151,7 +151,7 @@ class CiviCRMImporter {
                     'first_name' => $contact['first_name'],
                     'last_name' => $contact['last_name'],
                     'email' => strtolower(trim($contact['email'])),
-                    'phone' => $contact['phone'],
+                    'phone' => normalize_phone((string)($contact['phone'] ?? '')) ?: null,
                     'is_deleted' => (int)$contact['is_deleted']
                 ]);
 

@@ -189,7 +189,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status']) && !$isAjax
                 // JOIN: brand-new contact.
                 $firstName = trim($_POST['first_name'] ?? '');
                 $lastName = trim($_POST['last_name'] ?? '');
-                $phone = trim($_POST['phone'] ?? '');
+                $phone = normalize_phone(trim($_POST['phone'] ?? ''));
 
                 if (empty($firstName) || empty($lastName)) {
                     throw new Exception("First and last name are required.");

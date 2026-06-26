@@ -55,6 +55,15 @@ function resolve_checkin_contact_id(string $identifier): int {
     if (is_numeric($identifier)) {
         return (int)$identifier;
     }
+    $digits = normalize_phone($identifier);
+    if ($digits !== '') {
+        $stmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE phone = :phone AND is_deleted = 0");
+        $stmt->execute(['phone' => $digits]);
+        $rows = $stmt->fetchAll();
+        if (count($rows) === 1) {
+            return (int)$rows[0]['id'];
+        }
+    }
     return 0;
 }
 
@@ -128,7 +137,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $isAjax = isset($_POST['ajax']) || (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && $_SERVER['HTTP_X_REQUESTED_WITH'] === 'XMLHttpRequest');
 
     if (empty($identifier)) {
-        $errorMsg = "Please enter your Email or Member ID.";
+        $errorMsg = "Please enter your Email, Phone Number, or Member ID.";
     } else {
         try {
             $appDb = Database::getAppConnection();
@@ -187,13 +196,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($row) {
                         $contactId = (int)$row['id'];
                     }
-                } else if (is_numeric($identifier)) {
+                } elseif (is_numeric($identifier)) {
                     // Resolved via Contact ID
                     $contactId = (int)$identifier;
+                } else {
+                    // Resolved via Phone
+                    $digits = normalize_phone($identifier);
+                    if ($digits !== '') {
+                        $phoneStmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE phone = :phone AND is_deleted = 0");
+                        $phoneStmt->execute(['phone' => $digits]);
+                        $phoneRows = $phoneStmt->fetchAll();
+                        if (count($phoneRows) === 1) {
+                            $contactId = (int)$phoneRows[0]['id'];
+                        } elseif (count($phoneRows) > 1) {
+                            $errorMsg = "Multiple accounts share that phone number. Please use your email address or member ID.";
+                        }
+                    }
                 }
 
                 if ($contactId <= 0) {
-                    $errorMsg = "Member not found. Please check your Email or Member ID.";
+                    if (empty($errorMsg)) {
+                        $errorMsg = "Member not found. Please check your email, phone number, or member ID.";
+                    }
                 } else {
                     // 2. Fetch Contact Name and Expiry Date
                     $contactStmt = $appDb->prepare("SELECT display_name FROM tgg_contacts WHERE id = :id AND is_deleted = 0 LIMIT 1");
@@ -351,8 +375,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <input type="hidden" id="identifier" name="identifier" value="<?php echo e($_SESSION['user']['contact_id']); ?>">
                     <?php else: ?>
                         <div class="form-group large-input">
-                            <label for="identifier">Email Address or Member ID</label>
-                            <input type="text" id="identifier" name="identifier" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" required placeholder="Enter Email or ID..." autofocus>
+                            <label for="identifier">Email Address, Phone Number, or Member ID</label>
+                            <input type="text" id="identifier" name="identifier" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" required placeholder="Enter email, phone, or ID…" autofocus>
                         </div>
                     <?php endif; ?>
 

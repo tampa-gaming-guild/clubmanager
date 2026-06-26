@@ -345,7 +345,7 @@ try {
                             <!-- Search & Filter Controls -->
                             <div class="filter-controls">
                                 <div class="search-bar">
-                                    <input type="text" id="member-search" placeholder="Search by name/email..." onkeyup="filterMembersTable()" value="<?php echo isset($_GET['search']) ? e($_GET['search']) : ''; ?>">
+                                    <input type="text" id="member-search" placeholder="Search by name, email, or phone…" onkeyup="filterMembersTable()" value="<?php echo isset($_GET['search']) ? e($_GET['search']) : ''; ?>">
                                 </div>
                                 <div class="filter-select">
                                     <select id="filter-level" onchange="filterMembersTable()">
@@ -407,7 +407,7 @@ try {
                                         </tr>
                                     <?php else: ?>
                                         <?php foreach ($members as $m): ?>
-                                            <tr>
+                                            <tr data-phone="<?php echo e($m['phone'] ?? ''); ?>">
                                                 <td><strong><?php echo e($m['display_name']); ?></strong></td>
                                                 <td><?php echo e($m['email']); ?></td>
                                                 <td><?php echo e($m['membership_name'] ?: 'None'); ?></td>
@@ -533,8 +533,9 @@ try {
                     let levelTxt = (levelTd.textContent || levelTd.innerText).trim().toLowerCase();
                     let statusTxt = (statusTd.textContent || statusTd.innerText).trim().toLowerCase();
                     
+                    let phoneTxt = (trs[i].getAttribute('data-phone') || '').toLowerCase();
                     // Match Search Text
-                    const matchesSearch = nameTxt.indexOf(searchFilter) > -1 || emailTxt.indexOf(searchFilter) > -1;
+                    const matchesSearch = nameTxt.indexOf(searchFilter) > -1 || emailTxt.indexOf(searchFilter) > -1 || phoneTxt.indexOf(searchFilter) > -1;
                     
                     // Match Level
                     const matchesLevel = levelFilter === "" || levelTxt === levelFilter;
