@@ -1198,6 +1198,7 @@ class BillingHelper {
     public static function sendAutoRenewalReminders(): array {
         $appDb = Database::getAppConnection();
         $sent = 0;
+        $errors = [];
 
         $stmt = $appDb->prepare("
             SELECT s.contact_id, s.end_date, c.display_name, c.email, p.name AS plan_name,
@@ -1232,11 +1233,13 @@ class BillingHelper {
                     ->execute(['end_date' => $row['end_date'], 'contact_id' => $contactId]);
                 $sent++;
             } catch (Exception $e) {
-                error_log("Failed to send auto-renewal reminder for contact #{$contactId}: " . $e->getMessage());
+                $msg = "Failed to send auto-renewal reminder for contact #{$contactId}: " . $e->getMessage();
+                error_log($msg);
+                $errors[] = "contact_id={$contactId}: ERROR - " . $e->getMessage();
             }
         }
 
-        return ['sent' => $sent];
+        return ['sent' => $sent, 'errors' => $errors];
     }
 
     /**
@@ -1248,6 +1251,7 @@ class BillingHelper {
     public static function sendManualRenewalReminders(): array {
         $appDb = Database::getAppConnection();
         $sent = 0;
+        $errors = [];
 
         $stmt = $appDb->prepare("
             SELECT s.contact_id, s.end_date, c.display_name, c.email, p.name AS plan_name
@@ -1280,11 +1284,13 @@ class BillingHelper {
                     ->execute(['end_date' => $row['end_date'], 'contact_id' => $contactId]);
                 $sent++;
             } catch (Exception $e) {
-                error_log("Failed to send manual renewal reminder for contact #{$contactId}: " . $e->getMessage());
+                $msg = "Failed to send manual renewal reminder for contact #{$contactId}: " . $e->getMessage();
+                error_log($msg);
+                $errors[] = "contact_id={$contactId}: ERROR - " . $e->getMessage();
             }
         }
 
-        return ['sent' => $sent];
+        return ['sent' => $sent, 'errors' => $errors];
     }
 
     /**
@@ -1298,6 +1304,7 @@ class BillingHelper {
         $appDb = Database::getAppConnection();
         $graceDays = self::getRenewalGraceDays();
         $sent = 0;
+        $errors = [];
 
         $stmt = $appDb->prepare("
             SELECT s.contact_id, s.end_date, c.display_name, c.email, p.name AS plan_name
@@ -1329,11 +1336,13 @@ class BillingHelper {
                     ->execute(['end_date' => $row['end_date'], 'contact_id' => $contactId]);
                 $sent++;
             } catch (Exception $e) {
-                error_log("Failed to send expired membership notice for contact #{$contactId}: " . $e->getMessage());
+                $msg = "Failed to send expired membership notice for contact #{$contactId}: " . $e->getMessage();
+                error_log($msg);
+                $errors[] = "contact_id={$contactId}: ERROR - " . $e->getMessage();
             }
         }
 
-        return ['sent' => $sent];
+        return ['sent' => $sent, 'errors' => $errors];
     }
 
     /**

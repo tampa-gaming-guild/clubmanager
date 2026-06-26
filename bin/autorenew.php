@@ -17,12 +17,21 @@ if (PHP_SAPI !== 'cli') {
 
 $reminders = BillingHelper::sendAutoRenewalReminders();
 echo "[" . date('Y-m-d H:i:s') . "] [autorenew] Sent {$reminders['sent']} upcoming-renewal reminder(s).\n";
+foreach ($reminders['errors'] ?? [] as $err) {
+    echo "[" . date('Y-m-d H:i:s') . "] [autorenew] $err\n";
+}
 
 $manualReminders = BillingHelper::sendManualRenewalReminders();
 echo "[" . date('Y-m-d H:i:s') . "] [autorenew] Sent {$manualReminders['sent']} manual renewal reminder(s).\n";
+foreach ($manualReminders['errors'] ?? [] as $err) {
+    echo "[" . date('Y-m-d H:i:s') . "] [autorenew] $err\n";
+}
 
 $expiredNotices = BillingHelper::sendExpiredNotices();
 echo "[" . date('Y-m-d H:i:s') . "] [autorenew] Sent {$expiredNotices['sent']} expired membership notice(s).\n";
+foreach ($expiredNotices['errors'] ?? [] as $err) {
+    echo "[" . date('Y-m-d H:i:s') . "] [autorenew] $err\n";
+}
 
 $appDb = Database::getAppConnection();
 $stmt = $appDb->query("
