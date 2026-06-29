@@ -193,47 +193,55 @@ class CiviCRMImporter {
                 if ($civiMem) {
                     $civiMemTypeId = (int)$civiMem['membership_type_id'];
                     $status = $civiMem['is_active'] ? 'active' : 'expired';
-                    
-                    // Find matching local plan
-                    $planQuery = $appDb->prepare("SELECT id FROM tgg_subscription_plans WHERE civicrm_membership_type_id = :civi_type LIMIT 1");
-                    $planQuery->execute(['civi_type' => $civiMemTypeId]);
-                    $localPlan = $planQuery->fetch();
-                    
-                    if ($localPlan) {
-                        $planId = (int)$localPlan['id'];
-                        
-                        // Insert or Update local subscription
-                        $subCheck = $appDb->prepare("SELECT contact_id FROM tgg_subscriptions WHERE contact_id = :contact_id LIMIT 1");
-                        $subCheck->execute(['contact_id' => $contactId]);
-                        
-                        if ($subCheck->fetch()) {
-                            $subUpdate = $appDb->prepare("
-                                UPDATE tgg_subscriptions 
-                                SET plan_id = :plan_id, status = :status, join_date = :join_date, start_date = :start_date, end_date = :end_date,
-                                    rate_id = COALESCE(rate_id, (SELECT id FROM tgg_subscription_rates WHERE plan_id = {$planId} LIMIT 1))
-                                WHERE contact_id = :contact_id
-                            ");
-                            $subUpdate->execute([
-                                'plan_id' => $planId,
-                                'status' => $status,
-                                'join_date' => $civiMem['join_date'] ?? $civiMem['start_date'],
-                                'start_date' => $civiMem['start_date'],
-                                'end_date' => $civiMem['end_date'],
-                                'contact_id' => $contactId
-                            ]);
-                        } else {
-                            $subInsert = $appDb->prepare("
-                                INSERT INTO tgg_subscriptions (contact_id, plan_id, status, join_date, start_date, end_date, rate_id)
-                                VALUES (:contact_id, :plan_id, :status, :join_date, :start_date, :end_date, (SELECT id FROM tgg_subscription_rates WHERE plan_id = {$planId} LIMIT 1))
-                            ");
-                            $subInsert->execute([
-                                'contact_id' => $contactId,
-                                'plan_id' => $planId,
-                                'status' => $status,
-                                'join_date' => $civiMem['join_date'] ?? $civiMem['start_date'],
-                                'start_date' => $civiMem['start_date'],
-                                'end_date' => $civiMem['end_date']
-                            ]);
+
+                    $joinDate  = $civiMem['join_date']  ?? $civiMem['start_date'] ?? $civiMem['end_date'];
+                    $startDate = $civiMem['start_date'] ?? $joinDate;
+                    $endDate   = $civiMem['end_date'];
+
+                    if (!$joinDate || !$startDate || !$endDate) {
+                        $stats['errors'][] = "Skipped subscription sync for contact #{$contactId}: membership record has null date fields (join={$civiMem['join_date']}, start={$civiMem['start_date']}, end={$civiMem['end_date']})";
+                    } else {
+                        // Find matching local plan
+                        $planQuery = $appDb->prepare("SELECT id FROM tgg_subscription_plans WHERE civicrm_membership_type_id = :civi_type LIMIT 1");
+                        $planQuery->execute(['civi_type' => $civiMemTypeId]);
+                        $localPlan = $planQuery->fetch();
+
+                        if ($localPlan) {
+                            $planId = (int)$localPlan['id'];
+
+                            // Insert or Update local subscription
+                            $subCheck = $appDb->prepare("SELECT contact_id FROM tgg_subscriptions WHERE contact_id = :contact_id LIMIT 1");
+                            $subCheck->execute(['contact_id' => $contactId]);
+
+                            if ($subCheck->fetch()) {
+                                $subUpdate = $appDb->prepare("
+                                    UPDATE tgg_subscriptions
+                                    SET plan_id = :plan_id, status = :status, join_date = :join_date, start_date = :start_date, end_date = :end_date,
+                                        rate_id = COALESCE(rate_id, (SELECT id FROM tgg_subscription_rates WHERE plan_id = {$planId} LIMIT 1))
+                                    WHERE contact_id = :contact_id
+                                ");
+                                $subUpdate->execute([
+                                    'plan_id'    => $planId,
+                                    'status'     => $status,
+                                    'join_date'  => $joinDate,
+                                    'start_date' => $startDate,
+                                    'end_date'   => $endDate,
+                                    'contact_id' => $contactId
+                                ]);
+                            } else {
+                                $subInsert = $appDb->prepare("
+                                    INSERT INTO tgg_subscriptions (contact_id, plan_id, status, join_date, start_date, end_date, rate_id)
+                                    VALUES (:contact_id, :plan_id, :status, :join_date, :start_date, :end_date, (SELECT id FROM tgg_subscription_rates WHERE plan_id = {$planId} LIMIT 1))
+                                ");
+                                $subInsert->execute([
+                                    'contact_id' => $contactId,
+                                    'plan_id'    => $planId,
+                                    'status'     => $status,
+                                    'join_date'  => $joinDate,
+                                    'start_date' => $startDate,
+                                    'end_date'   => $endDate
+                                ]);
+                            }
                         }
                     }
                 }
