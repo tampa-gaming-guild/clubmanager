@@ -216,21 +216,21 @@ class CiviCRMImporter {
                             $subUpdate->execute([
                                 'plan_id' => $planId,
                                 'status' => $status,
-                                'join_date' => $civiMem['join_date'],
+                                'join_date' => $civiMem['join_date'] ?? $civiMem['start_date'],
                                 'start_date' => $civiMem['start_date'],
                                 'end_date' => $civiMem['end_date'],
                                 'contact_id' => $contactId
                             ]);
                         } else {
                             $subInsert = $appDb->prepare("
-                                INSERT INTO tgg_subscriptions (contact_id, plan_id, status, join_date, start_date, end_date, rate_id) 
+                                INSERT INTO tgg_subscriptions (contact_id, plan_id, status, join_date, start_date, end_date, rate_id)
                                 VALUES (:contact_id, :plan_id, :status, :join_date, :start_date, :end_date, (SELECT id FROM tgg_subscription_rates WHERE plan_id = {$planId} LIMIT 1))
                             ");
                             $subInsert->execute([
                                 'contact_id' => $contactId,
                                 'plan_id' => $planId,
                                 'status' => $status,
-                                'join_date' => $civiMem['join_date'],
+                                'join_date' => $civiMem['join_date'] ?? $civiMem['start_date'],
                                 'start_date' => $civiMem['start_date'],
                                 'end_date' => $civiMem['end_date']
                             ]);
