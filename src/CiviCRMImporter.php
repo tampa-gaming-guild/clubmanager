@@ -255,8 +255,10 @@ class CiviCRMImporter {
             // Cache local plans by price
             $plansRaw = $appDb->query("SELECT id, price FROM tgg_subscription_plans")->fetchAll();
             $plansByPrice = [];
+            $fallbackPlanId = null;
             foreach ($plansRaw as $p) {
                 $plansByPrice[(int)round($p['price'])] = (int)$p['id'];
+                $fallbackPlanId = $fallbackPlanId ?? (int)$p['id'];
             }
 
             // Fetch completed contributions from CiviCRM
@@ -280,36 +282,45 @@ class CiviCRMImporter {
             $contactContribsCount = [];
 
             foreach ($contributions as $contrib) {
-                $cid = (int)$contrib['contact_id'];
-                $amount = (float)$contrib['total_amount'];
-                $trxnId = $contrib['trxn_id'];
-                $civiId = (int)$contrib['id'];
+                try {
+                    $cid = (int)$contrib['contact_id'];
+                    $amount = (float)$contrib['total_amount'];
+                    $trxnId = $contrib['trxn_id'];
+                    $civiId = (int)$contrib['id'];
 
-                // Map contribution amount to closest local plan ID
-                $amountRounded = (int)round($amount);
-                $planId = $plansByPrice[$amountRounded] ?? 1; // Fallback to plan 1
+                    // Map contribution amount to closest local plan ID
+                    $amountRounded = (int)round($amount);
+                    $planId = $plansByPrice[$amountRounded] ?? $fallbackPlanId;
 
-                // Deduce join vs renew action based on order
-                if (!isset($contactContribsCount[$cid])) {
-                    $contactContribsCount[$cid] = 0;
+                    if (!$planId) {
+                        $stats['errors'][] = "Skipped contribution #{$civiId}: no local subscription plans exist";
+                        continue;
+                    }
+
+                    // Deduce join vs renew action based on order
+                    if (!isset($contactContribsCount[$cid])) {
+                        $contactContribsCount[$cid] = 0;
+                    }
+                    $actionType = ($contactContribsCount[$cid] > 0) ? 'renew' : 'join';
+                    $contactContribsCount[$cid]++;
+
+                    $stripeSessionId = "civi_contrib_" . $civiId;
+                    $paymentIntentId = !empty($trxnId) ? $trxnId : "civi_contrib_" . $civiId;
+
+                    $insertLedger->execute([
+                        'contact_id'       => $cid,
+                        'plan_id'          => $planId,
+                        'stripe_session_id' => $stripeSessionId,
+                        'payment_intent_id' => $paymentIntentId,
+                        'amount'           => $amount,
+                        'action_type'      => $actionType,
+                        'created_at'       => $contrib['receive_date']
+                    ]);
+
+                    $stats['contributions_synced']++;
+                } catch (Exception $e) {
+                    $stats['errors'][] = "Failed syncing contribution #{$contrib['id']} (contact #{$contrib['contact_id']}): " . $e->getMessage();
                 }
-                $actionType = ($contactContribsCount[$cid] > 0) ? 'renew' : 'join';
-                $contactContribsCount[$cid]++;
-
-                $stripeSessionId = "civi_contrib_" . $civiId;
-                $paymentIntentId = !empty($trxnId) ? $trxnId : "civi_contrib_" . $civiId;
-
-                $insertLedger->execute([
-                    'contact_id' => $cid,
-                    'plan_id' => $planId,
-                    'stripe_session_id' => $stripeSessionId,
-                    'payment_intent_id' => $paymentIntentId,
-                    'amount' => $amount,
-                    'action_type' => $actionType,
-                    'created_at' => $contrib['receive_date']
-                ]);
-
-                $stats['contributions_synced']++;
             }
         } catch (Exception $e) {
             $stats['errors'][] = "Failed syncing contributions: " . $e->getMessage();
