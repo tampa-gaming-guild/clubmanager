@@ -47,6 +47,7 @@ class CiviCRMImporter {
             'contacts_scanned' => 0,
             'settings_created' => 0,
             'settings_updated' => 0,
+            'founders_flagged' => 0,
             'contributions_synced' => 0,
             'errors' => []
         ];
@@ -244,6 +245,29 @@ class CiviCRMImporter {
                             }
                         }
                     }
+                }
+
+                // D. Check for an active Founder membership and permanently flag the member.
+                // Once set, the flag is never cleared — it is a badge of honour.
+                try {
+                    $founderQuery = $civiDb->prepare("
+                        SELECT COUNT(*) FROM civicrm_membership m
+                        INNER JOIN civicrm_membership_type mt ON m.membership_type_id = mt.id
+                        INNER JOIN civicrm_membership_status s ON m.status_id = s.id
+                        WHERE m.contact_id = :contact_id
+                          AND mt.name = 'Founder'
+                          AND s.is_active = 1
+                    ");
+                    $founderQuery->execute(['contact_id' => $contactId]);
+                    if ((int)$founderQuery->fetchColumn() > 0) {
+                        $appDb->prepare("UPDATE tgg_member_settings SET is_founder = 1 WHERE contact_id = :contact_id AND is_founder = 0")
+                              ->execute(['contact_id' => $contactId]);
+                        if ($appDb->query("SELECT ROW_COUNT()")->fetchColumn() > 0) {
+                            $stats['founders_flagged']++;
+                        }
+                    }
+                } catch (Exception $e) {
+                    $stats['errors'][] = "Failed checking founder status for contact #{$contactId}: " . $e->getMessage();
                 }
             } catch (Exception $e) {
                 $stats['errors'][] = "Failed syncing contact #{$contactId}: " . $e->getMessage();

@@ -51,7 +51,7 @@ try {
         $subBilling = $subBillingStmt->fetch() ?: ['auto_renew' => 0, 'stripe_customer_id' => null, 'stripe_payment_method_id' => null];
 
         // C. Fetch Local Settings / Privacy Info
-        $settingsStmt = $appDb->prepare("SELECT role, is_profile_public, public_fields, custom_display_name FROM tgg_member_settings WHERE contact_id = :id LIMIT 1");
+        $settingsStmt = $appDb->prepare("SELECT role, is_profile_public, public_fields, custom_display_name, is_founder FROM tgg_member_settings WHERE contact_id = :id LIMIT 1");
         $settingsStmt->execute(['id' => $profileId]);
         $settings = $settingsStmt->fetch();
 
@@ -72,7 +72,8 @@ if (!$settings) {
         'role' => 'member',
         'is_profile_public' => 1,
         'public_fields' => json_encode(['display_name', 'membership_name', 'status_label']),
-        'custom_display_name' => $contact['display_name']
+        'custom_display_name' => $contact['display_name'],
+        'is_founder' => 0
     ];
 }
 
@@ -657,7 +658,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                         </div>
                         <div class="profile-title">
                             <h2><?php echo e($displayNameToPublic); ?> <span style="font-size: 1.1rem; color: var(--color-text-secondary); font-weight: normal; margin-left: 8px;">(Member ID: <?php echo $profileId; ?>)</span></h2>
-                            <span class="badge badge-role"><?php 
+                            <span class="badge badge-role"><?php
                                 $roleHierarchy = ['superadmin', 'admin', 'host', 'member', 'guest'];
                                 usort($memberRoles, function($a, $b) use ($roleHierarchy) {
                                     $posA = array_search($a, $roleHierarchy, true);
@@ -667,8 +668,11 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                     return $posA <=> $posB;
                                 });
                                 $capitalizedRoles = array_map(function($r) { return ucfirst($r); }, $memberRoles);
-                                echo e(implode(' | ', $capitalizedRoles)); 
+                                echo e(implode(' | ', $capitalizedRoles));
                             ?></span>
+                            <?php if (!empty($settings['is_founder'])): ?>
+                            <span class="badge badge-founder">Founder</span>
+                            <?php endif; ?>
                         </div>
                     </div>
 

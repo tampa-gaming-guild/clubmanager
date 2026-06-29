@@ -545,6 +545,11 @@ select option {
     background: rgba(245, 158, 11, 0.2);
     color: var(--color-warning);
 }
+.badge-founder {
+    background: rgba(234, 179, 8, 0.2);
+    color: #eab308;
+    border: 1px solid rgba(234, 179, 8, 0.35);
+}
 
 .status-dates p {
     font-size: 0.9rem;
