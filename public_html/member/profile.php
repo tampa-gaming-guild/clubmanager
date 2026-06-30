@@ -34,7 +34,7 @@ try {
 
     // A. Fetch Contact Info from local contacts
     $contactStmt = $appDb->prepare("
-        SELECT id, display_name, first_name, last_name, email, phone
+        SELECT id, display_name, first_name, last_name, email, phone, is_opt_out
         FROM tgg_contacts
         WHERE id = :id AND is_deleted = 0 LIMIT 1
     ");
@@ -396,6 +396,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
                 $successMsg = $newAutoRenew ? "Auto-renew enabled." : "Auto-renew disabled.";
             } catch (Exception $e) {
                 $errorMsg = safe_err("Failed to update auto-renew setting: ", $e);
+            }
+        }
+
+        // A0b. Handle Bulk Email Opt-Out Toggle
+        if (isset($_POST['opt_out_update'])) {
+            $newOptOut = isset($_POST['is_opt_out']) ? 1 : 0;
+            try {
+                $update = $appDb->prepare("UPDATE tgg_contacts SET is_opt_out = :is_opt_out WHERE id = :id");
+                $update->execute(['is_opt_out' => $newOptOut, 'id' => $profileId]);
+                $contact['is_opt_out'] = $newOptOut;
+                $successMsg = $newOptOut ? "Opted out of bulk emails." : "Opted back in to bulk emails.";
+            } catch (Exception $e) {
+                $errorMsg = safe_err("Failed to update email preference: ", $e);
             }
         }
 
@@ -855,6 +868,20 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                     </form>
                                 </div>
                                 <?php endif; ?>
+
+                                <!-- Email Preferences Panel -->
+                                <div class="management-card mt-20">
+                                    <h4>Email Preferences</h4>
+                                    <form action="profile.php?id=<?php echo $profileId; ?>" method="POST" class="settings-form">
+                                        <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                        <div class="form-group checkbox-group">
+                                            <input type="checkbox" id="is_opt_out" name="is_opt_out" value="1"
+                                                <?php echo !empty($contact['is_opt_out']) ? 'checked' : ''; ?>>
+                                            <label for="is_opt_out">Opt out of bulk emails (newsletters, announcements)</label>
+                                        </div>
+                                        <button type="submit" name="opt_out_update" class="btn btn-success btn-block mt-15">Save Email Preferences</button>
+                                    </form>
+                                </div>
 
                                 <!-- Password Reset Panel -->
                                 <div class="management-card mt-20">

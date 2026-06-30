@@ -109,7 +109,7 @@ class CiviCRMImporter {
         }
 
         // 1. Fetch all contacts from CiviCRM (including deleted status and names)
-        $query = "SELECT c.id, c.display_name, c.first_name, c.last_name, e.email, p.phone, c.is_deleted
+        $query = "SELECT c.id, c.display_name, c.first_name, c.last_name, e.email, p.phone, c.is_deleted, c.is_opt_out
                   FROM civicrm_contact c
                   INNER JOIN civicrm_email e ON e.contact_id = c.id AND e.is_primary = 1
                   LEFT JOIN civicrm_phone p ON p.contact_id = c.id AND p.is_primary = 1";
@@ -122,15 +122,16 @@ class CiviCRMImporter {
 
         // Prepare statements for local contacts insertion/update
         $insertContactStmt = $appDb->prepare("
-            INSERT INTO tgg_contacts (id, display_name, first_name, last_name, email, phone, is_deleted)
-            VALUES (:id, :display_name, :first_name, :last_name, :email, :phone, :is_deleted)
+            INSERT INTO tgg_contacts (id, display_name, first_name, last_name, email, phone, is_deleted, is_opt_out)
+            VALUES (:id, :display_name, :first_name, :last_name, :email, :phone, :is_deleted, :is_opt_out)
             ON DUPLICATE KEY UPDATE
                 display_name = VALUES(display_name),
                 first_name = VALUES(first_name),
                 last_name = VALUES(last_name),
                 email = VALUES(email),
                 phone = VALUES(phone),
-                is_deleted = VALUES(is_deleted)
+                is_deleted = VALUES(is_deleted),
+                is_opt_out = VALUES(is_opt_out)
         ");
 
         // Prepare statements for local checking and insertion
@@ -153,7 +154,8 @@ class CiviCRMImporter {
                     'last_name' => $contact['last_name'],
                     'email' => strtolower(trim($contact['email'])),
                     'phone' => normalize_phone((string)($contact['phone'] ?? '')) ?: null,
-                    'is_deleted' => (int)$contact['is_deleted']
+                    'is_deleted' => (int)$contact['is_deleted'],
+                    'is_opt_out' => (int)$contact['is_opt_out']
                 ]);
 
                 // B. Sync Credentials Settings record locally

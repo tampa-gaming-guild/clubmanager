@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS `civicrm_contact` (
   `first_name` VARCHAR(64) NULL,
   `last_name` VARCHAR(64) NULL,
   `is_deleted` TINYINT(1) DEFAULT 0,
+  `is_opt_out` TINYINT(1) DEFAULT 0,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB;
 
@@ -108,8 +109,8 @@ INSERT INTO `civicrm_phone` (`contact_id`, `phone`) VALUES (2, '555-0102');
 INSERT INTO `civicrm_membership` (`contact_id`, `membership_type_id`, `join_date`, `start_date`, `end_date`, `status_id`) VALUES
 (2, 3, '2025-01-15', '2026-01-15', '2027-01-15', 2); -- Current (Annual)
 
--- Contact 3: Expired Member
-INSERT INTO `civicrm_contact` (`id`, `display_name`, `first_name`, `last_name`) VALUES (3, 'Alice Expired', 'Alice', 'Expired');
+-- Contact 3: Expired Member (opted out of bulk email)
+INSERT INTO `civicrm_contact` (`id`, `display_name`, `first_name`, `last_name`, `is_opt_out`) VALUES (3, 'Alice Expired', 'Alice', 'Expired', 1);
 INSERT INTO `civicrm_email` (`contact_id`, `email`) VALUES (3, 'alice@example.com');
 INSERT INTO `civicrm_phone` (`contact_id`, `phone`) VALUES (3, '555-0103');
 INSERT INTO `civicrm_membership` (`contact_id`, `membership_type_id`, `join_date`, `start_date`, `end_date`, `status_id`) VALUES
