@@ -14,6 +14,10 @@ use App\CiviCRMImporter;
 $errorMsg = null;
 $successMsg = null;
 $filter = isset($_GET['filter']) ? $_GET['filter'] : 'upcoming';
+
+// PRG: read flash messages passed back via GET after a redirect
+if (isset($_GET['success'])) $successMsg = trim($_GET['success']);
+if (isset($_GET['error']))   $errorMsg   = trim($_GET['error']);
 $allActiveMembers = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && Auth::check()) {
@@ -131,6 +135,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && Auth::check()) {
             }
         }
     }
+
+    // PRG: redirect so a page refresh doesn't resubmit the form.
+    // The form action already embeds ?highlight=&filter= so they're in $_GET here.
+    $qp = ['filter' => $_GET['filter'] ?? 'upcoming'];
+    if (!empty($_GET['highlight'])) $qp['highlight'] = $_GET['highlight'];
+    if ($successMsg) $qp['success'] = $successMsg;
+    if ($errorMsg)   $qp['error']   = $errorMsg;
+    redirect('volunteers.php?' . http_build_query($qp));
 }
 
 try {

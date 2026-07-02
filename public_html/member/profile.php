@@ -13,6 +13,10 @@ use App\MailHelper;
 $errorMsg = null;
 $successMsg = null;
 
+// PRG: read flash messages passed back via GET after a redirect
+if (isset($_GET['success'])) $successMsg = trim($_GET['success']);
+if (isset($_GET['error']))   $errorMsg   = trim($_GET['error']);
+
 // 1. Get Target Profile ID
 $profileId = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 if ($profileId <= 0 && Auth::check()) {
@@ -580,6 +584,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
             }
         }
     }
+
+    // PRG: redirect so a page refresh doesn't resubmit the form
+    $qp = ['id' => $profileId];
+    if ($successMsg) $qp['success'] = $successMsg;
+    if ($errorMsg)   $qp['error']   = $errorMsg;
+    redirect('profile.php?' . http_build_query($qp));
 }
 
 // Resolve the custom display name to show

@@ -11,6 +11,10 @@ use App\Auth;
 $errorMsg = null;
 $successMsg = null;
 
+// PRG: read flash messages passed back via GET after a redirect
+if (isset($_GET['success'])) $successMsg = trim($_GET['success']);
+if (isset($_GET['error']))   $errorMsg   = trim($_GET['error']);
+
 // Determine Selected Month & Year (for Grid Calendar)
 $month = isset($_GET['month']) ? (int)$_GET['month'] : (int)date('m');
 $year = isset($_GET['year']) ? (int)$_GET['year'] : (int)date('Y');
@@ -71,6 +75,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && Auth::check()) {
             }
         }
     }
+
+    // PRG: redirect so a page refresh doesn't resubmit the form
+    $qp = ['month' => $month, 'year' => $year];
+    if ($successMsg) $qp['success'] = $successMsg;
+    if ($errorMsg)   $qp['error']   = $errorMsg;
+    redirect('calendar.php?' . http_build_query($qp));
 }
 
 // Map events to days for quick grid rendering (run after potential POST updates)
