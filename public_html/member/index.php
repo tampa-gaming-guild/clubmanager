@@ -392,7 +392,7 @@ if (Auth::check() && has_permission('admin panel')) {
                                         </div>
                                     </form>
                                     <p style="margin-top: 12px; text-align: center;">
-                                        <a href="host_checkin.php" class="card-link">Check In With Name Search &rarr;</a>
+                                        <a href="host_checkin.php" class="card-link">Member Search &rarr;</a>
                                         &nbsp;|&nbsp;
                                         <a href="#" class="card-link" onclick="openAddMemberModal(); return false;">+ Add Member</a>
                                     </p>
@@ -400,14 +400,12 @@ if (Auth::check() && has_permission('admin panel')) {
                             </div>
 
                             <!-- Pending Cash Approvals -->
-                            <div class="table-card glass-panel">
+                            <div id="pending-payments-section" class="table-card glass-panel" style="display: none;">
                                 <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 15px 0; flex-wrap: wrap; gap: 10px;">
                                     <h3 style="margin: 0;">Pending Cash Approvals <span id="pending-count-badge"></span></h3>
                                     <button type="button" id="enable-alerts-btn" class="btn btn-secondary btn-small" style="display: none;">Enable Alerts</button>
                                 </div>
-                                <div id="pending-payments-list" style="padding: 15px;">
-                                    <p id="pending-payments-empty" style="color: var(--color-text-secondary); margin: 0;">No pending cash payments right now.</p>
-                                </div>
+                                <div id="pending-payments-list" style="padding: 15px;"></div>
                             </div>
 
                             <!-- Check-Ins Log (today only, same table as the admin Check-In List) -->
@@ -720,8 +718,8 @@ if (Auth::check() && has_permission('admin panel')) {
         (function () {
             const csrfToken = <?php echo json_encode(get_csrf_token()); ?>;
             const enableBtn = document.getElementById('enable-alerts-btn');
+            const sectionEl = document.getElementById('pending-payments-section');
             const listEl = document.getElementById('pending-payments-list');
-            const emptyEl = document.getElementById('pending-payments-empty');
             const badgeEl = document.getElementById('pending-count-badge');
             let knownIds = new Set();
             let firstPoll = true;
@@ -751,11 +749,12 @@ if (Auth::check() && has_permission('admin panel')) {
                 badgeEl.textContent = pending.length > 0 ? `(${pending.length})` : '';
 
                 if (pending.length === 0) {
+                    sectionEl.style.display = 'none';
                     listEl.innerHTML = '';
-                    emptyEl.style.display = 'block';
-                    listEl.appendChild(emptyEl);
                     return;
                 }
+
+                sectionEl.style.display = '';
 
                 listEl.innerHTML = '';
                 pending.forEach((p) => {
