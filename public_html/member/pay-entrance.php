@@ -146,11 +146,18 @@ if ($contactId <= 0) {
         } elseif ($action === 'cash') {
             try {
                 $type = ($reason === 'entrance_fee') ? 'entrance_fee' : 'membership_renewal';
-                BillingHelper::createPendingPayment($contactId, $type, $context['plan_id'], $context['amount']);
-                $cashPendingMsg = sprintf(
-                    "See the Host to pay $%s in cash. Your check-in will be completed once they confirm payment.",
-                    number_format($context['amount'], 2)
-                );
+                $appDb = Database::getAppConnection();
+                $dupStmt = $appDb->prepare("SELECT COUNT(*) FROM tgg_pending_payments WHERE contact_id = :contact_id AND status = 'pending'");
+                $dupStmt->execute(['contact_id' => $contactId]);
+                if ((int)$dupStmt->fetchColumn() > 0) {
+                    $cashPendingMsg = "You already have a pending payment with the host. Please see the host to complete your check-in.";
+                } else {
+                    BillingHelper::createPendingPayment($contactId, $type, $context['plan_id'], $context['amount']);
+                    $cashPendingMsg = sprintf(
+                        "See the Host to pay $%s in cash. Your check-in will be completed once they confirm payment.",
+                        number_format($context['amount'], 2)
+                    );
+                }
             } catch (Exception $e) {
                 $errorMsg = safe_err("Failed to record cash payment request: ", $e);
             }
@@ -163,9 +170,16 @@ if ($contactId <= 0) {
 // Load context for the initial GET screen (amount due + Pay Card / Pay Cash buttons)
 $context = null;
 if (!$errorMsg && !$cashPendingMsg && !$successDetails && $status === null) {
-    $context = load_payment_context($contactId);
-    if (!$context) {
-        $errorMsg = "Member or membership could not be found.";
+    $appDb = Database::getAppConnection();
+    $dupStmt = $appDb->prepare("SELECT COUNT(*) FROM tgg_pending_payments WHERE contact_id = :contact_id AND status = 'pending'");
+    $dupStmt->execute(['contact_id' => $contactId]);
+    if ((int)$dupStmt->fetchColumn() > 0) {
+        $cashPendingMsg = "You already have a pending payment with the host. Please see the host to complete your check-in.";
+    } else {
+        $context = load_payment_context($contactId);
+        if (!$context) {
+            $errorMsg = "Member or membership could not be found.";
+        }
     }
 }
 

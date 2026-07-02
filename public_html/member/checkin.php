@@ -239,12 +239,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             // 3. Verify Active Membership
                             $membership = CiviCRMImporter::getMemberMembershipDetails($contactId);
 
+                            // Before redirecting to pay-entrance, check whether this member already
+                            // has a pending cash payment waiting on the host. If so, telling them to
+                            // pay again would create a duplicate -- direct them to the host instead.
+                            $pendingStmt = $appDb->prepare("SELECT COUNT(*) FROM tgg_pending_payments WHERE contact_id = :contact_id AND status = 'pending'");
+                            $pendingStmt->execute(['contact_id' => $contactId]);
+                            $hasPendingPayment = (int)$pendingStmt->fetchColumn() > 0;
+
                             if (!$membership || !$membership['is_active']) {
-                                // Expired/inactive membership: send them to renew (Card or Cash) instead of a flat denial.
-                                $redirectUrl = 'pay-entrance.php?contact_id=' . $contactId . '&reason=renewal&return=checkin.php';
+                                if ($hasPendingPayment) {
+                                    $errorMsg = "You already have a pending payment with the host. Please see the host to complete your check-in.";
+                                } else {
+                                    // Expired/inactive membership: send them to renew (Card or Cash) instead of a flat denial.
+                                    $redirectUrl = 'pay-entrance.php?contact_id=' . $contactId . '&reason=renewal&return=checkin.php';
+                                }
                             } elseif (BillingHelper::entranceFeeOwed($contactId, $membership)) {
-                                // Associate member's 2nd+ check-in since their last dues payment: pay the entrance fee first.
-                                $redirectUrl = 'pay-entrance.php?contact_id=' . $contactId . '&reason=entrance_fee&return=checkin.php';
+                                if ($hasPendingPayment) {
+                                    $errorMsg = "You already have a pending payment with the host. Please see the host to complete your check-in.";
+                                } else {
+                                    // Associate member's 2nd+ check-in since their last dues payment: pay the entrance fee first.
+                                    $redirectUrl = 'pay-entrance.php?contact_id=' . $contactId . '&reason=entrance_fee&return=checkin.php';
+                                }
                             } else {
                                 // 3b. Enforce the monthly guest pass allowance before logging anything
                                 $guestLimitExceeded = false;
