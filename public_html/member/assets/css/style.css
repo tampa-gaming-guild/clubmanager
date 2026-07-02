@@ -146,6 +146,52 @@ a:hover {
     color: hsl(350, 89%, 75%);
 }
 
+/* --- Navbar Search Dropdown --- */
+.navbar-search-dropdown {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    background: hsla(222, 47%, 10%, 0.98);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+    z-index: 200;
+}
+
+.navbar-search-result-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 15px;
+    cursor: pointer;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    transition: background 0.15s ease;
+}
+
+.navbar-search-result-item:last-child {
+    border-bottom: none;
+}
+
+.navbar-search-result-item:hover,
+.navbar-search-result-item.navbar-search-result-active {
+    background: rgba(255, 255, 255, 0.07);
+}
+
+.navbar-search-result-name {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #fff;
+}
+
+.navbar-search-result-email {
+    font-size: 0.78rem;
+    color: var(--color-text-secondary);
+}
+
 /* --- Mobile Navbar Toggle (hidden above the 768px breakpoint) --- */
 .navbar-toggle {
     display: none;
@@ -1239,7 +1285,10 @@ select option {
     }
 
     .navbar-search-form {
-        display: none;
+        order: 3;
+        width: 100%;
+        max-width: 100%;
+        margin: 8px 0 0 !important;
     }
 
     .nav-links {
