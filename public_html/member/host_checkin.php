@@ -419,7 +419,10 @@ if (isset($_GET['contact_id'])) {
                             <span class="search-result-name">${escapeHtml(member.display_name)}</span>
                             <span class="search-result-meta">ID: ${member.id} | ${escapeHtml(member.email)}${member.phone ? ' | ' + formatPhone(member.phone) : ''}</span>
                         </div>
-                        <button type="button" class="btn btn-primary btn-small checkin-btn" data-id="${member.id}" style="padding: 8px 14px; font-size: 0.85rem; border-radius: 4px; font-weight: 600; cursor: pointer;">Check In</button>
+                        <div style="display: flex; gap: 6px;">
+                            <button type="button" class="btn btn-primary btn-small checkin-btn" data-id="${member.id}" style="padding: 8px 14px; font-size: 0.85rem; border-radius: 4px; font-weight: 600; cursor: pointer;">Check In</button>
+                            <a href="profile.php?id=${encodeURIComponent(member.id)}" class="btn btn-secondary btn-small" style="padding: 8px 14px; font-size: 0.85rem; border-radius: 4px; font-weight: 600; text-decoration: none;">Manage</a>
+                        </div>
                     `;
                     resultsList.appendChild(item);
                 });
