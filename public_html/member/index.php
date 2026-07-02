@@ -220,12 +220,14 @@ if (Auth::check()) {
 // Detect active hosting session / hosting-now state
 $activeSession = null;
 $isHostingNow = false;
+$canSwitchToHosting = false; // has edit checkins + active session, but not signed up tonight
 if (Auth::check()) {
     try {
         $activeSession = Event::getActiveSession();
         if ($activeSession && has_permission('edit checkins')) {
             $rolesToday = Event::getMemberRolesForEvent((int)$activeSession['id'], (int)$_SESSION['user']['contact_id']);
             $isHostingNow = !empty($rolesToday);
+            $canSwitchToHosting = !$isHostingNow;
         }
     } catch (Exception $e) {
         // Silent fail - fall back to Standard View
@@ -233,7 +235,8 @@ if (Auth::check()) {
 }
 
 $wantsStandardView = ($_GET['view'] ?? '') === 'standard';
-$showHostingView = $isHostingNow && !$wantsStandardView;
+$wantsHostingView  = ($_GET['view'] ?? '') === 'hosting';
+$showHostingView = ($isHostingNow || ($canSwitchToHosting && $wantsHostingView)) && !$wantsStandardView;
 
 $todaysCheckins = [];
 $pendingPayments = [];
@@ -359,12 +362,6 @@ if (Auth::check() && has_permission('admin panel')) {
                             <span class="user-role-badge"><?php echo e(ucfirst($_SESSION['user']['role'])); ?> Portal</span>
                         <?php endif; ?>
                     </div>
-
-                    <?php if ($isHostingNow && $wantsStandardView): ?>
-                        <div class="alert alert-info" style="margin-bottom: 20px;">
-                            You're hosting right now — <a href="index.php"><strong>switch to Hosting View</strong></a>.
-                        </div>
-                    <?php endif; ?>
 
                     <?php if ($showHostingView): ?>
                         <!-- HOSTING VIEW -->
@@ -512,6 +509,12 @@ if (Auth::check() && has_permission('admin panel')) {
                                     <?php endif; ?>
                                 </div>
                             </div>
+                        </div>
+                    <?php endif; ?>
+
+                    <?php if (($isHostingNow || $canSwitchToHosting) && !$showHostingView): ?>
+                        <div style="margin-top: 15px;">
+                            <a href="index.php?view=hosting" class="card-link">Hosting Dashboard &rarr;</a>
                         </div>
                     <?php endif; ?>
 
