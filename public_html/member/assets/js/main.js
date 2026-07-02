@@ -4,33 +4,47 @@
  */
 
 document.addEventListener('DOMContentLoaded', () => {
-    // 1. Alert Auto-Disposal
+    // 1. Alert Auto-Disposal — move page-level alerts into a fixed toast container
     const alerts = document.querySelectorAll('.alert:not(.terminal-alert)');
-    alerts.forEach(alert => {
-        // Add close button dynamically
-        const closeBtn = document.createElement('span');
-        closeBtn.innerHTML = ' &times;';
-        closeBtn.style.cursor = 'pointer';
-        closeBtn.style.float = 'right';
-        closeBtn.style.fontWeight = 'bold';
-        closeBtn.style.fontSize = '1.2rem';
-        closeBtn.style.lineHeight = '1';
-        closeBtn.onclick = () => {
-            alert.style.opacity = '0';
-            alert.style.transition = 'opacity 0.3s ease';
-            setTimeout(() => alert.remove(), 300);
-        };
-        alert.prepend(closeBtn);
-
-        // Auto fade out after 8 seconds (except error messages)
-        if (!alert.classList.contains('alert-danger')) {
-            setTimeout(() => {
-                alert.style.opacity = '0';
-                alert.style.transition = 'opacity 0.5s ease';
-                setTimeout(() => alert.remove(), 500);
-            }, 8000);
+    if (alerts.length) {
+        let toastContainer = document.getElementById('toast-container');
+        if (!toastContainer) {
+            toastContainer = document.createElement('div');
+            toastContainer.id = 'toast-container';
+            document.body.appendChild(toastContainer);
         }
-    });
+
+        function alignToast() {
+            const main = document.querySelector('.main-content');
+            if (!main) return;
+            const rect = main.getBoundingClientRect();
+            toastContainer.style.left = rect.left + 'px';
+            toastContainer.style.width = rect.width + 'px';
+        }
+        alignToast();
+        window.addEventListener('resize', alignToast);
+
+        alerts.forEach(alert => {
+            toastContainer.appendChild(alert);
+
+            const closeBtn = document.createElement('span');
+            closeBtn.innerHTML = '&times;';
+            closeBtn.className = 'toast-close-btn';
+            const dismiss = () => {
+                alert.style.opacity = '0';
+                alert.style.transform = 'translateY(-8px)';
+                alert.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+                setTimeout(() => alert.remove(), 300);
+            };
+            closeBtn.onclick = dismiss;
+            alert.prepend(closeBtn);
+
+            // Auto fade out after 8 seconds (except error messages)
+            if (!alert.classList.contains('alert-danger')) {
+                setTimeout(dismiss, 8000);
+            }
+        });
+    }
 
     // 2. Button Press Micro-Animations
     const buttons = document.querySelectorAll('.btn');
