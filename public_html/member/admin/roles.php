@@ -233,17 +233,37 @@ foreach ($mapRows as $row) {
 
 // Search & Pagination settings for User Role Assignment
 $search = trim($_GET['search'] ?? '');
+$roleFilter = trim($_GET['role_filter'] ?? '');
 $page = (int)($_GET['page'] ?? 1);
 if ($page < 1) $page = 1;
 $limit = 15;
 $offset = ($page - 1) * $limit;
 
+// Role filter must match the same fallback chain used when rendering each row's
+// checkboxes below: an explicit tgg_member_roles row for that role, OR (if the
+// member has no tgg_member_roles rows at all) the legacy tgg_member_settings.role
+// column, which itself defaults to 'member' when empty.
+$roleFilterJoin = "";
+$roleFilterWhere = "";
+if (!empty($roleFilter)) {
+    $roleFilterJoin = "LEFT JOIN `tgg_member_roles` mr ON mr.contact_id = c.id AND mr.role_name = :role_filter";
+    $roleFilterWhere = " AND (
+        mr.contact_id IS NOT NULL
+        OR (
+            NOT EXISTS (SELECT 1 FROM `tgg_member_roles` mr2 WHERE mr2.contact_id = c.id)
+            AND (s.role = :role_filter2 OR (COALESCE(s.role, '') = '' AND :role_filter3 = 'member'))
+        )
+    )";
+}
+
 // Fetch total members with settings count
 $countQuery = "
-    SELECT COUNT(*) 
+    SELECT COUNT(DISTINCT c.id)
     FROM `tgg_member_settings` s
     JOIN `tgg_contacts` c ON c.id = s.contact_id
+    {$roleFilterJoin}
     WHERE c.is_deleted = 0
+    {$roleFilterWhere}
 ";
 $params = [];
 if (!empty($search)) {
@@ -252,6 +272,11 @@ if (!empty($search)) {
     $params['search_email'] = "%{$search}%";
     $params['exactId'] = is_numeric($search) ? (int)$search : -1;
 }
+if (!empty($roleFilter)) {
+    $params['role_filter'] = $roleFilter;
+    $params['role_filter2'] = $roleFilter;
+    $params['role_filter3'] = $roleFilter;
+}
 $stmtCount = $appDb->prepare($countQuery);
 $stmtCount->execute($params);
 $totalRows = (int)$stmtCount->fetchColumn();
@@ -259,10 +284,12 @@ $totalPages = ceil($totalRows / $limit);
 
 // Fetch members
 $memberQuery = "
-    SELECT c.id, c.display_name, c.email, s.role
+    SELECT DISTINCT c.id, c.display_name, c.email, s.role
     FROM `tgg_member_settings` s
     JOIN `tgg_contacts` c ON c.id = s.contact_id
+    {$roleFilterJoin}
     WHERE c.is_deleted = 0
+    {$roleFilterWhere}
 ";
 if (!empty($search)) {
     $memberQuery .= " AND (c.display_name LIKE :search_name OR c.email LIKE :search_email OR c.id = :exactId)";
@@ -275,10 +302,23 @@ if (!empty($search)) {
     $stmtMembers->bindValue(':search_email', "%{$search}%", PDO::PARAM_STR);
     $stmtMembers->bindValue(':exactId', is_numeric($search) ? (int)$search : -1, PDO::PARAM_INT);
 }
+if (!empty($roleFilter)) {
+    $stmtMembers->bindValue(':role_filter', $roleFilter, PDO::PARAM_STR);
+    $stmtMembers->bindValue(':role_filter2', $roleFilter, PDO::PARAM_STR);
+    $stmtMembers->bindValue(':role_filter3', $roleFilter, PDO::PARAM_STR);
+}
 $stmtMembers->bindValue(':limit', $limit, PDO::PARAM_INT);
 $stmtMembers->bindValue(':offset', $offset, PDO::PARAM_INT);
 $stmtMembers->execute();
 $membersList = $stmtMembers->fetchAll();
+
+// AJAX partial refresh: search/filter/pagination on this list fetch just this
+// fragment instead of reloading the whole page. Mutating actions (Update,
+// Login As) are unaffected -- those are normal POSTs handled above.
+if (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest') {
+    include __DIR__ . '/partials/role-assignment-body.php';
+    exit;
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -479,120 +519,108 @@ $membersList = $stmtMembers->fetchAll();
                     <div class="table-card glass-panel assignment-grid" style="padding: 25px;">
                         <span style="font-size: 0.9rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary); display: block; margin-bottom: 20px;">User Role Assignments</span>
 
-                        <!-- Search and Filters -->
-                        <div class="search-control-row">
-                            <form method="GET" action="" class="search-field">
-                                <input type="text" name="search" placeholder="Search by name, email, or contact ID..." value="<?php echo e($search); ?>">
-                            </form>
-                            <?php if (!empty($search)): ?>
-                                <a href="roles.php" class="btn btn-outline-secondary btn-sm" style="height: fit-content; text-decoration: none; padding: 8px 15px; border-radius: 6px;">Clear Filter</a>
-                            <?php endif; ?>
+                        <div id="role-assignment-fragment">
+                            <?php include __DIR__ . '/partials/role-assignment-body.php'; ?>
                         </div>
-
-                        <!-- User List Table -->
-                        <div class="admin-table-container">
-                            <table class="admin-table">
-                                <thead>
-                                    <tr>
-                                        <th style="width: 100px;">Contact ID</th>
-                                        <th>Name</th>
-                                        <th>Email</th>
-                                        <th>Assigned Roles</th>
-                                        <th style="width: 120px; text-align: center;">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php if (empty($membersList)): ?>
-                                        <tr>
-                                            <td colspan="5" class="text-center">No matching portal users found.</td>
-                                        </tr>
-                                    <?php else: ?>
-                                        <?php foreach ($membersList as $member): ?>
-                                            <tr>
-                                                <td><code><?php echo $member['id']; ?></code></td>
-                                                <td><strong><?php echo e($member['display_name']); ?></strong></td>
-                                                <td><?php echo e($member['email']); ?></td>
-                                                <form method="POST" action="">
-                                                    <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
-                                                    <input type="hidden" name="contact_id" value="<?php echo e($member['id']); ?>">
-                                                    <td>
-                                                        <div style="display: flex; flex-wrap: wrap; gap: 8px; font-size: 0.8rem; align-items: center;">
-                                                            <?php 
-                                                            // Fetch roles for this member
-                                                            $memberRolesStmt = $appDb->prepare("SELECT role_name FROM tgg_member_roles WHERE contact_id = :id");
-                                                            $memberRolesStmt->execute(['id' => $member['id']]);
-                                                            $memberRoles = $memberRolesStmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
-                                                            if (empty($memberRoles) && isset($member['role'])) {
-                                                                $memberRoles = [$member['role']];
-                                                            }
-                                                            if (empty($memberRoles)) {
-                                                                $memberRoles = ['member'];
-                                                            }
-
-                                                            $viewerIsSuperadmin     = has_role('superadmin');
-                                                            $viewerCanManageRoles   = has_permission('manage roles');
-                                                            $viewerCanManageHosting = has_permission('manage hosting');
-                                                            foreach ($rolesList as $roleOption):
-                                                                $isSuperadminRole = ($roleOption['name'] === 'superadmin');
-                                                                $targetHasSuperadmin = in_array('superadmin', $memberRoles, true);
-
-                                                                $disabled = '';
-                                                                if ($isSuperadminRole && !$viewerIsSuperadmin) {
-                                                                    $disabled = 'disabled';
-                                                                } elseif ($targetHasSuperadmin && !$viewerIsSuperadmin) {
-                                                                    $disabled = 'disabled';
-                                                                } elseif (!$viewerIsSuperadmin) {
-                                                                    $rn = $roleOption['name'];
-                                                                    if (in_array($rn, ['admin', 'majordomo', 'member'], true) && !$viewerCanManageRoles) {
-                                                                        $disabled = 'disabled';
-                                                                    } elseif ($rn === 'host' && !$viewerCanManageRoles && !$viewerCanManageHosting) {
-                                                                        $disabled = 'disabled';
-                                                                    }
-                                                                }
-                                                                
-                                                                $checked = in_array($roleOption['name'], $memberRoles, true) ? 'checked' : '';
-                                                            ?>
-                                                                <label style="display: inline-flex; align-items: center; gap: 4px; color: #fff; margin-right: 10px; cursor: <?php echo $disabled ? 'not-allowed' : 'pointer'; ?>; opacity: <?php echo $disabled ? '0.5' : '1'; ?>;">
-                                                                    <input type="checkbox" name="roles[]" value="<?php echo e($roleOption['name']); ?>" <?php echo $checked; ?> <?php echo $disabled; ?> style="width: auto; transform: scale(1.0); margin: 0;">
-                                                                    <?php echo e(ucfirst($roleOption['name'])); ?>
-                                                                </label>
-                                                            <?php endforeach; ?>
-                                                        </div>
-                                                    </td>
-                                                    <td style="text-align: center;">
-                                                        <div style="display: flex; flex-direction: column; gap: 5px; align-items: center;">
-                                                            <button type="submit" name="update_user_role" class="btn btn-primary btn-sm" style="padding: 6px 12px; font-size: 0.75rem; border-radius: 4px; width: 100%;">Update</button>
-                                                            <?php 
-                                                            $originalRoles = $_SESSION['impersonator']['roles'] ?? $_SESSION['user']['roles'] ?? [];
-                                                            $originalRole = $_SESSION['impersonator']['role'] ?? $_SESSION['user']['role'] ?? '';
-                                                            $isOriginalSuperadmin = in_array('superadmin', $originalRoles, true) || $originalRole === 'superadmin';
-                                                            if ($isOriginalSuperadmin && (int)$member['id'] !== (int)$_SESSION['user']['contact_id']): 
-                                                            ?>
-                                                                <button type="submit" name="impersonate_user" class="btn btn-warning btn-sm" style="padding: 6px 12px; font-size: 0.75rem; border-radius: 4px; width: 100%; border: none;">Login As</button>
-                                                            <?php endif; ?>
-                                                        </div>
-                                                    </td>
-                                                </form>
-                                            </tr>
-                                        <?php endforeach; ?>
-                                    <?php endif; ?>
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <!-- Pagination -->
-                        <?php if ($totalPages > 1): ?>
-                            <div class="pagination-row">
-                                <a href="?search=<?php echo urlencode($search); ?>&amp;page=<?php echo $page - 1; ?>" class="pagination-btn <?php echo ($page <= 1) ? 'disabled' : ''; ?>">&larr; Prev</a>
-                                <span class="pagination-info">Page <?php echo $page; ?> of <?php echo $totalPages; ?></span>
-                                <a href="?search=<?php echo urlencode($search); ?>&amp;page=<?php echo $page + 1; ?>" class="pagination-btn <?php echo ($page >= $totalPages) ? 'disabled' : ''; ?>">Next &rarr;</a>
-                            </div>
-                        <?php endif; ?>
                     </div>
                 </section>
             </div>
         </main>
 
         <?php include __DIR__ . '/../partials/footer.php'; ?>
+
+    <script>
+        // AJAX partial refresh for the User Role Assignment list's search/filter/
+        // pagination -- avoids a full page reload (and the flash/scroll-jump/
+        // select-dropdown quirks that come with it) for just this list. Listeners
+        // are attached to the stable #role-assignment-fragment container, not its
+        // children, so they keep working after each innerHTML swap (event bubbling
+        // still reaches the container). Mutating actions (Update, Login As) are
+        // untouched -- those stay normal full-page POSTs.
+        (function() {
+            const fragment = document.getElementById('role-assignment-fragment');
+            if (!fragment) return;
+
+            function buildUrl(overrides) {
+                const params = new URLSearchParams(window.location.search);
+                Object.keys(overrides).forEach(function(key) {
+                    const val = overrides[key];
+                    if (val === '' || val === null || val === undefined) {
+                        params.delete(key);
+                    } else {
+                        params.set(key, val);
+                    }
+                });
+                const qs = params.toString();
+                return window.location.pathname + (qs ? '?' + qs : '');
+            }
+
+            function loadFragment(url, pushState) {
+                // Swapping in shorter content (fewer rows, pagination disappearing) can
+                // shrink the page below the current scroll position, and the browser
+                // clamps scrollY to fit -- which looks like an unwanted jump. Restore
+                // the exact pre-swap position immediately after so nothing above the
+                // fragment appears to move.
+                const scrollBefore = window.scrollY;
+                fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                    .then(function(res) {
+                        if (!res.ok) throw new Error('Request failed');
+                        return res.text();
+                    })
+                    .then(function(html) {
+                        fragment.innerHTML = html;
+                        if (pushState) history.pushState({}, '', url);
+                        window.scrollTo(0, scrollBefore);
+                    })
+                    .catch(function() {
+                        // Fall back to a real navigation if the fetch fails for any reason.
+                        window.location.href = url;
+                    });
+            }
+
+            fragment.addEventListener('submit', function(e) {
+                const form = e.target.closest('#filters-form');
+                if (!form) return; // per-row Update/Login As forms fall through to a normal POST
+                e.preventDefault();
+                const data = new FormData(form);
+                loadFragment(buildUrl({
+                    search: data.get('search') || '',
+                    role_filter: data.get('role_filter') || '',
+                    page: 1,
+                }), true);
+            });
+
+            fragment.addEventListener('change', function(e) {
+                if (!e.target.matches('.role-select')) return;
+                const form = e.target.closest('#filters-form');
+                const data = new FormData(form);
+                loadFragment(buildUrl({
+                    search: data.get('search') || '',
+                    role_filter: e.target.value,
+                    page: 1,
+                }), true);
+            });
+
+            let searchTimer;
+            fragment.addEventListener('input', function(e) {
+                if (e.target.name !== 'search') return;
+                clearTimeout(searchTimer);
+                searchTimer = setTimeout(function() {
+                    loadFragment(buildUrl({ search: e.target.value.trim(), page: 1 }), true);
+                }, 300);
+            });
+
+            fragment.addEventListener('click', function(e) {
+                const link = e.target.closest('.pagination-btn');
+                if (!link || link.classList.contains('disabled')) return;
+                e.preventDefault();
+                loadFragment(link.getAttribute('href'), true);
+            });
+
+            window.addEventListener('popstate', function() {
+                loadFragment(window.location.pathname + window.location.search, false);
+            });
+        })();
+    </script>
 </body>
 </html>

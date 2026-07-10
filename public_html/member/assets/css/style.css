@@ -4,6 +4,13 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Outfit:wght@400;500;600;700;800&display=swap');
 
+/* Smooths full-page navigations (filter/search reloads, pagination, etc.) into a
+   cross-fade instead of a hard white flash. Chromium-only today (Firefox/Safari
+   ignore it and just get today's normal navigation) -- pure progressive enhancement. */
+@view-transition {
+    navigation: auto;
+}
+
 /* --- CSS Variables & Design Tokens --- */
 :root {
     --font-heading: 'Outfit', 'Inter', -apple-system, sans-serif;
@@ -40,6 +47,14 @@
     box-sizing: border-box;
     margin: 0;
     padding: 0;
+}
+
+html {
+    /* Always reserve space for the vertical scrollbar so content whose height
+       changes dynamically (AJAX-refreshed lists, etc.) doesn't shove the whole
+       page sideways whenever that change happens to cross the scrollbar
+       show/hide threshold. */
+    scrollbar-gutter: stable;
 }
 
 body {
