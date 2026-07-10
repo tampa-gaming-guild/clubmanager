@@ -149,6 +149,29 @@ if ($nextMonth > 12) { $nextMonth = 1; $nextYear++; }
         .day-events-dots {
             bottom: 6px !important;
         }
+        .role-dot-mobile {
+            display: none;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            border: 1.5px solid;
+            margin-right: 4px;
+            flex-shrink: 0;
+        }
+        @media (max-width: 640px) {
+            .day-slot-label,
+            .day-slot-name {
+                display: none;
+            }
+            .day-slot-row {
+                display: flex;
+                align-items: center;
+            }
+            .role-dot-mobile {
+                display: inline-block;
+                margin-right: 0;
+            }
+        }
     </style>
 </head>
 <body>
@@ -237,20 +260,27 @@ if ($nextMonth > 12) { $nextMonth = 1; $nextYear++; }
                                             }
                                         }
 
-                                        $openColor = !empty($openName) ? 'var(--color-success, #22c55e)' : 'var(--color-danger, #ef4444)';
-                                        $closeColor = !empty($closeName) ? 'var(--color-success, #22c55e)' : 'var(--color-danger, #ef4444)';
+                                        // Role identity drives color (green=Open, red=Close); fill
+                                        // status is shown via the name's presence on desktop and via
+                                        // hollow-vs-solid dots on narrow screens (see .role-dot-mobile).
+                                        $openColor = 'var(--color-success, #22c55e)';
+                                        $closeColor = 'var(--color-danger, #ef4444)';
+                                        $openFilled = !empty($openName);
+                                        $closeFilled = !empty($closeName);
 
                                         echo "<div class='day-slots' style='margin-top: 8px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; font-size: 0.75rem; font-weight: 500; font-family: var(--font-body); line-height: 1.2;'>";
-                                        echo "<div style='white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; text-align: left;'>";
-                                        echo "<span style='color: {$openColor}; font-weight: 700;'>O:</span> ";
-                                        if (!empty($openName)) {
-                                            echo "<span style='color: var(--color-text-primary);' title='" . e($openName) . "'>" . e($openName) . "</span>";
+                                        echo "<div class='day-slot-row' style='white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; text-align: left;'>";
+                                        echo "<span class='role-dot-mobile" . ($openFilled ? ' filled' : '') . "' style='border-color: {$openColor}; background-color: " . ($openFilled ? $openColor : 'transparent') . ";'></span>";
+                                        echo "<span class='day-slot-label' style='color: {$openColor}; font-weight: 700;'>O:</span> ";
+                                        if ($openFilled) {
+                                            echo "<span class='day-slot-name' style='color: var(--color-text-primary);' title='" . e($openName) . "'>" . e($openName) . "</span>";
                                         }
                                         echo "</div>";
-                                        echo "<div style='white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; text-align: left;'>";
-                                        echo "<span style='color: {$closeColor}; font-weight: 700;'>C:</span> ";
-                                        if (!empty($closeName)) {
-                                            echo "<span style='color: var(--color-text-primary);' title='" . e($closeName) . "'>" . e($closeName) . "</span>";
+                                        echo "<div class='day-slot-row' style='white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; text-align: left;'>";
+                                        echo "<span class='role-dot-mobile" . ($closeFilled ? ' filled' : '') . "' style='border-color: {$closeColor}; background-color: " . ($closeFilled ? $closeColor : 'transparent') . ";'></span>";
+                                        echo "<span class='day-slot-label' style='color: {$closeColor}; font-weight: 700;'>C:</span> ";
+                                        if ($closeFilled) {
+                                            echo "<span class='day-slot-name' style='color: var(--color-text-primary);' title='" . e($closeName) . "'>" . e($closeName) . "</span>";
                                         }
                                         echo "</div>";
                                         echo "</div>";

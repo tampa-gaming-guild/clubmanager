@@ -241,8 +241,8 @@ try {
             border-radius: 50%;
             margin-right: 10px;
         }
-        .bullet-open { background-color: var(--color-primary); }
-        .bullet-close { background-color: #a855f7; }
+        .bullet-open { background-color: var(--color-success); }
+        .bullet-close { background-color: var(--color-danger); }
         .bullet-greeter { background-color: var(--color-success); }
     </style>
 </head>
@@ -374,7 +374,10 @@ try {
                                             
                                             // Format the bullet class
                                             $bulletClass = 'bullet-' . strtolower($role);
-                                            
+                                            $isMe = $hasVol && Auth::check() && $volContactId === (int)($_SESSION['user']['contact_id'] ?? 0);
+                                            $roleColorVar = $role === 'Open' ? '--color-success' : '--color-danger';
+                                            $roleRgb = $role === 'Open' ? '34,197,94' : '239,68,68';
+
                                             // Link to the specific event on the calendar page
                                             $monthStr = date('m', strtotime($evt['start_time']));
                                             $yearStr = date('Y', strtotime($evt['start_time']));
@@ -387,8 +390,11 @@ try {
                                             </td>
                                             <td>
                                                 <?php if ($hasVol): ?>
-                                                    <span class="badge badge-active" style="display: inline-flex; align-items: center; gap: 8px;">
-                                                        👤 <?php echo e($volName); ?>
+                                                    <span class="badge" style="display: inline-flex; align-items: center; gap: 8px;
+                                                        color: var(<?php echo $roleColorVar; ?>);
+                                                        background: rgba(<?php echo $roleRgb; ?>, <?php echo $isMe ? '0.35' : '0.2'; ?>);
+                                                        <?php echo $isMe ? 'border: 1px solid var(' . $roleColorVar . ');' : ''; ?>">
+                                                        <?php echo $isMe ? '🙋' : '👤'; ?> <?php echo e($volName); ?>
                                                     </span>
                                                 <?php else: ?>
                                                     <span class="volunteer-status-needed">
