@@ -44,14 +44,26 @@
                 </tr>
             <?php else: ?>
                 <?php foreach ($membersList as $member): ?>
+                    <?php
+                    // A <form> may not sit between <tr> and <td> (invalid HTML): it
+                    // survives the initial full-page parse only via a parser quirk,
+                    // and is dropped entirely when this fragment is re-rendered via
+                    // innerHTML -- leaving the row's buttons with no form to submit.
+                    // So the form lives inside the first cell, and the row's controls
+                    // bind to it with the form="..." attribute instead of nesting.
+                    $rowFormId = 'role-form-' . (int)$member['id'];
+                    ?>
                     <tr>
-                        <td><code><?php echo $member['id']; ?></code></td>
+                        <td>
+                            <code><?php echo $member['id']; ?></code>
+                            <form method="POST" action="" id="<?php echo $rowFormId; ?>">
+                                <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                <input type="hidden" name="contact_id" value="<?php echo e($member['id']); ?>">
+                            </form>
+                        </td>
                         <td><strong><?php echo e($member['display_name']); ?></strong></td>
                         <td><?php echo e($member['email']); ?></td>
-                        <form method="POST" action="">
-                            <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
-                            <input type="hidden" name="contact_id" value="<?php echo e($member['id']); ?>">
-                            <td>
+                        <td>
                                 <div style="display: flex; flex-wrap: wrap; gap: 8px; font-size: 0.8rem; align-items: center;">
                                     <?php
                                     // Fetch roles for this member
@@ -89,7 +101,7 @@
                                         $checked = in_array($roleOption['name'], $memberRoles, true) ? 'checked' : '';
                                     ?>
                                         <label style="display: inline-flex; align-items: center; gap: 4px; color: #fff; margin-right: 10px; cursor: <?php echo $disabled ? 'not-allowed' : 'pointer'; ?>; opacity: <?php echo $disabled ? '0.5' : '1'; ?>;">
-                                            <input type="checkbox" name="roles[]" value="<?php echo e($roleOption['name']); ?>" <?php echo $checked; ?> <?php echo $disabled; ?> style="width: auto; transform: scale(1.0); margin: 0;">
+                                            <input type="checkbox" form="<?php echo $rowFormId; ?>" name="roles[]" value="<?php echo e($roleOption['name']); ?>" <?php echo $checked; ?> <?php echo $disabled; ?> style="width: auto; transform: scale(1.0); margin: 0;">
                                             <?php echo e(ucfirst($roleOption['name'])); ?>
                                         </label>
                                     <?php endforeach; ?>
@@ -97,18 +109,17 @@
                             </td>
                             <td style="text-align: center;">
                                 <div style="display: flex; flex-direction: column; gap: 5px; align-items: center;">
-                                    <button type="submit" name="update_user_role" class="btn btn-primary btn-sm" style="padding: 6px 12px; font-size: 0.75rem; border-radius: 4px; width: 100%;">Update</button>
+                                    <button type="submit" form="<?php echo $rowFormId; ?>" name="update_user_role" class="btn btn-primary btn-sm" style="padding: 6px 12px; font-size: 0.75rem; border-radius: 4px; width: 100%;">Update</button>
                                     <?php
                                     $originalRoles = $_SESSION['impersonator']['roles'] ?? $_SESSION['user']['roles'] ?? [];
                                     $originalRole = $_SESSION['impersonator']['role'] ?? $_SESSION['user']['role'] ?? '';
                                     $isOriginalSuperadmin = in_array('superadmin', $originalRoles, true) || $originalRole === 'superadmin';
                                     if ($isOriginalSuperadmin && (int)$member['id'] !== (int)$_SESSION['user']['contact_id']):
                                     ?>
-                                        <button type="submit" name="impersonate_user" class="btn btn-warning btn-sm" style="padding: 6px 12px; font-size: 0.75rem; border-radius: 4px; width: 100%; border: none;">Login As</button>
+                                        <button type="submit" form="<?php echo $rowFormId; ?>" name="impersonate_user" class="btn btn-warning btn-sm" style="padding: 6px 12px; font-size: 0.75rem; border-radius: 4px; width: 100%; border: none;">Login As</button>
                                     <?php endif; ?>
                                 </div>
                             </td>
-                        </form>
                     </tr>
                 <?php endforeach; ?>
             <?php endif; ?>
