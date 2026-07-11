@@ -104,7 +104,7 @@ if (!empty($events)) {
         
         if (!empty($signupsRaw)) {
             $contactIds = array_unique(array_column($signupsRaw, 'contact_id'));
-            $formattedNames = \App\CiviCRMImporter::getFormattedNames($contactIds);
+            $formattedNames = \App\MembershipService::getFormattedNames($contactIds);
             
             foreach ($signupsRaw as $row) {
                 $evtId = (int)$row['event_id'];

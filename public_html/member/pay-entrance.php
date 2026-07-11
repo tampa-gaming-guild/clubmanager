@@ -9,7 +9,7 @@
 require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
 use App\Database;
-use App\CiviCRMImporter;
+use App\MembershipService;
 use App\StripeHelper;
 use App\BillingHelper;
 
@@ -40,7 +40,7 @@ function load_payment_context(int $contactId): ?array {
         return null;
     }
 
-    $membership = CiviCRMImporter::getMemberMembershipDetails($contactId);
+    $membership = MembershipService::getMemberMembershipDetails($contactId);
     if (!$membership) {
         return null;
     }
@@ -246,7 +246,7 @@ if (!$errorMsg && !$cashPendingMsg && !$successDetails && $status === null) {
             $context = ['contact' => $contactRow];
             $tiers = get_renewable_tiers();
 
-            $currentMembership = CiviCRMImporter::getMemberMembershipDetails($contactId);
+            $currentMembership = MembershipService::getMemberMembershipDetails($contactId);
             if ($currentMembership) {
                 if (BillingHelper::isTrialPlan(['name' => $currentMembership['membership_name']])) {
                     $priorPlanWasTrial = true;

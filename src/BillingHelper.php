@@ -418,7 +418,7 @@ class BillingHelper {
      */
     public static function isAssociatePlan(array $plan): bool {
         // Accepts either a tgg_subscription_plans row ('name') or a
-        // CiviCRMImporter::getMemberMembershipDetails() row ('membership_name').
+        // MembershipService::getMemberMembershipDetails() row ('membership_name').
         $name = $plan['name'] ?? $plan['membership_name'] ?? '';
         return stripos(trim($name), 'associate') !== false;
     }
@@ -1353,7 +1353,7 @@ class BillingHelper {
      * entrance fee payments themselves don't reset the count, since paying one doesn't
      * grant a new free visit.
      * @param int $contactId
-     * @param array $membership Row from CiviCRMImporter::getMemberMembershipDetails()
+     * @param array $membership Row from MembershipService::getMemberMembershipDetails()
      * @return bool
      */
     public static function entranceFeeOwed(int $contactId, array $membership): bool {
@@ -1395,7 +1395,7 @@ class BillingHelper {
      * Passes are granted per the member's plan's guests_per_month and do not roll over --
      * usage is counted by querying guest check-ins since the first of the current month.
      * @param int $contactId
-     * @param array $membership Row from CiviCRMImporter::getMemberMembershipDetails() or getMemberSubscriptionDetails()
+     * @param array $membership Row from MembershipService::getMemberMembershipDetails() or getMemberSubscriptionDetails()
      * @return array{allowance: int, used: int, remaining: int}
      */
     public static function getGuestPassesRemaining(int $contactId, array $membership): array {

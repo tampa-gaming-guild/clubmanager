@@ -9,7 +9,7 @@
 require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
 use App\Database;
-use App\CiviCRMImporter;
+use App\MembershipService;
 use App\StripeHelper;
 use App\Auth;
 use App\BillingHelper;
@@ -73,7 +73,7 @@ function lookup_member_by_email(\PDO $appDb, string $email, array $tiers): array
 
     $membership = BillingHelper::getMemberSubscriptionDetails($contactId);
     if (!$membership) {
-        $membership = CiviCRMImporter::getMemberMembershipDetails($contactId);
+        $membership = MembershipService::getMemberMembershipDetails($contactId);
     }
 
     if ($membership && !empty($membership['membership_name'])) {

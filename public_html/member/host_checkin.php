@@ -7,7 +7,7 @@ require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
 use App\Auth;
 use App\Database;
-use App\CiviCRMImporter;
+use App\MembershipService;
 use App\Event;
 use App\BillingHelper;
 
@@ -48,7 +48,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'guest_status') {
     $result = ['allowance' => 0, 'used' => 0, 'remaining' => 0];
     if ($contactId > 0) {
         try {
-            $membership = CiviCRMImporter::getMemberMembershipDetails($contactId);
+            $membership = MembershipService::getMemberMembershipDetails($contactId);
             if ($membership && $membership['is_active']) {
                 $result = BillingHelper::getGuestPassesRemaining($contactId, $membership);
             }
@@ -157,7 +157,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $errorMsg = "Check-in Denied: {$contactName} has already checked in today.";
                         } else {
                             // Active membership verification
-                            $membership = CiviCRMImporter::getMemberMembershipDetails($contactId);
+                            $membership = MembershipService::getMemberMembershipDetails($contactId);
                             if (!$membership || !$membership['is_active']) {
                                 // Expired/inactive membership: send to renew (Card or Cash) instead of a flat denial.
                                 $redirectUrl = 'pay-entrance.php?contact_id=' . $contactId . '&reason=renewal&return=host_checkin.php';

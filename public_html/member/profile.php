@@ -6,7 +6,7 @@
 require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
 use App\Database;
-use App\CiviCRMImporter;
+use App\MembershipService;
 use App\Auth;
 use App\MailHelper;
 
@@ -47,7 +47,7 @@ try {
 
         if ($contact) {
         // B. Fetch Membership Details
-        $membership = CiviCRMImporter::getMemberMembershipDetails($profileId);
+        $membership = MembershipService::getMemberMembershipDetails($profileId);
 
         // B1. Fetch auto-renew / saved-card status
         $subBillingStmt = $appDb->prepare("SELECT auto_renew, stripe_customer_id, stripe_payment_method_id FROM tgg_subscriptions WHERE contact_id = :id LIMIT 1");
@@ -528,7 +528,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
                 
                 $successMsg = "Subscription rate adjusted successfully.";
                 // Refresh membership info
-                $membership = CiviCRMImporter::getMemberMembershipDetails($profileId);
+                $membership = MembershipService::getMemberMembershipDetails($profileId);
             } catch (Exception $e) {
                 $errorMsg = safe_err("Failed to update rate: ", $e);
             }

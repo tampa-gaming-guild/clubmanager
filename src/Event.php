@@ -218,9 +218,9 @@ class Event {
             return [];
         }
 
-        // Fetch display names from CiviCRM for these contact IDs according to privacy preferences
+        // Fetch display names for these contact IDs according to privacy preferences
         $contactIds = array_column($signups, 'contact_id');
-        $formattedNames = CiviCRMImporter::getFormattedNames($contactIds);
+        $formattedNames = MembershipService::getFormattedNames($contactIds);
 
         // Map names back to signups list
         foreach ($signups as &$signup) {

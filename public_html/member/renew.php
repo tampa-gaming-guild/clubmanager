@@ -6,7 +6,7 @@
 require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
 use App\Database;
-use App\CiviCRMImporter;
+use App\MembershipService;
 use App\StripeHelper;
 use App\Auth;
 use App\BillingHelper;
@@ -64,7 +64,7 @@ try {
 
     $membership = BillingHelper::getMemberSubscriptionDetails($contactId);
     if (!$membership) {
-        $membership = CiviCRMImporter::getMemberMembershipDetails($contactId);
+        $membership = MembershipService::getMemberMembershipDetails($contactId);
     }
     // The Trial membership is a one-time, non-renewable offer, so it's never a valid renewal choice.
     $tiers = array_values(array_filter(BillingHelper::getSubscriptionPlans(true), function ($tier) {
@@ -117,7 +117,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                     // Load updated membership details
                     $updatedMembership = BillingHelper::getMemberSubscriptionDetails($contactId);
                     if (!$updatedMembership) {
-                        $updatedMembership = CiviCRMImporter::getMemberMembershipDetails($contactId);
+                        $updatedMembership = MembershipService::getMemberMembershipDetails($contactId);
                     }
 
                     $extendedLevelName = ($updatedMembership && isset($updatedMembership['membership_name'])) ? $updatedMembership['membership_name'] : $tierName;

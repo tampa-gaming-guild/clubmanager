@@ -7,7 +7,7 @@ require_once dirname(dirname(dirname(__DIR__))) . '/config/bootstrap.php';
 
 use App\Auth;
 use App\Database;
-use App\CiviCRMImporter;
+use App\MembershipService;
 use App\BillingHelper;
 
 Auth::requireStaff();
@@ -56,13 +56,13 @@ $checkinsToday = 0;
 $monthRevenue = 0.00;
 
 try {
-    $members = CiviCRMImporter::getMembersList();
+    $members = MembershipService::getMembersList();
     $totalMembers = count($members);
 
     $appDb = Database::getAppConnection();
 
     // 1. Fetch Tiers & Statuses first for pivot matrix layout & dropdowns
-    $tiers = CiviCRMImporter::getMembershipTiers();
+    $tiers = MembershipService::getMembershipTiers();
 
     // Add Member's plan dropdown needs the *local* tgg_subscription_plans.id (what
     // BillingHelper::processOfflineRenewal/activateTrial expect), unlike $tiers above

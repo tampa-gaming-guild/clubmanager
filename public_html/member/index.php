@@ -9,7 +9,7 @@ require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
 use App\Auth;
 use App\BillingHelper;
-use App\CiviCRMImporter;
+use App\MembershipService;
 use App\Database;
 use App\Event;
 
@@ -211,7 +211,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_checkin'])) {
 $membership = null;
 if (Auth::check()) {
     try {
-        $membership = CiviCRMImporter::getMemberMembershipDetails($_SESSION['user']['contact_id']);
+        $membership = MembershipService::getMemberMembershipDetails($_SESSION['user']['contact_id']);
     } catch (Exception $e) {
         // Silent fail for membership fetch in dashboard
     }
@@ -286,7 +286,7 @@ if (Auth::check() && has_permission('admin panel')) {
         }
 
         // Members by Level & Status pivot matrix
-        $tiers = CiviCRMImporter::getMembershipTiers();
+        $tiers = MembershipService::getMembershipTiers();
         $statuses = $appDb->query("
             SELECT id, name, label, is_active
             FROM tgg_membership_statuses
@@ -302,7 +302,7 @@ if (Auth::check() && has_permission('admin panel')) {
             }
         }
 
-        $allMembers = CiviCRMImporter::getMembersList();
+        $allMembers = MembershipService::getMembersList();
         foreach ($allMembers as $m) {
             $lvl = $m['membership_name'];
             $stat = $m['status_label'];

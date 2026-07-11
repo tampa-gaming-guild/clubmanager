@@ -9,7 +9,7 @@ require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 use App\Event;
 use App\Auth;
 use App\Database;
-use App\CiviCRMImporter;
+use App\MembershipService;
 
 $errorMsg = null;
 $successMsg = null;
@@ -163,7 +163,7 @@ try {
     }
     
     if (has_permission('manage hosting')) {
-        $allActiveMembers = CiviCRMImporter::getMembersList();
+        $allActiveMembers = MembershipService::getMembersList();
     }
 } catch (Exception $e) {
     $events = [];

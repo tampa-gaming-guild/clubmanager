@@ -7,7 +7,7 @@
 require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
 use App\Database;
-use App\CiviCRMImporter;
+use App\MembershipService;
 use App\BillingHelper;
 
 /**
@@ -79,7 +79,7 @@ function lookup_guest_pass_info(int $contactId): array {
         return $default;
     }
     try {
-        $membership = CiviCRMImporter::getMemberMembershipDetails($contactId);
+        $membership = MembershipService::getMemberMembershipDetails($contactId);
         if (!$membership || !$membership['is_active']) {
             return $default;
         }
@@ -226,7 +226,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if (!$contactRow) {
                         $errorMsg = "Member not found in database.";
                     } else {
-                        $contactName = CiviCRMImporter::getFormattedName($contactId);
+                        $contactName = MembershipService::getFormattedName($contactId);
 
                         // 2b. Prevent double check-in on the same day (guest visits don't count toward this)
                         $dupCheckStmt = $appDb->prepare("SELECT COUNT(*) FROM tgg_checkins WHERE contact_id = :contact_id AND guest_name IS NULL AND DATE(checked_in_at) = CURDATE()");
@@ -237,7 +237,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $errorMsg = "Check-in Denied: {$contactName} has already checked in today.";
                         } else {
                             // 3. Verify Active Membership
-                            $membership = CiviCRMImporter::getMemberMembershipDetails($contactId);
+                            $membership = MembershipService::getMemberMembershipDetails($contactId);
 
                             // Before redirecting to pay-entrance, check whether this member already
                             // has a pending cash payment waiting on the host. If so, telling them to

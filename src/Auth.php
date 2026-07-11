@@ -88,7 +88,7 @@ class Auth {
         }
 
         // 4. Fetch the user's display name according to privacy preferences
-        $displayName = CiviCRMImporter::getFormattedName($contactId);
+        $displayName = MembershipService::getFormattedName($contactId);
 
         // Fetch all roles assigned to this contact
         $rolesStmt = $appDb->prepare("SELECT role_name FROM tgg_member_roles WHERE contact_id = :contact_id");
@@ -396,7 +396,7 @@ class Auth {
         $_SESSION['user'] = [
             'contact_id' => $targetContactId,
             'email' => $contactRow['email'],
-            'display_name' => CiviCRMImporter::getFormattedName($targetContactId),
+            'display_name' => MembershipService::getFormattedName($targetContactId),
             'roles' => $roles,
             'role' => $roles[0] ?? $roleName,
             'is_profile_public' => $isProfilePublic,
