@@ -52,11 +52,53 @@ function load_payment_context(int $contactId): ?array {
 
     return [
         'contact' => $contact,
-        'membership' => $membership,
         'plan_id' => $planId,
         'civicrm_type_id' => $civicrmTypeId,
         'amount' => (float)$membership['price'],
+        'membership_name' => $membership['membership_name'],
     ];
+}
+
+/**
+ * Load payment context for a member choosing a specific (non-Trial) membership level.
+ * Used when the member's lapsed membership was the one-time Trial plan, which can't be
+ * renewed as itself -- they must pick a real level instead. Returns null if the contact
+ * or tier can't be resolved, or if the chosen tier is itself the Trial plan.
+ */
+function load_tier_payment_context(int $contactId, int $tierId): ?array {
+    $appDb = Database::getAppConnection();
+
+    $contactStmt = $appDb->prepare("SELECT id, display_name, email FROM tgg_contacts WHERE id = :id AND is_deleted = 0 LIMIT 1");
+    $contactStmt->execute(['id' => $contactId]);
+    $contact = $contactStmt->fetch();
+    if (!$contact) {
+        return null;
+    }
+
+    $planStmt = $appDb->prepare("SELECT id, name, price, civicrm_membership_type_id FROM tgg_subscription_plans WHERE id = :id AND active = 'active' LIMIT 1");
+    $planStmt->execute(['id' => $tierId]);
+    $plan = $planStmt->fetch();
+    if (!$plan || BillingHelper::isTrialPlan($plan)) {
+        return null;
+    }
+
+    return [
+        'contact' => $contact,
+        'plan_id' => (int)$plan['id'],
+        'civicrm_type_id' => (int)$plan['civicrm_membership_type_id'],
+        'amount' => (float)$plan['price'],
+        'membership_name' => $plan['name'],
+    ];
+}
+
+/**
+ * Non-trial active plans a member may renew into, cheapest first -- the Trial plan is a
+ * one-time offer and must never appear as a renewal choice.
+ */
+function get_renewable_tiers(): array {
+    return array_values(array_filter(BillingHelper::getSubscriptionPlans(true), function ($tier) {
+        return !BillingHelper::isTrialPlan($tier);
+    }));
 }
 
 $errorMsg = null;
@@ -119,10 +161,20 @@ if ($contactId <= 0) {
         die('Forbidden: Origin validation failed.');
     }
 
-    $context = load_payment_context($contactId);
-    if (!$context) {
-        $errorMsg = "Member or membership could not be found.";
+    if ($reason === 'renewal') {
+        $tierId = (int)($_POST['tier_id'] ?? 0);
+        $context = $tierId > 0 ? load_tier_payment_context($contactId, $tierId) : null;
+        if (!$context) {
+            $errorMsg = "Please select a membership level.";
+        }
     } else {
+        $context = load_payment_context($contactId);
+        if (!$context) {
+            $errorMsg = "Member or membership could not be found.";
+        }
+    }
+
+    if ($context) {
         $action = $_POST['action'] ?? '';
         if ($action === 'card') {
             try {
@@ -130,7 +182,7 @@ if ($contactId <= 0) {
                     $contactId,
                     $context['plan_id'],
                     $context['civicrm_type_id'],
-                    $context['membership']['membership_name'],
+                    $context['membership_name'],
                     $context['amount'],
                     ($reason === 'entrance_fee') ? 'entrance_fee' : 'renew',
                     $context['contact']['email'],
@@ -167,14 +219,42 @@ if ($contactId <= 0) {
     }
 }
 
-// Load context for the initial GET screen (amount due + Pay Card / Pay Cash buttons)
+// Load context for the initial GET screen. Entrance fees show a flat amount due +
+// Pay Card / Pay Cash. Renewals always show a membership level selector (defaulting to
+// the member's current level) instead of silently re-billing whatever plan they were
+// last on -- that plan may not be what they want to renew into, and if it was the
+// one-time Trial plan, it must never be offered at all.
 $context = null;
+$needsTierSelection = false;
+$tiers = [];
+$currentTierId = 0;
+$priorPlanWasTrial = false;
 if (!$errorMsg && !$cashPendingMsg && !$successDetails && $status === null) {
     $appDb = Database::getAppConnection();
     $dupStmt = $appDb->prepare("SELECT COUNT(*) FROM tgg_pending_payments WHERE contact_id = :contact_id AND status = 'pending'");
     $dupStmt->execute(['contact_id' => $contactId]);
     if ((int)$dupStmt->fetchColumn() > 0) {
         $cashPendingMsg = "You already have a pending payment with the host. Please see the host to complete your check-in.";
+    } elseif ($reason === 'renewal') {
+        $needsTierSelection = true;
+        $contactStmt = $appDb->prepare("SELECT id, display_name, email FROM tgg_contacts WHERE id = :id AND is_deleted = 0 LIMIT 1");
+        $contactStmt->execute(['id' => $contactId]);
+        $contactRow = $contactStmt->fetch();
+        if (!$contactRow) {
+            $errorMsg = "Member or membership could not be found.";
+        } else {
+            $context = ['contact' => $contactRow];
+            $tiers = get_renewable_tiers();
+
+            $currentMembership = CiviCRMImporter::getMemberMembershipDetails($contactId);
+            if ($currentMembership) {
+                if (BillingHelper::isTrialPlan(['name' => $currentMembership['membership_name']])) {
+                    $priorPlanWasTrial = true;
+                } else {
+                    $currentTierId = (int)$currentMembership['membership_id'];
+                }
+            }
+        }
     } else {
         $context = load_payment_context($contactId);
         if (!$context) {
@@ -240,6 +320,53 @@ $reasonLabel = ($reason === 'entrance_fee') ? 'Entrance Fee' : 'Membership Renew
                     </div>
                     <div class="terminal-footer" style="margin-top: 20px;">
                         <a href="<?php echo e($returnPage); ?>" class="btn btn-secondary btn-block">Back to Check-In</a>
+                    </div>
+
+                <?php elseif ($needsTierSelection && $context): ?>
+                    <div style="text-align: center; margin-bottom: 25px;">
+                        <p style="font-size: 1.15rem; color: var(--color-text-secondary); margin-bottom: 5px;"><?php echo e($context['contact']['display_name']); ?></p>
+                        <p style="color: var(--color-text-secondary); margin-top: 5px;">
+                            <?php if ($priorPlanWasTrial): ?>
+                                Your Trial membership has ended. The Trial is a one-time offer and can't be renewed &mdash; please choose a membership level to continue.
+                            <?php else: ?>
+                                Your membership has expired. Select a level to renew &mdash; defaults to your current plan, or choose a different one to switch.
+                            <?php endif; ?>
+                        </p>
+                    </div>
+
+                    <?php if (empty($tiers)): ?>
+                        <div class="alert alert-danger terminal-alert">
+                            <span class="alert-icon">❌</span>
+                            <div class="alert-text"><p>No membership levels are currently available. Please see the Host.</p></div>
+                        </div>
+                    <?php else: ?>
+                        <form method="POST" action="pay-entrance.php" class="terminal-form" style="display: flex; flex-direction: column; gap: 12px;">
+                            <input type="hidden" name="contact_id" value="<?php echo (int)$contactId; ?>">
+                            <input type="hidden" name="reason" value="<?php echo e($reason); ?>">
+                            <input type="hidden" name="return" value="<?php echo e($returnPage); ?>">
+                            <div class="form-group">
+                                <label for="tier_id">Select Membership Level</label>
+                                <select id="tier_id" name="tier_id" required>
+                                    <option value="" disabled<?php echo $currentTierId === 0 ? ' selected' : ''; ?>>-- Select a Level --</option>
+                                    <?php foreach ($tiers as $tier):
+                                        $unitText = strtolower($tier['duration_unit']);
+                                        if ($unitText === 'year') $unitText = 'annual';
+                                        elseif ($unitText === 'month') $unitText = 'monthly';
+                                        elseif ($unitText === 'day') $unitText = 'daily';
+                                    ?>
+                                        <option value="<?php echo (int)$tier['id']; ?>" <?php echo ((int)$tier['id'] === $currentTierId) ? 'selected' : ''; ?>>
+                                            <?php echo e($tier['name']); ?> - $<?php echo number_format($tier['price'], 2); ?> / <?php echo e($unitText); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <button type="submit" name="action" value="card" class="btn btn-primary btn-large btn-block">Pay with Card</button>
+                            <button type="submit" name="action" value="cash" class="btn btn-secondary btn-large btn-block">Pay Cash</button>
+                        </form>
+                    <?php endif; ?>
+
+                    <div class="terminal-footer" style="margin-top: 20px;">
+                        <a href="<?php echo e($returnPage); ?>" class="card-link">Cancel &amp; Go Back</a>
                     </div>
 
                 <?php elseif ($context): ?>
