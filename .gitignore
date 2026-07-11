@@ -37,7 +37,6 @@ error_log
 
 # Server-side Basic Auth gates (host-specific paths, e.g. /home/tgg/.htpasswds/...;
 # not portable app config -- these protect pre-launch/test deployments)
-public_html/.htaccess
-public_html/member/.htaccess
-public_html/member/.htaccess.bak
+.htaccess
+*.bak
 
