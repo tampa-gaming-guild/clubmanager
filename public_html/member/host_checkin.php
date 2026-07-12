@@ -63,6 +63,7 @@ $errorMsg = null;
 $successMsg = null;
 $memberDetails = null;
 $redirectUrl = null;
+$needsTrialConfirmation = false;
 
 // Host check-in is always authenticated; geolocation check is not required
 $isGeoEnabled = false;
@@ -158,7 +159,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         } else {
                             // Active membership verification
                             $membership = MembershipService::getMemberMembershipDetails($contactId);
+                            $trialActivationNote = '';
+                            $needsTrialConfirmation = false;
+
                             if (!$membership || !$membership['is_active']) {
+                                $pendingTrialPlanId = BillingHelper::getPendingTrialPlanId($contactId);
+
+                                if ($pendingTrialPlanId && !empty($_POST['confirm_trial_activation'])) {
+                                    // Host explicitly confirmed activating this member's pending online
+                                    // Trial registration in person -- checking them in now satisfies the
+                                    // verification an emailed link would have, so activate instead of
+                                    // diverting to payment (pay-entrance.php's renewal picker doesn't even
+                                    // offer the Trial plan, since it's a one-time non-renewable offer).
+                                    BillingHelper::activatePendingTrialInPerson($contactId, $_SESSION['user']['contact_id'] ?? null);
+                                    $trialActivationNote = ' Their Trial membership was activated.';
+                                    $membership = MembershipService::getMemberMembershipDetails($contactId);
+                                } elseif ($pendingTrialPlanId) {
+                                    // Ask the host to explicitly confirm before activating anything.
+                                    $needsTrialConfirmation = true;
+                                }
+                            }
+
+                            if ($needsTrialConfirmation) {
+                                // handled in the AJAX/redirect response section below
+                            } elseif (!$membership || !$membership['is_active']) {
                                 // Expired/inactive membership: send to renew (Card or Cash) instead of a flat denial.
                                 $redirectUrl = 'pay-entrance.php?contact_id=' . $contactId . '&reason=renewal&return=host_checkin.php';
                             } elseif (BillingHelper::entranceFeeOwed($contactId, $membership)) {
@@ -195,7 +219,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                         }
                                     }
 
-                                    $successMsg = "Check-In Successful! Welcome, {$contactName}.";
+                                    $successMsg = "Check-In Successful! Welcome, {$contactName}." . $trialActivationNote;
                                     if (!empty($guestNames)) {
                                         $successMsg .= " Checked in with " . count($guestNames) . " guest(s).";
                                     }
@@ -218,6 +242,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($isAjax) {
         if ($redirectUrl) {
             json_response(['success' => false, 'redirect' => $redirectUrl], 200);
+        } elseif ($needsTrialConfirmation) {
+            json_response(['success' => false, 'needs_trial_confirmation' => true, 'contact_name' => $contactName], 200);
         } elseif ($errorMsg) {
             json_response(['success' => false, 'error' => $errorMsg], 400);
         } else {
@@ -226,6 +252,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($redirectUrl) {
         header("Location: {$redirectUrl}");
         exit;
+    } elseif ($needsTrialConfirmation) {
+        // host_checkin.php's UI is entirely JS/AJAX-driven (no plain <form> submits this
+        // page), so this is a defensive fallback only.
+        $errorMsg = "{$contactName}'s Trial registration is awaiting email verification. Use the Check-In panel to confirm activating it in person.";
     }
 }
 
@@ -339,6 +369,7 @@ if (isset($_GET['contact_id'])) {
                     <div id="guest-confirm-panel" class="glass-panel" style="display: none; margin-top: 15px; padding: 15px;">
                         <p style="margin: 0 0 10px 0;">Checking in <strong id="guest-confirm-name"></strong></p>
                         <p id="guest-confirm-status" class="subtext" style="margin: 0 0 8px 0; display: none;"></p>
+                        <p id="guest-confirm-trial-notice" class="subtext" style="margin: 0 0 8px 0; display: none; color: var(--color-warning, #e0a030);"></p>
                         <button type="button" id="guest-confirm-toggle-btn" class="btn btn-secondary btn-block" style="display: none;">Add guest(s)?</button>
                         <div id="guest-confirm-section" style="display: none; margin-top: 12px;">
                             <div id="guest-confirm-fields"></div>
@@ -443,6 +474,7 @@ if (isset($_GET['contact_id'])) {
             const guestConfirmPanel = document.getElementById('guest-confirm-panel');
             const guestConfirmName = document.getElementById('guest-confirm-name');
             const guestConfirmStatus = document.getElementById('guest-confirm-status');
+            const guestConfirmTrialNotice = document.getElementById('guest-confirm-trial-notice');
             const guestConfirmToggleBtn = document.getElementById('guest-confirm-toggle-btn');
             const guestConfirmSection = document.getElementById('guest-confirm-section');
             const guestConfirmFields = document.getElementById('guest-confirm-fields');
@@ -453,6 +485,10 @@ if (isset($_GET['contact_id'])) {
             let currentGuestRemaining = 0;
             let guestPromptAcknowledged = false;
             let guestStatusPromise = Promise.resolve({ allowance: 0, remaining: 0 });
+            // Set once the server reports this member has a pending online Trial registration
+            // awaiting email verification -- the host must tap the (relabeled) submit button a
+            // second time to explicitly confirm activating it in person.
+            let pendingTrialConfirm = false;
 
             function addGuestConfirmField() {
                 const input = document.createElement('input');
@@ -501,11 +537,13 @@ if (isset($_GET['contact_id'])) {
             function openGuestConfirmPanel(memberId, memberName) {
                 selectedMemberId = memberId;
                 guestPromptAcknowledged = false;
+                pendingTrialConfirm = false;
                 guestConfirmSubmitBtn.textContent = 'Confirm Check-In';
                 guestConfirmName.textContent = memberName;
                 guestConfirmFields.innerHTML = '';
                 guestConfirmSection.style.display = 'none';
                 guestConfirmStatus.style.display = 'none';
+                guestConfirmTrialNotice.style.display = 'none';
                 guestConfirmToggleBtn.style.display = 'none';
                 guestConfirmPanel.style.display = 'block';
                 resultsList.style.display = 'none';
@@ -547,6 +585,7 @@ if (isset($_GET['contact_id'])) {
 
             guestConfirmCancelBtn.addEventListener('click', () => {
                 selectedMemberId = null;
+                pendingTrialConfirm = false;
                 guestConfirmPanel.style.display = 'none';
             });
 
@@ -626,6 +665,9 @@ if (isset($_GET['contact_id'])) {
                 data.append('ajax', '1');
                 data.append('csrf_token', csrfToken);
                 data.append('notes', 'Checked in by Host Override');
+                if (pendingTrialConfirm) {
+                    data.append('confirm_trial_activation', '1');
+                }
                 getGuestConfirmNames().forEach(name => data.append('guest_names[]', name));
                 if (lat !== null && lon !== null) {
                     data.append('latitude', lat);
@@ -644,6 +686,17 @@ if (isset($_GET['contact_id'])) {
                 .then(res => {
                     if (res.body.redirect) {
                         window.location.href = res.body.redirect;
+                        return;
+                    }
+
+                    if (res.body.needs_trial_confirmation) {
+                        // Don't close the panel or treat this as a failure -- ask the host to
+                        // explicitly confirm activating the pending Trial before trying again.
+                        pendingTrialConfirm = true;
+                        buttonElement.disabled = false;
+                        buttonElement.textContent = 'Activate Trial & Check In';
+                        guestConfirmTrialNotice.textContent = "This member registered for a Trial online but hasn't verified their email yet. Tap again to activate their Trial and check them in.";
+                        guestConfirmTrialNotice.style.display = 'block';
                         return;
                     }
 

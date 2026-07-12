@@ -546,6 +546,88 @@ class BillingHelper {
     }
 
     /**
+     * Send the "your Trial is now active" welcome email, with a link to optionally set up
+     * portal access. Shared by the email-verification flow (verify-trial.php) and the
+     * in-person activation paths (addMember(), activatePendingTrialInPerson()) -- all three
+     * activate a Trial the same way and should welcome the member the same way.
+     * @param int $contactId
+     * @param string $displayName
+     * @param string $email
+     * @param array $activation Return value of activateTrial() (needs start_date, end_date)
+     * @param int|null $senderId Contact ID of the staff member performing the action, if any, for email logging
+     */
+    public static function sendTrialActivatedEmail(int $contactId, string $displayName, string $email, array $activation, ?int $senderId = null): void {
+        if (empty($email)) {
+            return;
+        }
+        try {
+            $rawToken = Auth::createPasswordSetupToken($email, '+7 days');
+            $loginUrl = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/index.php';
+            $setPasswordLink = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/reset-password.php?token=' . $rawToken;
+            MailHelper::sendTemplate($email, 'trial_activated', [
+                'display_name' => $displayName,
+                'start_date' => $activation['start_date'] ?? date('Y-m-d'),
+                'end_date' => $activation['end_date'] ?? 'N/A',
+                'login_url' => $loginUrl,
+                'set_password_link' => $setPasswordLink
+            ], $contactId, $senderId);
+        } catch (Exception $mailEx) {
+            error_log("Failed to send trial activation email: " . $mailEx->getMessage());
+        }
+    }
+
+    /**
+     * Look up a contact's pending online Trial registration (submitted via join.php but not
+     * yet email-verified).
+     * @param int $contactId
+     * @return int|null The plan_id they registered for, or null if there's no pending Trial
+     */
+    public static function getPendingTrialPlanId(int $contactId): ?int {
+        $appDb = Database::getAppConnection();
+        $stmt = $appDb->prepare("SELECT plan_id FROM tgg_trial_verifications WHERE contact_id = :contact_id LIMIT 1");
+        $stmt->execute(['contact_id' => $contactId]);
+        $planId = $stmt->fetchColumn();
+        return $planId !== false ? (int)$planId : null;
+    }
+
+    /**
+     * Activate a contact's pending online Trial registration without requiring them to click
+     * the emailed verification link -- used when a host is checking the person in physically,
+     * which is at least as strong a verification signal as an email click. Mirrors the
+     * in-person Trial activation addMember() already does for brand-new walk-ins, but for a
+     * contact who already submitted the self-service Join form and is just waiting on the
+     * email step. Ignores the verification token's 24-hour expiry, since that clock exists to
+     * bound the *unattended* email-link path, not this host-attended one.
+     * @param int $contactId
+     * @param int|null $senderId Contact ID of the host performing the activation, for email logging
+     * @return array Activation details (start_date, end_date, plan, display_name)
+     * @throws Exception if there's no pending Trial registration for this contact
+     */
+    public static function activatePendingTrialInPerson(int $contactId, ?int $senderId = null): array {
+        $planId = self::getPendingTrialPlanId($contactId);
+        if (!$planId) {
+            throw new Exception("No pending Trial registration found for this member.");
+        }
+
+        $appDb = Database::getAppConnection();
+        $contactStmt = $appDb->prepare("SELECT display_name, email FROM tgg_contacts WHERE id = :id LIMIT 1");
+        $contactStmt->execute(['id' => $contactId]);
+        $contact = $contactStmt->fetch(PDO::FETCH_ASSOC);
+        $displayName = $contact['display_name'] ?? 'Member';
+        $email = $contact['email'] ?? '';
+
+        $activation = self::activateTrial($contactId, $planId);
+
+        $deleteToken = $appDb->prepare("DELETE FROM tgg_trial_verifications WHERE contact_id = :contact_id");
+        $deleteToken->execute(['contact_id' => $contactId]);
+
+        self::sendTrialActivatedEmail($contactId, $displayName, $email, $activation, $senderId);
+
+        $activation['display_name'] = $displayName;
+        return $activation;
+    }
+
+    /**
      * Create a brand-new local contact and member account (mirrors the self-service
      * join.php flow), optionally activating a membership immediately. Used by both the
      * Admin Dashboard's "Add Member" and the host-facing Hosting View's "Add Member",

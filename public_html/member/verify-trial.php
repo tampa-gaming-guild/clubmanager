@@ -5,10 +5,8 @@
  */
 require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
-use App\Auth;
 use App\Database;
 use App\BillingHelper;
-use App\MailHelper;
 
 $errorMsg = null;
 $successMsg = null;
@@ -49,25 +47,10 @@ if (empty($rawToken)) {
 
             $successMsg = "Your 30-day Trial membership is now active! It runs through " . date('F j, Y', strtotime($activation['end_date'])) . ". Check your email for a link to set up portal access if you'd like it.";
 
-            if (!empty($email)) {
-                try {
-                    // Trial members never set a password at signup either, so the activation
-                    // email doubles as their welcome email, with a link to set one up if they
-                    // ever want portal access -- it's optional, not required.
-                    $rawToken = Auth::createPasswordSetupToken($email, '+7 days');
-                    $loginUrl = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/index.php';
-                    $setPasswordLink = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/reset-password.php?token=' . $rawToken;
-                    MailHelper::sendTemplate($email, 'trial_activated', [
-                        'display_name' => $displayName,
-                        'start_date' => $activation['start_date'],
-                        'end_date' => $activation['end_date'],
-                        'login_url' => $loginUrl,
-                        'set_password_link' => $setPasswordLink
-                    ], $contactId, null);
-                } catch (Exception $mailEx) {
-                    error_log("Failed to send trial activation email: " . $mailEx->getMessage());
-                }
-            }
+            // Trial members never set a password at signup either, so the activation email
+            // doubles as their welcome email, with a link to set one up if they ever want
+            // portal access -- it's optional, not required.
+            BillingHelper::sendTrialActivatedEmail($contactId, $displayName, $email, $activation, null);
         }
     } catch (Exception $e) {
         $errorMsg = safe_err("Could not verify your Trial membership: ", $e);
