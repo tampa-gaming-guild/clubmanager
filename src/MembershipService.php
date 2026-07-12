@@ -19,9 +19,10 @@ class MembershipService {
      */
     public static function getMembershipTiers(): array {
         $appDb = Database::getAppConnection();
-        $query = "SELECT civicrm_membership_type_id AS id, name, description, price AS minimum_fee, duration_unit, duration_interval
-                  FROM tgg_subscription_plans
-                  ORDER BY price ASC";
+        $query = "SELECT p.civicrm_membership_type_id AS id, p.name, p.description, dr.price AS minimum_fee, p.duration_unit, p.duration_interval
+                  FROM tgg_subscription_plans p
+                  LEFT JOIN tgg_subscription_rates dr ON p.default_rate_id = dr.id
+                  ORDER BY dr.price ASC";
         return $appDb->query($query)->fetchAll();
     }
 
@@ -34,8 +35,8 @@ class MembershipService {
     public static function getMemberMembershipDetails(int $contactId): ?array {
         $appDb = Database::getAppConnection();
         $query = "SELECT s.plan_id as membership_id, s.join_date, s.start_date, s.end_date, s.rate_id,
-                         p.name as membership_name, COALESCE(r.price, p.price) as minimum_fee,
-                         COALESCE(r.price, p.price) as price,
+                         p.name as membership_name, COALESCE(r.price, dr.price) as minimum_fee,
+                         COALESCE(r.price, dr.price) as price,
                          COALESCE(r.billing_frequency, p.duration_unit) as duration_unit,
                          COALESCE(CASE WHEN r.billing_frequency IS NOT NULL THEN 1 ELSE p.duration_interval END, p.duration_interval) as duration_interval,
                          p.guests_per_month,
@@ -55,6 +56,7 @@ class MembershipService {
                   FROM tgg_subscriptions s
                   INNER JOIN tgg_subscription_plans p ON s.plan_id = p.id
                   LEFT JOIN tgg_subscription_rates r ON s.rate_id = r.id
+                  LEFT JOIN tgg_subscription_rates dr ON p.default_rate_id = dr.id
                   WHERE s.contact_id = :contact_id
                   LIMIT 1";
 

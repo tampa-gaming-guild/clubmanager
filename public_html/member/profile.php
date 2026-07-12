@@ -965,17 +965,25 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                 </div>
                                 
                                 <!-- Admin Adjust Subscription Rate Card -->
-                                <?php 
-                                if ($membership): 
-                                    // Fetch active rates for this plan
+                                <?php
+                                if ($membership):
+                                    // Fetch active rates for this plan, newest first, alongside the
+                                    // plan's default_rate_id so the dropdown can label the current
+                                    // rate distinctly from earlier ones (by their effective date)
+                                    // instead of showing raw, importer-generated rate names.
                                     $activeRates = [];
+                                    $planDefaultRateId = null;
                                     try {
+                                        $planStmt = $appDb->prepare("SELECT default_rate_id FROM tgg_subscription_plans WHERE id = :id LIMIT 1");
+                                        $planStmt->execute(['id' => $membership['membership_id']]);
+                                        $planDefaultRateId = (int)($planStmt->fetchColumn() ?: 0);
+
                                         $ratesStmt = $appDb->prepare("
-                                            SELECT * FROM tgg_subscription_rates 
-                                            WHERE plan_id = :plan_id 
-                                              AND inactive = 0 
+                                            SELECT * FROM tgg_subscription_rates
+                                            WHERE plan_id = :plan_id
+                                              AND inactive = 0
                                               AND (expiration_date IS NULL OR expiration_date >= CURRENT_DATE())
-                                            ORDER BY price ASC
+                                            ORDER BY created_at DESC, id DESC
                                         ");
                                         $ratesStmt->execute(['plan_id' => $membership['membership_id']]);
                                         $activeRates = $ratesStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -990,9 +998,14 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                         <div class="form-group">
                                             <label for="rate_id" style="display: block; font-size: 0.85rem; margin-bottom: 8px; color: rgba(255,255,255,0.85);">Select Active Rate</label>
                                             <select name="rate_id" id="rate_id" required>
-                                                <?php foreach ($activeRates as $rate): ?>
+                                                <?php foreach ($activeRates as $rate):
+                                                    $isCurrentRate = $planDefaultRateId === (int)$rate['id'];
+                                                    $rateLabel = $isCurrentRate
+                                                        ? 'Current'
+                                                        : 'Previous ' . ($rate['created_at'] ? date('M j, Y', strtotime($rate['created_at'])) : '');
+                                                ?>
                                                     <option value="<?php echo (int)$rate['id']; ?>" <?php echo (isset($membership['rate_id']) && (int)$membership['rate_id'] === (int)$rate['id']) ? 'selected' : ''; ?>>
-                                                        <?php echo e($rate['name']); ?> - $<?php echo number_format($rate['price'], 2); ?> / <?php echo e($rate['billing_frequency']); ?>
+                                                        <?php echo e($rateLabel); ?> - $<?php echo number_format($rate['price'], 2); ?> / <?php echo e($rate['billing_frequency']); ?>
                                                     </option>
                                                 <?php endforeach; ?>
                                             </select>

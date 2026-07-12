@@ -15,6 +15,7 @@ $errorMsg = null;
 $successMsg = null;
 $plans = [];
 $editPlan = null;
+$planFormError = false;
 
 // Handle Form Submission (Save Grace Period)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_grace_period'])) {
@@ -65,14 +66,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_plan'])) {
                 'guests_per_month' => $guestsPerMonth
             ];
 
-            BillingHelper::savePlan($data);
-            $successMsg = $id ? "Membership level updated successfully!" : "New membership level added successfully!";
-            
+            $result = BillingHelper::savePlan($data);
+            if ($result['new_rate_created']) {
+                $successMsg = "Membership level updated. New rate added, effective " . date('F j, Y', strtotime($result['effective_date'])) . ".";
+            } else {
+                $successMsg = $id ? "Membership level updated successfully!" : "New membership level added successfully!";
+            }
+
             // Redirect to clean POST state
             header("Location: memberships.php?success=" . urlencode($successMsg));
             exit;
         } catch (Exception $e) {
             $errorMsg = safe_err("Failed to save plan: ", $e);
+            $planFormError = true;
         }
     }
 }
@@ -100,6 +106,11 @@ if (isset($_GET['action']) && $_GET['action'] === 'edit' && isset($_GET['id'])) 
 }
 
 $renewalGraceDays = BillingHelper::getRenewalGraceDays();
+
+// Add/Edit Membership Level lives in a modal (see bottom of page) -- it auto-opens
+// whenever there's something for it to show: editing, or a validation error from a
+// submission it needs to redisplay.
+$autoOpenPlanModal = $editPlan || $planFormError;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -113,16 +124,6 @@ $renewalGraceDays = BillingHelper::getRenewalGraceDays();
     <link rel="manifest" href="../manifest.json">
     <link rel="stylesheet" href="../assets/css/style.css<?php echo asset_version('assets/css/style.css'); ?>">
     <style>
-        .membership-grid {
-            display: grid;
-            grid-template-columns: 1.5fr 1fr;
-            gap: 20px;
-        }
-        @media (max-width: 900px) {
-            .membership-grid {
-                grid-template-columns: 1fr;
-            }
-        }
         .form-actions {
             display: flex;
             gap: 10px;
@@ -175,11 +176,13 @@ $renewalGraceDays = BillingHelper::getRenewalGraceDays();
                         <div class="alert alert-success"><?php echo e($successMsg); ?></div>
                     <?php endif; ?>
 
-                    <div class="membership-grid mt-20">
-                        
-                        <!-- List of Plans -->
-                        <div class="plans-list-container">
-                            <h3>Active Membership Tiers</h3>
+                    <!-- List of Plans -->
+                    <div class="plans-list-container mt-20">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <h3 style="margin: 0;">Active Membership Tiers</h3>
+                            <button type="button" class="btn btn-primary btn-sm" onclick="openPlanModal()">+ Add Membership Level</button>
+                        </div>
+                        <div style="overflow-x: auto;">
                             <table class="reports-table">
                                 <thead>
                                     <tr>
@@ -225,66 +228,6 @@ $renewalGraceDays = BillingHelper::getRenewalGraceDays();
                                 </tbody>
                             </table>
                         </div>
-
-                        <!-- Add/Edit Form -->
-                        <div class="plan-form-container glass-panel" style="padding: 20px;">
-                            <h3><?php echo $editPlan ? 'Edit Membership Level' : 'Add Membership Level'; ?></h3>
-                            
-                            <form action="memberships.php" method="POST" class="auth-form mt-10">
-                                <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
-                                <input type="hidden" name="plan_id" value="<?php echo $editPlan ? (int)$editPlan['id'] : ''; ?>">
-                                
-                                <div class="form-group">
-                                    <label for="name">Level Name</label>
-                                    <input type="text" id="name" name="name" required placeholder="e.g. Monthly Standard" value="<?php echo $editPlan ? e($editPlan['name']) : ''; ?>">
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="description">Description</label>
-                                    <input type="text" id="description" name="description" placeholder="e.g. Standard monthly individual membership" value="<?php echo $editPlan ? e($editPlan['description']) : ''; ?>">
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="price">Price (USD)</label>
-                                    <input type="number" id="price" name="price" required min="0" step="0.01" placeholder="e.g. 15.00" value="<?php echo $editPlan ? (float)$editPlan['price'] : ''; ?>">
-                                </div>
-
-                                <div class="form-row">
-                                    <div class="form-group">
-                                        <label for="duration_interval">Billing Every</label>
-                                        <input type="number" id="duration_interval" name="duration_interval" required min="1" placeholder="1" value="<?php echo $editPlan ? (int)$editPlan['duration_interval'] : '1'; ?>">
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="duration_unit">Interval Unit</label>
-                                        <select id="duration_unit" name="duration_unit" required>
-                                            <option value="day" <?php echo ($editPlan && $editPlan['duration_unit'] === 'day') ? 'selected' : ''; ?>>Day(s)</option>
-                                            <option value="month" <?php echo ($editPlan && $editPlan['duration_unit'] === 'month') ? 'selected' : ''; ?>>Month(s)</option>
-                                            <option value="year" <?php echo (!$editPlan || ($editPlan && $editPlan['duration_unit'] === 'year')) ? 'selected' : ''; ?>>Year(s)</option>
-                                        </select>
-                                    </div>
-                                </div>
-                                
-                                <div class="form-group">
-                                    <label for="guests_per_month">Guest Passes per Month</label>
-                                    <input type="number" id="guests_per_month" name="guests_per_month" required min="0" step="1" placeholder="0" value="<?php echo $editPlan ? (int)$editPlan['guests_per_month'] : '0'; ?>">
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="active">Status</label>
-                                    <select id="active" name="active" required>
-                                        <option value="active" <?php echo (!$editPlan || ($editPlan && ($editPlan['active'] ?? 'active') === 'active')) ? 'selected' : ''; ?>>Active</option>
-                                        <option value="inactive" <?php echo ($editPlan && ($editPlan['active'] ?? 'active') === 'inactive') ? 'selected' : ''; ?>>Inactive</option>
-                                    </select>
-                                </div>
-
-                                <div class="form-actions">
-                                    <button type="submit" name="save_plan" class="btn btn-primary"><?php echo $editPlan ? 'Save Changes' : 'Create Level'; ?></button>
-                                    <?php if ($editPlan): ?>
-                                        <a href="memberships.php" class="btn btn-secondary" style="text-decoration: none; display: flex; align-items: center; justify-content: center; height: 38px; padding: 0 15px;">Cancel</a>
-                                    <?php endif; ?>
-                                </div>
-                            </form>
-                        </div>
                     </div>
 
                     <!-- Renewal Grace Period Setting Form -->
@@ -312,7 +255,91 @@ $renewalGraceDays = BillingHelper::getRenewalGraceDays();
 
         <?php include __DIR__ . '/../partials/footer.php'; ?>
 
+        <!-- Add/Edit Membership Level Modal -->
+        <div id="plan-modal" class="modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(5px);">
+            <div class="modal-content glass-panel" style="background: rgba(30, 30, 40, 0.95); margin: 5% auto; padding: 25px; border: 1px solid rgba(255, 255, 255, 0.1); width: 90%; max-width: 480px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+                <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 15px; margin-bottom: 20px;">
+                    <h3 style="margin: 0; color: #fff; font-size: 1.2rem;"><?php echo $editPlan ? 'Edit Membership Level' : 'Add Membership Level'; ?></h3>
+                    <span class="close" onclick="closePlanModal()" style="color: rgba(255,255,255,0.6); font-size: 28px; font-weight: bold; cursor: pointer; transition: color 0.2s;">&times;</span>
+                </div>
+
+                <form action="memberships.php" method="POST" class="auth-form">
+                    <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                    <input type="hidden" name="plan_id" value="<?php echo $editPlan ? (int)$editPlan['id'] : ''; ?>">
+
+                    <div class="form-group">
+                        <label for="name">Level Name</label>
+                        <input type="text" id="name" name="name" required placeholder="e.g. Monthly Standard" value="<?php echo $editPlan ? e($editPlan['name']) : ''; ?>">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="description">Description</label>
+                        <input type="text" id="description" name="description" placeholder="e.g. Standard monthly individual membership" value="<?php echo $editPlan ? e($editPlan['description']) : ''; ?>">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="price">Price (USD)</label>
+                        <input type="number" id="price" name="price" required min="0" step="0.01" placeholder="e.g. 15.00" value="<?php echo $editPlan ? (float)$editPlan['price'] : ''; ?>">
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="duration_interval">Billing Every</label>
+                            <input type="number" id="duration_interval" name="duration_interval" required min="1" placeholder="1" value="<?php echo $editPlan ? (int)$editPlan['duration_interval'] : '1'; ?>">
+                        </div>
+                        <div class="form-group">
+                            <label for="duration_unit">Interval Unit</label>
+                            <select id="duration_unit" name="duration_unit" required>
+                                <option value="day" <?php echo ($editPlan && $editPlan['duration_unit'] === 'day') ? 'selected' : ''; ?>>Day(s)</option>
+                                <option value="month" <?php echo ($editPlan && $editPlan['duration_unit'] === 'month') ? 'selected' : ''; ?>>Month(s)</option>
+                                <option value="year" <?php echo (!$editPlan || ($editPlan && $editPlan['duration_unit'] === 'year')) ? 'selected' : ''; ?>>Year(s)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="guests_per_month">Guest Passes per Month</label>
+                        <input type="number" id="guests_per_month" name="guests_per_month" required min="0" step="1" placeholder="0" value="<?php echo $editPlan ? (int)$editPlan['guests_per_month'] : '0'; ?>">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="active">Status</label>
+                        <select id="active" name="active" required>
+                            <option value="active" <?php echo (!$editPlan || ($editPlan && ($editPlan['active'] ?? 'active') === 'active')) ? 'selected' : ''; ?>>Active</option>
+                            <option value="inactive" <?php echo ($editPlan && ($editPlan['active'] ?? 'active') === 'inactive') ? 'selected' : ''; ?>>Inactive</option>
+                        </select>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" name="save_plan" class="btn btn-primary"><?php echo $editPlan ? 'Save Changes' : 'Create Level'; ?></button>
+                        <?php if ($editPlan): ?>
+                            <a href="memberships.php" class="btn btn-secondary" style="text-decoration: none; display: flex; align-items: center; justify-content: center; height: 38px; padding: 0 15px;">Cancel</a>
+                        <?php else: ?>
+                            <button type="button" class="btn btn-secondary" onclick="closePlanModal()">Cancel</button>
+                        <?php endif; ?>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <script>
+    function openPlanModal() {
+        document.getElementById('plan-modal').style.display = 'block';
+    }
+    function closePlanModal() {
+        document.getElementById('plan-modal').style.display = 'none';
+    }
+    window.addEventListener('click', function(event) {
+        const modal = document.getElementById('plan-modal');
+        if (event.target === modal) {
+            modal.style.display = 'none';
+        }
+    });
+    <?php if ($autoOpenPlanModal): ?>
+    document.addEventListener('DOMContentLoaded', openPlanModal);
+    <?php endif; ?>
+
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
             navigator.serviceWorker.register('../sw.js')

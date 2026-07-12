@@ -78,11 +78,13 @@ class BillingHelper {
     public static function getSubscriptionPlans(bool $onlyActive = false): array {
         try {
             $db = Database::getAppConnection();
-            $sql = "SELECT *, price as minimum_fee FROM tgg_subscription_plans";
+            $sql = "SELECT p.*, dr.price AS price, dr.price AS minimum_fee
+                    FROM tgg_subscription_plans p
+                    LEFT JOIN tgg_subscription_rates dr ON p.default_rate_id = dr.id";
             if ($onlyActive) {
-                $sql .= " WHERE active = 'active'";
+                $sql .= " WHERE p.active = 'active'";
             }
-            $sql .= " ORDER BY price ASC";
+            $sql .= " ORDER BY dr.price ASC";
             $stmt = $db->query($sql);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Exception $e) {
@@ -101,14 +103,15 @@ class BillingHelper {
              $stmt = $db->prepare("
                  SELECT s.status, s.join_date, s.start_date, s.end_date, s.plan_id as membership_id, s.rate_id,
                         p.name as plan_name, p.name as membership_name,
-                        COALESCE(r.price, p.price) as price,
-                        COALESCE(r.price, p.price) as minimum_fee,
+                        COALESCE(r.price, dr.price) as price,
+                        COALESCE(r.price, dr.price) as minimum_fee,
                         COALESCE(r.billing_frequency, p.duration_unit) as duration_unit,
                         COALESCE(CASE WHEN r.billing_frequency IS NOT NULL THEN 1 ELSE p.duration_interval END, p.duration_interval) as duration_interval,
                         p.guests_per_month
                  FROM tgg_subscriptions s
                  INNER JOIN tgg_subscription_plans p ON s.plan_id = p.id
                  LEFT JOIN tgg_subscription_rates r ON s.rate_id = r.id
+                 LEFT JOIN tgg_subscription_rates dr ON p.default_rate_id = dr.id
                  WHERE s.contact_id = :contact_id
                  LIMIT 1
              ");
@@ -189,18 +192,48 @@ class BillingHelper {
             throw new Exception("Local plan ID {$planId} not found.");
         }
 
+        // Query existing local subscription up front so both the ledger entry and the
+        // subscription row below record the same resolved rate.
+        $subStmt = $appDb->prepare("SELECT plan_id, join_date, end_date, rate_id, stripe_payment_method_id FROM tgg_subscriptions WHERE contact_id = :contact_id LIMIT 1");
+        $subStmt->execute(['contact_id' => $contactId]);
+        $existingSub = $subStmt->fetch(PDO::FETCH_ASSOC);
+
+        $today = date('Y-m-d');
+        $existingEndDate = $existingSub['end_date'] ?? null;
+
+        // A member's existing rate (which may be a grandfathered/custom one) only carries
+        // forward when they're renewing the SAME plan within the grace period of their last
+        // expiry. If their plan is changing, or they've let membership lapse past grace and
+        // come back later, rate_id is reset below to the plan's current default rate so
+        // they're billed its price going forward -- a stale historical rate should never
+        // persist through a plan change or a real gap in membership, and it should never be
+        // left NULL (floating on whatever the plan's price happens to be later).
+        $pastGracePeriod = false;
+        if ($existingEndDate) {
+            $daysSinceExpiry = (strtotime($today) - strtotime($existingEndDate)) / 86400;
+            $pastGracePeriod = $daysSinceExpiry > self::getRenewalGraceDays();
+        }
+        $planIsChanging = $existingSub && (int)$existingSub['plan_id'] !== $planId;
+        $resetRate = $pastGracePeriod || $planIsChanging;
+
+        $targetRateId = ($existingSub && !empty($existingSub['rate_id']) && !$resetRate)
+            ? (int)$existingSub['rate_id']
+            : ($plan['default_rate_id'] ?? null);
+
         // 2. Start Transaction
         $appDb->beginTransaction();
 
         try {
             // A. Log transaction locally in tgg_billing_ledger
             $insertLedger = $appDb->prepare("
-                INSERT INTO tgg_billing_ledger (contact_id, plan_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type)
-                VALUES (:contact_id, :plan_id, :stripe_session_id, :payment_intent_id, :amount, :currency, 'paid', :action_type)
+                INSERT INTO tgg_billing_ledger (contact_id, plan_id, rate_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type)
+                VALUES (:contact_id, :plan_id, :rate_id, :stripe_session_id, :payment_intent_id, :amount, :currency, 'paid', :action_type)
             ");
             $insertLedger->execute([
                 'contact_id' => $contactId,
                 'plan_id' => $planId,
+                // Entrance fees are one-off per-visit charges, not tied to a dues rate.
+                'rate_id' => $action === 'entrance_fee' ? null : $targetRateId,
                 'stripe_session_id' => $sessionId,
                 'payment_intent_id' => $paymentIntentId,
                 'amount' => $amountTotal,
@@ -220,37 +253,15 @@ class BillingHelper {
             $durationInterval = (int)$plan['duration_interval'];
             $durationUnit = strtolower($plan['duration_unit']);
 
-            // Query existing local subscription
-            $subStmt = $appDb->prepare("SELECT plan_id, join_date, end_date, rate_id, stripe_payment_method_id FROM tgg_subscriptions WHERE contact_id = :contact_id LIMIT 1");
-            $subStmt->execute(['contact_id' => $contactId]);
-            $existingSub = $subStmt->fetch(PDO::FETCH_ASSOC);
-
-            $today = date('Y-m-d');
             $startDate = $today;
-            $existingEndDate = $existingSub['end_date'] ?? null;
-
-            // A member's existing rate (which may be a grandfathered/custom one) only carries
-            // forward when they're renewing the SAME plan within the grace period of their last
-            // expiry. If their plan is changing, or they've let membership lapse past grace and
-            // come back later, rate_id is reset below so they're billed the plan's current price
-            // going forward -- a stale historical rate should never persist through a plan change
-            // or a real gap in membership.
-            $pastGracePeriod = false;
-            if ($existingEndDate) {
+            if ($existingEndDate && !$pastGracePeriod) {
                 // Extend from the day after the old expiry if the membership is still active,
                 // or lapsed by the configured grace period days or less. Beyond that, start a
                 // brand-new period from today instead of stacking the term on a stale expiry.
                 // join_date is never touched by the UPDATE below, so this never resets how long
                 // someone has been a member -- it only affects this period's start/end dates.
-                $daysSinceExpiry = (strtotime($today) - strtotime($existingEndDate)) / 86400;
-                if ($daysSinceExpiry <= self::getRenewalGraceDays()) {
-                    $startDate = date('Y-m-d', strtotime($existingEndDate . ' +1 day'));
-                } else {
-                    $pastGracePeriod = true;
-                }
+                $startDate = date('Y-m-d', strtotime($existingEndDate . ' +1 day'));
             }
-            $planIsChanging = $existingSub && (int)$existingSub['plan_id'] !== $planId;
-            $resetRate = $pastGracePeriod || $planIsChanging;
 
             if ($existingSub && !empty($existingSub['rate_id']) && !$resetRate) {
                 $rateStmt = $appDb->prepare("SELECT * FROM tgg_subscription_rates WHERE id = :rate_id LIMIT 1");
@@ -301,22 +312,25 @@ class BillingHelper {
             $isFirstCardCapture = empty($existingSub['stripe_payment_method_id'] ?? null);
             $setAutoRenewOn = $capturedPaymentMethodId && $isFirstCardCapture && !self::isTrialPlan($plan);
 
-            // C2. Insert or update local subscription
+            // C2. Insert or update local subscription. rate_id is always written explicitly
+            // (never left NULL) -- $targetRateId is either the carried-forward existing rate,
+            // or the plan's current default rate for a new join / plan change / post-grace renewal.
             if ($existingSub) {
                 $updateSub = $appDb->prepare("
                     UPDATE tgg_subscriptions
                     SET plan_id = :plan_id, status = 'active', start_date = :start_date, end_date = :end_date,
+                        rate_id = :rate_id,
                         auto_renew_attempts = 0,
                         stripe_customer_id = COALESCE(:stripe_customer_id, stripe_customer_id),
                         stripe_payment_method_id = COALESCE(:stripe_payment_method_id, stripe_payment_method_id)"
-                        . ($setAutoRenewOn ? ", auto_renew = 1" : "")
-                        . ($resetRate ? ", rate_id = NULL" : "") . "
+                        . ($setAutoRenewOn ? ", auto_renew = 1" : "") . "
                     WHERE contact_id = :contact_id
                 ");
                 $updateSub->execute([
                     'plan_id' => $planId,
                     'start_date' => $startDate,
                     'end_date' => $endDate,
+                    'rate_id' => $targetRateId,
                     'stripe_customer_id' => $capturedCustomerId,
                     'stripe_payment_method_id' => $capturedPaymentMethodId,
                     'contact_id' => $contactId
@@ -324,12 +338,13 @@ class BillingHelper {
             } else {
                 $joinDate = $today;
                 $insertSub = $appDb->prepare("
-                    INSERT INTO tgg_subscriptions (contact_id, plan_id, status, join_date, start_date, end_date, stripe_customer_id, stripe_payment_method_id, auto_renew)
-                    VALUES (:contact_id, :plan_id, 'active', :join_date, :start_date, :end_date, :stripe_customer_id, :stripe_payment_method_id, :auto_renew)
+                    INSERT INTO tgg_subscriptions (contact_id, plan_id, rate_id, status, join_date, start_date, end_date, stripe_customer_id, stripe_payment_method_id, auto_renew)
+                    VALUES (:contact_id, :plan_id, :rate_id, 'active', :join_date, :start_date, :end_date, :stripe_customer_id, :stripe_payment_method_id, :auto_renew)
                 ");
                 $insertSub->execute([
                     'contact_id' => $contactId,
                     'plan_id' => $planId,
+                    'rate_id' => $targetRateId,
                     'join_date' => $joinDate,
                     'start_date' => $startDate,
                     'end_date' => $endDate,
@@ -490,26 +505,30 @@ class BillingHelper {
         $appDb->beginTransaction();
 
         try {
+            $rateId = $plan['default_rate_id'] ?? null;
+
             $uniqueId = uniqid('trial_', true);
             $insertLedger = $appDb->prepare("
-                INSERT INTO tgg_billing_ledger (contact_id, plan_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type)
-                VALUES (:contact_id, :plan_id, :stripe_session_id, :payment_intent_id, 0.00, 'usd', 'paid', 'join')
+                INSERT INTO tgg_billing_ledger (contact_id, plan_id, rate_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type)
+                VALUES (:contact_id, :plan_id, :rate_id, :stripe_session_id, :payment_intent_id, 0.00, 'usd', 'paid', 'join')
             ");
             $insertLedger->execute([
                 'contact_id' => $contactId,
                 'plan_id' => $planId,
+                'rate_id' => $rateId,
                 'stripe_session_id' => $uniqueId,
                 'payment_intent_id' => $uniqueId
             ]);
 
             $insertSub = $appDb->prepare("
-                INSERT INTO tgg_subscriptions (contact_id, plan_id, status, join_date, start_date, end_date)
-                VALUES (:contact_id, :plan_id, 'active', :join_date, :start_date, :end_date)
-                ON DUPLICATE KEY UPDATE plan_id = VALUES(plan_id), status = 'active', join_date = VALUES(join_date), start_date = VALUES(start_date), end_date = VALUES(end_date)
+                INSERT INTO tgg_subscriptions (contact_id, plan_id, rate_id, status, join_date, start_date, end_date)
+                VALUES (:contact_id, :plan_id, :rate_id, 'active', :join_date, :start_date, :end_date)
+                ON DUPLICATE KEY UPDATE plan_id = VALUES(plan_id), rate_id = VALUES(rate_id), status = 'active', join_date = VALUES(join_date), start_date = VALUES(start_date), end_date = VALUES(end_date)
             ");
             $insertSub->execute([
                 'contact_id' => $contactId,
                 'plan_id' => $planId,
+                'rate_id' => $rateId,
                 'join_date' => $today,
                 'start_date' => $today,
                 'end_date' => $endDate
@@ -680,7 +699,14 @@ class BillingHelper {
      * @return bool
      * @throws Exception
      */
-    public static function savePlan(array $data): bool {
+    /**
+     * @return array{new_rate_created: bool, effective_date: ?string} 'new_rate_created' is
+     * true only when editing an existing plan's price actually created a new default rate
+     * (never true for a brand-new plan, or an edit that didn't change price); 'effective_date'
+     * ('Y-m-d') is set alongside it so the caller can tell the admin exactly when the new
+     * price takes effect.
+     */
+    public static function savePlan(array $data): array {
         $appDb = Database::getAppConnection();
 
         $id = isset($data['id']) ? (int)$data['id'] : null;
@@ -708,26 +734,74 @@ class BillingHelper {
             throw new Exception("Invalid duration unit. Allowed units are 'day', 'month', or 'year'.");
         }
 
+        $freq = 'monthly';
+        if ($durationUnit === 'year') {
+            $freq = 'annual';
+        } elseif ($durationUnit === 'day') {
+            $freq = 'daily';
+        }
+
+        $newRateCreated = false;
+        $effectiveDate = null;
+
         $appDb->beginTransaction();
 
         try {
             if ($id) {
-                // Update existing plan
+                // Update existing plan's own fields. Price lives entirely on Rate now, so it's
+                // never written here directly -- see the rate handling below.
                 $updateLocal = $appDb->prepare("
                     UPDATE tgg_subscription_plans
-                    SET name = :name, description = :description, price = :price, duration_unit = :duration_unit, duration_interval = :duration_interval, active = :active, guests_per_month = :guests_per_month
+                    SET name = :name, description = :description, duration_unit = :duration_unit, duration_interval = :duration_interval, active = :active, guests_per_month = :guests_per_month
                     WHERE id = :id
                 ");
                 $updateLocal->execute([
                     'name' => $name,
                     'description' => $description,
-                    'price' => $price,
                     'duration_unit' => $durationUnit,
                     'duration_interval' => $durationInterval,
                     'active' => $active,
                     'guests_per_month' => $guestsPerMonth,
                     'id' => $id
                 ]);
+
+                // If the submitted price differs from the plan's current default rate, that's a
+                // price change: create a new rate and repoint the plan's default at it, leaving
+                // the old default rate untouched (still active, still named the same -- rates are
+                // told apart by their effective date/created_at in the UI, not by name) so members
+                // already grandfathered onto it keep their price until they renew past grace,
+                // change plans, or an admin explicitly retires it via BillingHelper::retireRate().
+                // This is the mechanism that actually grandfathers existing members through a
+                // price change.
+                $currentRateStmt = $appDb->prepare("
+                    SELECT r.id, r.name, r.price
+                    FROM tgg_subscription_plans p
+                    LEFT JOIN tgg_subscription_rates r ON p.default_rate_id = r.id
+                    WHERE p.id = :id
+                ");
+                $currentRateStmt->execute(['id' => $id]);
+                $currentRate = $currentRateStmt->fetch(PDO::FETCH_ASSOC);
+
+                $priceChanged = !$currentRate || round((float)$currentRate['price'], 2) !== round($price, 2);
+                if ($priceChanged) {
+                    $newRateCreated = true;
+                    $effectiveDate = date('Y-m-d');
+
+                    $insertRate = $appDb->prepare("
+                        INSERT INTO tgg_subscription_rates (plan_id, name, price, billing_frequency, inactive, created_at)
+                        VALUES (:plan_id, :name, :price, :billing_frequency, 0, NOW())
+                    ");
+                    $insertRate->execute([
+                        'plan_id' => $id,
+                        'name' => $name . ' - Standard',
+                        'price' => $price,
+                        'billing_frequency' => $freq
+                    ]);
+                    $newRateId = $appDb->lastInsertId();
+
+                    $appDb->prepare("UPDATE tgg_subscription_plans SET default_rate_id = :rate_id WHERE id = :id")
+                        ->execute(['rate_id' => $newRateId, 'id' => $id]);
+                }
 
             } else {
                 // Insert new plan
@@ -736,13 +810,12 @@ class BillingHelper {
                 $civiTypeId = $maxCiviId + 1;
 
                  $insertLocal = $appDb->prepare("
-                     INSERT INTO tgg_subscription_plans (name, description, price, duration_unit, duration_interval, civicrm_membership_type_id, active, guests_per_month)
-                     VALUES (:name, :description, :price, :duration_unit, :duration_interval, :civicrm_membership_type_id, :active, :guests_per_month)
+                     INSERT INTO tgg_subscription_plans (name, description, duration_unit, duration_interval, civicrm_membership_type_id, active, guests_per_month)
+                     VALUES (:name, :description, :duration_unit, :duration_interval, :civicrm_membership_type_id, :active, :guests_per_month)
                  ");
                  $insertLocal->execute([
                      'name' => $name,
                      'description' => $description,
-                     'price' => $price,
                      'duration_unit' => $durationUnit,
                      'duration_interval' => $durationInterval,
                      'civicrm_membership_type_id' => $civiTypeId,
@@ -751,15 +824,9 @@ class BillingHelper {
                  ]);
 
                  $planId = $appDb->lastInsertId();
-                 $freq = 'monthly';
-                 if ($durationUnit === 'year') {
-                     $freq = 'annual';
-                 } elseif ($durationUnit === 'day') {
-                     $freq = 'daily';
-                 }
                  $insertRate = $appDb->prepare("
-                     INSERT INTO tgg_subscription_rates (plan_id, name, price, billing_frequency, inactive)
-                     VALUES (:plan_id, :name, :price, :billing_frequency, 0)
+                     INSERT INTO tgg_subscription_rates (plan_id, name, price, billing_frequency, inactive, created_at)
+                     VALUES (:plan_id, :name, :price, :billing_frequency, 0, NOW())
                  ");
                  $insertRate->execute([
                      'plan_id' => $planId,
@@ -767,11 +834,66 @@ class BillingHelper {
                      'price' => $price,
                      'billing_frequency' => $freq
                  ]);
+                 $newRateId = $appDb->lastInsertId();
+
+                 $appDb->prepare("UPDATE tgg_subscription_plans SET default_rate_id = :rate_id WHERE id = :id")
+                     ->execute(['rate_id' => $newRateId, 'id' => $planId]);
              }
 
             $appDb->commit();
-            return true;
+            return ['new_rate_created' => $newRateCreated, 'effective_date' => $effectiveDate];
 
+        } catch (Exception $e) {
+            if ($appDb->inTransaction()) {
+                $appDb->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * Explicitly retire a rate: moves every subscription currently on it to the plan's
+     * current default rate, then marks it inactive/retired. This is the only way members
+     * get moved off a grandfathered/historical rate -- it never happens automatically (e.g.
+     * a rate's own expiration_date is informational only and is not enforced here).
+     * @param int $rateId
+     * @param int $planId
+     * @return int Number of subscriptions migrated to the plan's default rate
+     * @throws Exception
+     */
+    public static function retireRate(int $rateId, int $planId): int {
+        $appDb = Database::getAppConnection();
+
+        $planStmt = $appDb->prepare("SELECT default_rate_id FROM tgg_subscription_plans WHERE id = :id LIMIT 1");
+        $planStmt->execute(['id' => $planId]);
+        $plan = $planStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$plan) {
+            throw new Exception("Plan not found.");
+        }
+        if (empty($plan['default_rate_id'])) {
+            throw new Exception("This plan has no current default rate to move members onto.");
+        }
+        if ((int)$plan['default_rate_id'] === $rateId) {
+            throw new Exception("Cannot retire a plan's current default rate. Change the plan's price first to establish a new default, then retire this one.");
+        }
+
+        $rateStmt = $appDb->prepare("SELECT id FROM tgg_subscription_rates WHERE id = :id AND plan_id = :plan_id LIMIT 1");
+        $rateStmt->execute(['id' => $rateId, 'plan_id' => $planId]);
+        if (!$rateStmt->fetch()) {
+            throw new Exception("Rate not found for this plan.");
+        }
+
+        $appDb->beginTransaction();
+        try {
+            $moveMembers = $appDb->prepare("UPDATE tgg_subscriptions SET rate_id = :default_rate_id WHERE rate_id = :rate_id");
+            $moveMembers->execute(['default_rate_id' => $plan['default_rate_id'], 'rate_id' => $rateId]);
+            $movedCount = $moveMembers->rowCount();
+
+            $appDb->prepare("UPDATE tgg_subscription_rates SET inactive = 1, retired_at = NOW() WHERE id = :id")
+                ->execute(['id' => $rateId]);
+
+            $appDb->commit();
+            return $movedCount;
         } catch (Exception $e) {
             if ($appDb->inTransaction()) {
                 $appDb->rollBack();
@@ -844,9 +966,9 @@ class BillingHelper {
         // A member's existing rate (which may be a grandfathered/custom one) only carries forward
         // when they're renewing the SAME plan within the grace period of their last expiry. If
         // their plan is changing, or they've let membership lapse past grace and come back later,
-        // rate_id is reset below so they're billed the plan's current price going forward -- a
-        // stale historical rate should never persist through a plan change or a real gap in
-        // membership.
+        // rate_id is reset below to the plan's current default rate so they're billed its price
+        // going forward -- a stale historical rate should never persist through a plan change or
+        // a real gap in membership, and it should never be left NULL.
         $pastGracePeriod = false;
         if ($existingSub) {
             $existingEndDate = $existingSub['end_date'];
@@ -864,16 +986,15 @@ class BillingHelper {
         $planIsChanging = $existingSub && (int)$existingSub['plan_id'] !== $finalPlanId;
         $resetRate = $pastGracePeriod || $planIsChanging;
 
-        $planPrice = (float)$plan['price'];
-        // Check if the member has a custom rate for this plan -- but only honor it if it's still
-        // in force (same plan, within grace); otherwise this renewal bills the plan's current price.
-        if (!$resetRate) {
-            $rateStmt = $appDb->prepare("SELECT price FROM tgg_subscription_rates r INNER JOIN tgg_subscriptions s ON s.rate_id = r.id WHERE s.contact_id = :contact_id AND s.plan_id = :plan_id LIMIT 1");
-            $rateStmt->execute(['contact_id' => $contactId, 'plan_id' => $planId]);
-            $customRatePrice = $rateStmt->fetchColumn();
-            if ($customRatePrice !== false) {
-                $planPrice = (float)$customRatePrice;
-            }
+        $targetRateId = ($existingSub && !empty($existingSub['rate_id']) && !$resetRate)
+            ? (int)$existingSub['rate_id']
+            : ($plan['default_rate_id'] ?? null);
+
+        $planPrice = 0.0;
+        if ($targetRateId) {
+            $rateStmt = $appDb->prepare("SELECT price FROM tgg_subscription_rates WHERE id = :id LIMIT 1");
+            $rateStmt->execute(['id' => $targetRateId]);
+            $planPrice = (float)($rateStmt->fetchColumn() ?: 0);
         }
 
         $amountTotal = ($customAmount !== null) ? $customAmount : (($durationMode === 'standard') ? $planPrice : 0.00);
@@ -884,12 +1005,13 @@ class BillingHelper {
         try {
             // A. Log transaction locally in tgg_billing_ledger
             $insertLedger = $appDb->prepare("
-                INSERT INTO tgg_billing_ledger (contact_id, plan_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type)
-                VALUES (:contact_id, :plan_id, :stripe_session_id, :payment_intent_id, :amount, :currency, 'paid', :action_type)
+                INSERT INTO tgg_billing_ledger (contact_id, plan_id, rate_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type)
+                VALUES (:contact_id, :plan_id, :rate_id, :stripe_session_id, :payment_intent_id, :amount, :currency, 'paid', :action_type)
             ");
             $insertLedger->execute([
                 'contact_id' => $contactId,
                 'plan_id' => $planId,
+                'rate_id' => $targetRateId,
                 'stripe_session_id' => $uniqueId,
                 'payment_intent_id' => $paymentIntentId,
                 'amount' => $amountTotal,
@@ -938,29 +1060,32 @@ class BillingHelper {
                 }
             }
 
-            // C. Insert or update local subscription
+            // C. Insert or update local subscription. rate_id is always written explicitly
+            // (never left NULL) -- $targetRateId is either the carried-forward existing rate,
+            // or the plan's current default rate for a new join / plan change / post-grace renewal.
             if ($existingSub) {
                 $updateSub = $appDb->prepare("
                     UPDATE tgg_subscriptions
-                    SET plan_id = :plan_id, status = 'active', start_date = :start_date, end_date = :end_date, auto_renew_attempts = 0"
-                    . ($resetRate ? ", rate_id = NULL" : "") . "
+                    SET plan_id = :plan_id, status = 'active', start_date = :start_date, end_date = :end_date, rate_id = :rate_id, auto_renew_attempts = 0
                     WHERE contact_id = :contact_id
                 ");
                 $updateSub->execute([
                     'plan_id' => $finalPlanId,
                     'start_date' => $startDate,
                     'end_date' => $endDate,
+                    'rate_id' => $targetRateId,
                     'contact_id' => $contactId
                 ]);
             } else {
                 $joinDate = $today;
                 $insertSub = $appDb->prepare("
-                    INSERT INTO tgg_subscriptions (contact_id, plan_id, status, join_date, start_date, end_date)
-                    VALUES (:contact_id, :plan_id, 'active', :join_date, :start_date, :end_date)
+                    INSERT INTO tgg_subscriptions (contact_id, plan_id, rate_id, status, join_date, start_date, end_date)
+                    VALUES (:contact_id, :plan_id, :rate_id, 'active', :join_date, :start_date, :end_date)
                 ");
                 $insertSub->execute([
                     'contact_id' => $contactId,
                     'plan_id' => $finalPlanId,
+                    'rate_id' => $targetRateId,
                     'join_date' => $joinDate,
                     'start_date' => $startDate,
                     'end_date' => $endDate
@@ -1024,7 +1149,7 @@ class BillingHelper {
             $appDb = Database::getAppConnection();
 
             $subStmt = $appDb->prepare("
-                SELECT s.*, p.name AS plan_name, p.price, p.duration_interval, p.duration_unit
+                SELECT s.*, p.name AS plan_name, p.duration_interval, p.duration_unit, p.default_rate_id
                 FROM tgg_subscriptions s
                 INNER JOIN tgg_subscription_plans p ON p.id = s.plan_id
                 WHERE s.contact_id = :contact_id
@@ -1038,7 +1163,7 @@ class BillingHelper {
                 return ['result' => 'skipped', 'message' => 'Not due, auto-renew disabled, or already renewed today', 'end_date' => null];
             }
 
-            $plan = ['name' => $sub['plan_name'], 'price' => $sub['price'], 'duration_interval' => $sub['duration_interval'], 'duration_unit' => $sub['duration_unit']];
+            $plan = ['name' => $sub['plan_name'], 'duration_interval' => $sub['duration_interval'], 'duration_unit' => $sub['duration_unit']];
             if (self::isTrialPlan($plan)) {
                 return ['result' => 'skipped', 'message' => 'Trial plans are never auto-renewed', 'end_date' => null];
             }
@@ -1046,14 +1171,17 @@ class BillingHelper {
                 return ['result' => 'skipped', 'message' => 'No card on file', 'end_date' => null];
             }
 
-            // Resolve billing period: a custom rate overrides the plan's own duration, exactly
-            // like processCheckoutSession().
+            // Resolve billing period: a custom/grandfathered rate overrides the plan's own
+            // duration, exactly like processCheckoutSession(). Every active subscription is
+            // pinned to a rate going forward (never NULL) -- falling back to the plan's current
+            // default rate here is a defensive guard, not the normal path.
+            $effectiveRateId = $sub['rate_id'] ?: $sub['default_rate_id'];
             $durationInterval = (int)$plan['duration_interval'];
             $durationUnit = strtolower($plan['duration_unit']);
-            $amount = (float)$plan['price'];
-            if (!empty($sub['rate_id'])) {
+            $amount = 0.0;
+            if (!empty($effectiveRateId)) {
                 $rateStmt = $appDb->prepare("SELECT * FROM tgg_subscription_rates WHERE id = :rate_id LIMIT 1");
-                $rateStmt->execute(['rate_id' => $sub['rate_id']]);
+                $rateStmt->execute(['rate_id' => $effectiveRateId]);
                 $rate = $rateStmt->fetch(PDO::FETCH_ASSOC);
                 if ($rate) {
                     $durationInterval = 1;
@@ -1106,12 +1234,13 @@ class BillingHelper {
                 $appDb->beginTransaction();
                 try {
                     $insertLedger = $appDb->prepare("
-                        INSERT INTO tgg_billing_ledger (contact_id, plan_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type)
-                        VALUES (:contact_id, :plan_id, :stripe_session_id, :payment_intent_id, :amount, 'usd', 'paid', 'auto_renew')
+                        INSERT INTO tgg_billing_ledger (contact_id, plan_id, rate_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type)
+                        VALUES (:contact_id, :plan_id, :rate_id, :stripe_session_id, :payment_intent_id, :amount, 'usd', 'paid', 'auto_renew')
                     ");
                     $insertLedger->execute([
                         'contact_id' => $contactId,
                         'plan_id' => (int)$sub['plan_id'],
+                        'rate_id' => $effectiveRateId,
                         'stripe_session_id' => $syntheticId,
                         'payment_intent_id' => $charge['payment_intent_id'],
                         'amount' => $amount
@@ -1153,12 +1282,13 @@ class BillingHelper {
 
             // Declined (or requires_action, treated as a decline for v1 -- see StripeHelper::chargeOffSession()).
             $insertLedger = $appDb->prepare("
-                INSERT INTO tgg_billing_ledger (contact_id, plan_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type)
-                VALUES (:contact_id, :plan_id, :stripe_session_id, :payment_intent_id, :amount, 'usd', 'failed', 'auto_renew')
+                INSERT INTO tgg_billing_ledger (contact_id, plan_id, rate_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type)
+                VALUES (:contact_id, :plan_id, :rate_id, :stripe_session_id, :payment_intent_id, :amount, 'usd', 'failed', 'auto_renew')
             ");
             $insertLedger->execute([
                 'contact_id' => $contactId,
                 'plan_id' => (int)$sub['plan_id'],
+                'rate_id' => $effectiveRateId,
                 'stripe_session_id' => $syntheticId,
                 'payment_intent_id' => $charge['payment_intent_id'] ?? $syntheticId,
                 'amount' => $amount
@@ -1225,11 +1355,12 @@ class BillingHelper {
 
         $stmt = $appDb->prepare("
             SELECT s.contact_id, s.end_date, c.display_name, c.email, p.name AS plan_name,
-                   COALESCE(r.price, p.price) AS price
+                   COALESCE(r.price, dr.price) AS price
             FROM tgg_subscriptions s
             INNER JOIN tgg_contacts c ON c.id = s.contact_id
             INNER JOIN tgg_subscription_plans p ON p.id = s.plan_id
             LEFT JOIN tgg_subscription_rates r ON r.id = s.rate_id
+            LEFT JOIN tgg_subscription_rates dr ON dr.id = p.default_rate_id
             WHERE s.auto_renew = 1 AND s.status = 'active'
               AND s.end_date >= CURRENT_DATE() + INTERVAL 1 DAY
               AND s.end_date <= CURRENT_DATE() + INTERVAL 5 DAY

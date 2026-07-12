@@ -92,13 +92,13 @@ class CiviCRMImporter {
         try {
             $membershipTypes = $civiDb->query("SELECT id, name, description, minimum_fee, duration_unit, duration_interval FROM civicrm_membership_type")->fetchAll();
 
+            // Price now lives entirely on Rate, not Plan -- see the default-rate handling below.
             $upsertPlanStmt = $appDb->prepare("
-                INSERT INTO tgg_subscription_plans (name, description, price, duration_unit, duration_interval, civicrm_membership_type_id, active)
-                VALUES (:name, :description, :price, :duration_unit, :duration_interval, :civicrm_membership_type_id, 'active')
+                INSERT INTO tgg_subscription_plans (name, description, duration_unit, duration_interval, civicrm_membership_type_id, active)
+                VALUES (:name, :description, :duration_unit, :duration_interval, :civicrm_membership_type_id, 'active')
                 ON DUPLICATE KEY UPDATE
                     name = VALUES(name),
                     description = VALUES(description),
-                    price = VALUES(price),
                     duration_unit = VALUES(duration_unit),
                     duration_interval = VALUES(duration_interval)
             ");
@@ -107,7 +107,6 @@ class CiviCRMImporter {
                 $upsertPlanStmt->execute([
                     'name' => $type['name'],
                     'description' => $type['description'],
-                    'price' => $type['minimum_fee'],
                     'duration_unit' => $type['duration_unit'],
                     'duration_interval' => $type['duration_interval'],
                     'civicrm_membership_type_id' => (int)$type['id']
@@ -115,8 +114,9 @@ class CiviCRMImporter {
                 $stats['plans_synced']++;
 
                 // Ensure this plan's auto-managed default rate exists and reflects CiviCRM's
-                // current fee/frequency. Keyed on (plan_id, name) rather than "any rate for this
-                // plan" so that re-running the sync (e.g. after a membership type's fee changes)
+                // current fee/frequency, and that the plan's default_rate_id points at it. Keyed
+                // on (plan_id, name) rather than "any rate for this plan" so that re-running the
+                // sync (e.g. after a membership type's fee changes, during pre-launch testing)
                 // refreshes this specific default rate in place instead of leaving it stale --
                 // while never touching any other, differently-named rate an admin has since added
                 // for the same plan.
@@ -135,6 +135,7 @@ class CiviCRMImporter {
                     $existingRate = $rateCheck->fetch();
 
                     if ($existingRate) {
+                        $defaultRateId = $existingRate['id'];
                         $updateRate = $appDb->prepare("
                             UPDATE tgg_subscription_rates
                             SET price = :price, billing_frequency = :billing_frequency
@@ -143,12 +144,12 @@ class CiviCRMImporter {
                         $updateRate->execute([
                             'price' => $type['minimum_fee'],
                             'billing_frequency' => $freq,
-                            'id' => $existingRate['id']
+                            'id' => $defaultRateId
                         ]);
                     } else {
                         $insertRate = $appDb->prepare("
-                            INSERT INTO tgg_subscription_rates (plan_id, name, price, billing_frequency, inactive)
-                            VALUES (:plan_id, :name, :price, :billing_frequency, 0)
+                            INSERT INTO tgg_subscription_rates (plan_id, name, price, billing_frequency, inactive, created_at)
+                            VALUES (:plan_id, :name, :price, :billing_frequency, 0, NOW())
                         ");
                         $insertRate->execute([
                             'plan_id' => $planId,
@@ -156,7 +157,11 @@ class CiviCRMImporter {
                             'price' => $type['minimum_fee'],
                             'billing_frequency' => $freq
                         ]);
+                        $defaultRateId = $appDb->lastInsertId();
                     }
+
+                    $appDb->prepare("UPDATE tgg_subscription_plans SET default_rate_id = :rate_id WHERE id = :id")
+                        ->execute(['rate_id' => $defaultRateId, 'id' => $planId]);
                 }
             }
         } catch (Exception $e) {
@@ -267,22 +272,22 @@ class CiviCRMImporter {
                         $stats['errors'][] = "Skipped subscription sync for contact #{$contactId}: membership record has null date fields (join={$civiMem['join_date']}, start={$civiMem['start_date']}, end={$civiMem['end_date']})";
                     } else {
                         // Find matching local plan
-                        $planQuery = $appDb->prepare("SELECT id, name, price FROM tgg_subscription_plans WHERE civicrm_membership_type_id = :civi_type LIMIT 1");
+                        $planQuery = $appDb->prepare("SELECT id, name, default_rate_id FROM tgg_subscription_plans WHERE civicrm_membership_type_id = :civi_type LIMIT 1");
                         $planQuery->execute(['civi_type' => $civiMemTypeId]);
                         $localPlan = $planQuery->fetch();
 
                         if ($localPlan) {
                             $planId = (int)$localPlan['id'];
 
-                            // Resolve this plan's current auto-managed default rate by name
-                            // (mirrors the (plan_id, name) keying used when syncing rates above)
-                            // rather than "any rate for this plan" -- a plan can end up with more
-                            // than one rate row over time (e.g. an admin-added custom rate, or an
-                            // old default left behind by a prior sync before this fix), and without
-                            // an explicit name match a bare "LIMIT 1" can return the wrong one.
-                            $defaultRateStmt = $appDb->prepare("SELECT id FROM tgg_subscription_rates WHERE plan_id = :plan_id AND name = :name LIMIT 1");
-                            $defaultRateStmt->execute(['plan_id' => $planId, 'name' => $localPlan['name'] . ' - Standard']);
-                            $defaultRateId = $defaultRateStmt->fetchColumn() ?: null;
+                            // The plan's current default rate is now a direct pointer (set above
+                            // in step 0) rather than inferred from the "{plan} - Standard" name.
+                            $defaultRateId = $localPlan['default_rate_id'] ?: null;
+                            $currentPrice = 0.0;
+                            if ($defaultRateId) {
+                                $currentPriceStmt = $appDb->prepare("SELECT price FROM tgg_subscription_rates WHERE id = :id");
+                                $currentPriceStmt->execute(['id' => $defaultRateId]);
+                                $currentPrice = (float)($currentPriceStmt->fetchColumn() ?: 0);
+                            }
 
                             // Detect a grandfathered rate: check what this contact was actually
                             // last billed for this specific membership (via
@@ -293,7 +298,6 @@ class CiviCRMImporter {
                             // one-time contribution, not evidence of a different ongoing dues
                             // rate, so it's ignored here rather than spawning a new rate for it.
                             $rateToUse = $defaultRateId;
-                            $currentPrice = (float)$localPlan['price'];
                             $recentAmountStmt = $civiDb->prepare("
                                 SELECT c.total_amount
                                 FROM civicrm_membership_payment mp
@@ -324,15 +328,32 @@ class CiviCRMImporter {
                                     $freqStmt->execute(['id' => $defaultRateId]);
                                     $billingFrequency = $freqStmt->fetchColumn() ?: 'monthly';
 
+                                    // Backdate this rate's effective date to the earliest known
+                                    // payment at this historical amount (across all members of this
+                                    // plan), not "now" -- it reflects when the old rate actually took
+                                    // effect, not when we happened to import the data.
+                                    $earliestDateStmt = $civiDb->prepare("
+                                        SELECT MIN(c.receive_date)
+                                        FROM civicrm_contribution c
+                                        INNER JOIN civicrm_membership_payment mp ON mp.contribution_id = c.id
+                                        INNER JOIN civicrm_membership m ON m.id = mp.membership_id
+                                        WHERE m.membership_type_id = :type_id
+                                          AND ROUND(c.total_amount, 2) = ROUND(:amount, 2)
+                                          AND c.contribution_status_id = 1 AND c.is_test = 0
+                                    ");
+                                    $earliestDateStmt->execute(['type_id' => $civiMemTypeId, 'amount' => $recentAmount]);
+                                    $effectiveDate = $earliestDateStmt->fetchColumn() ?: date('Y-m-d H:i:s');
+
                                     $insertGrRate = $appDb->prepare("
-                                        INSERT INTO tgg_subscription_rates (plan_id, name, price, billing_frequency, inactive)
-                                        VALUES (:plan_id, :name, :price, :billing_frequency, 0)
+                                        INSERT INTO tgg_subscription_rates (plan_id, name, price, billing_frequency, inactive, created_at)
+                                        VALUES (:plan_id, :name, :price, :billing_frequency, 0, :created_at)
                                     ");
                                     $insertGrRate->execute([
                                         'plan_id' => $planId,
                                         'name' => $grandfatheredName,
                                         'price' => $recentAmount,
-                                        'billing_frequency' => $billingFrequency
+                                        'billing_frequency' => $billingFrequency,
+                                        'created_at' => $effectiveDate
                                     ]);
                                     $grandfatheredRateId = $appDb->lastInsertId();
                                     $stats['grandfathered_rates_created']++;
@@ -446,13 +467,17 @@ class CiviCRMImporter {
             // match that plan's current $30/month price, and would previously silently default to
             // whichever plan happened to be first in this list (misattributing real membership
             // history to the wrong plan, e.g. "Founder" for a $20 Regular Monthly payment).
-            $plansRaw = $appDb->query("SELECT id, name, price, civicrm_membership_type_id FROM tgg_subscription_plans")->fetchAll();
+            $plansRaw = $appDb->query("
+                SELECT p.id, p.name, dr.price, p.civicrm_membership_type_id
+                FROM tgg_subscription_plans p
+                LEFT JOIN tgg_subscription_rates dr ON p.default_rate_id = dr.id
+            ")->fetchAll();
             $plansByTypeId = [];
             $plansByPrice = [];
             $plansById = [];
             foreach ($plansRaw as $p) {
                 $plansByTypeId[(int)$p['civicrm_membership_type_id']] = (int)$p['id'];
-                $plansByPrice[(int)round($p['price'])] = (int)$p['id'];
+                $plansByPrice[(int)round((float)$p['price'])] = (int)$p['id'];
                 $plansById[(int)$p['id']] = ['name' => $p['name'], 'price' => (float)$p['price']];
             }
 

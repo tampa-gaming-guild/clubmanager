@@ -75,7 +75,13 @@ function load_tier_payment_context(int $contactId, int $tierId): ?array {
         return null;
     }
 
-    $planStmt = $appDb->prepare("SELECT id, name, price, civicrm_membership_type_id FROM tgg_subscription_plans WHERE id = :id AND active = 'active' LIMIT 1");
+    $planStmt = $appDb->prepare("
+        SELECT p.id, p.name, dr.price, p.civicrm_membership_type_id
+        FROM tgg_subscription_plans p
+        LEFT JOIN tgg_subscription_rates dr ON p.default_rate_id = dr.id
+        WHERE p.id = :id AND p.active = 'active'
+        LIMIT 1
+    ");
     $planStmt->execute(['id' => $tierId]);
     $plan = $planStmt->fetch();
     if (!$plan || BillingHelper::isTrialPlan($plan)) {
