@@ -145,8 +145,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['retire_rate'])) {
     } else {
         $retireId = (int)($_POST['rate_id'] ?? 0);
         try {
-            $movedCount = BillingHelper::retireRate($retireId, $planId);
-            $successMsg = "Rate retired. {$movedCount} member(s) moved to the plan's current rate.";
+            $result = BillingHelper::retireRate($retireId, $planId);
+            $successMsg = "Rate retired. {$result['moved']} member(s) moved to the plan's current rate, {$result['emailed']} notified by email.";
             header("Location: rates.php?plan_id=" . $planId . "&success=" . urlencode($successMsg));
             exit;
         } catch (Exception $e) {
@@ -379,7 +379,7 @@ $autoOpenRateModal = $isEditing || $rateFormError;
                                                     <?php if ($memberCount > 0): ?>
                                                         <?php if (!$isDefault): ?>
                                                             <form action="rates.php?plan_id=<?php echo $planId; ?>" method="POST" class="inline-form" style="display: inline;"
-                                                                  onsubmit="return confirm('Move all <?php echo $memberCount; ?> member(s) on this rate to the plan\'s current default rate, and retire this rate? This cannot be undone.');">
+                                                                  onsubmit="return confirm('Move all <?php echo $memberCount; ?> member(s) on this rate to the plan\'s current default rate, and retire this rate? Active members will be emailed about the change; expired members will not. This cannot be undone.');">
                                                                 <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
                                                                 <input type="hidden" name="rate_id" value="<?php echo (int)$rate['id']; ?>">
                                                                 <button type="submit" name="retire_rate" class="btn btn-danger btn-sm" style="padding: 4px 8px; font-size: 0.8rem;">End Rate</button>

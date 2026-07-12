@@ -87,6 +87,12 @@ final class EmailTemplatesSeeder extends AbstractSeed
                 'body' => '<h2>Hello, {display_name}!</h2><p>Your <strong>{tier_name}</strong> membership expired on <strong>{end_date}</strong> and the grace period has now ended.</p><p>We\'d love to have you back! Click the link below to renew your membership:</p><p><a href="{renew_url}">{renew_url}</a></p><p>Best regards,<br>TGG Club Team</p>',
                 'description' => 'Sent once after a member\'s grace period ends and they have not renewed, for members without a failed auto-renewal (those get auto_renew_expired instead).',
             ],
+            [
+                'template_key' => 'rate_retired',
+                'subject' => 'Your TGG Membership Rate is Changing',
+                'body' => '<h2>Hello, {display_name}!</h2><p>The <strong>${old_price}/{billing_frequency}</strong> rate on your <strong>{tier_name}</strong> membership is being retired.</p><p>Starting <strong>{effective_date}</strong> (the start of your next billing period), your rate will be <strong>${new_price}/{billing_frequency}</strong>.</p><p>Your current membership period, through <strong>{end_date}</strong>, is not affected.</p><p>Best regards,<br>TGG Club Team</p>',
+                'description' => 'Sent to active members when an admin explicitly retires the rate they were on, moving them to the plan\'s current rate effective their next billing period. Not sent to members who are past their grace period.',
+            ],
         ];
 
         $sql = 'INSERT INTO `tgg_email_templates` (`template_key`, `subject`, `body`, `description`)

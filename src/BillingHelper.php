@@ -856,15 +856,21 @@ class BillingHelper {
      * current default rate, then marks it inactive/retired. This is the only way members
      * get moved off a grandfathered/historical rate -- it never happens automatically (e.g.
      * a rate's own expiration_date is informational only and is not enforced here).
+     *
+     * Active members (status='active' and not past their grace period -- i.e. not the
+     * "Expired" status_label, even if their DB status column is still literally 'active'
+     * because nothing has flipped it) are emailed that their rate is changing, effective
+     * their next billing period (their current end_date + 1 day); their current, already-paid
+     * period is unaffected. Members who are actually expired are moved silently, not emailed.
      * @param int $rateId
      * @param int $planId
-     * @return int Number of subscriptions migrated to the plan's default rate
+     * @return array{moved: int, emailed: int} Members migrated, and how many of those got notified
      * @throws Exception
      */
-    public static function retireRate(int $rateId, int $planId): int {
+    public static function retireRate(int $rateId, int $planId): array {
         $appDb = Database::getAppConnection();
 
-        $planStmt = $appDb->prepare("SELECT default_rate_id FROM tgg_subscription_plans WHERE id = :id LIMIT 1");
+        $planStmt = $appDb->prepare("SELECT name, default_rate_id FROM tgg_subscription_plans WHERE id = :id LIMIT 1");
         $planStmt->execute(['id' => $planId]);
         $plan = $planStmt->fetch(PDO::FETCH_ASSOC);
         if (!$plan) {
@@ -877,11 +883,30 @@ class BillingHelper {
             throw new Exception("Cannot retire a plan's current default rate. Change the plan's price first to establish a new default, then retire this one.");
         }
 
-        $rateStmt = $appDb->prepare("SELECT id FROM tgg_subscription_rates WHERE id = :id AND plan_id = :plan_id LIMIT 1");
-        $rateStmt->execute(['id' => $rateId, 'plan_id' => $planId]);
-        if (!$rateStmt->fetch()) {
+        $oldRateStmt = $appDb->prepare("SELECT id, price, billing_frequency FROM tgg_subscription_rates WHERE id = :id AND plan_id = :plan_id LIMIT 1");
+        $oldRateStmt->execute(['id' => $rateId, 'plan_id' => $planId]);
+        $oldRate = $oldRateStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$oldRate) {
             throw new Exception("Rate not found for this plan.");
         }
+
+        $newRateStmt = $appDb->prepare("SELECT price, billing_frequency FROM tgg_subscription_rates WHERE id = :id LIMIT 1");
+        $newRateStmt->execute(['id' => $plan['default_rate_id']]);
+        $newRate = $newRateStmt->fetch(PDO::FETCH_ASSOC);
+
+        // Gather active members to notify before moving anyone -- once rate_id is repointed
+        // below, this rate no longer identifies who was just affected.
+        $graceDays = self::getRenewalGraceDays();
+        $activeMembersStmt = $appDb->prepare("
+            SELECT s.contact_id, s.end_date, c.display_name, c.email
+            FROM tgg_subscriptions s
+            INNER JOIN tgg_contacts c ON c.id = s.contact_id
+            WHERE s.rate_id = :rate_id
+              AND s.status = 'active'
+              AND s.end_date >= CURRENT_DATE() - INTERVAL :grace_days DAY
+        ");
+        $activeMembersStmt->execute(['rate_id' => $rateId, 'grace_days' => $graceDays]);
+        $activeMembers = $activeMembersStmt->fetchAll(PDO::FETCH_ASSOC);
 
         $appDb->beginTransaction();
         try {
@@ -893,13 +918,35 @@ class BillingHelper {
                 ->execute(['id' => $rateId]);
 
             $appDb->commit();
-            return $movedCount;
         } catch (Exception $e) {
             if ($appDb->inTransaction()) {
                 $appDb->rollBack();
             }
             throw $e;
         }
+
+        $emailedCount = 0;
+        foreach ($activeMembers as $member) {
+            if (empty($member['email'])) {
+                continue;
+            }
+            try {
+                MailHelper::sendTemplate($member['email'], 'rate_retired', [
+                    'display_name' => $member['display_name'] ?? 'Member',
+                    'tier_name' => $plan['name'],
+                    'old_price' => number_format((float)$oldRate['price'], 2),
+                    'new_price' => number_format((float)($newRate['price'] ?? 0), 2),
+                    'billing_frequency' => $newRate['billing_frequency'] ?? $oldRate['billing_frequency'],
+                    'effective_date' => date('Y-m-d', strtotime($member['end_date'] . ' +1 day')),
+                    'end_date' => $member['end_date'],
+                ], (int)$member['contact_id'], null);
+                $emailedCount++;
+            } catch (Exception $e) {
+                error_log("Failed to send rate_retired email to contact #{$member['contact_id']}: " . $e->getMessage());
+            }
+        }
+
+        return ['moved' => $movedCount, 'emailed' => $emailedCount];
     }
 
     /**
