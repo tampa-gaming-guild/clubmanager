@@ -221,11 +221,38 @@ class BillingHelper {
             $durationUnit = strtolower($plan['duration_unit']);
 
             // Query existing local subscription
-            $subStmt = $appDb->prepare("SELECT join_date, end_date, rate_id, stripe_payment_method_id FROM tgg_subscriptions WHERE contact_id = :contact_id LIMIT 1");
+            $subStmt = $appDb->prepare("SELECT plan_id, join_date, end_date, rate_id, stripe_payment_method_id FROM tgg_subscriptions WHERE contact_id = :contact_id LIMIT 1");
             $subStmt->execute(['contact_id' => $contactId]);
             $existingSub = $subStmt->fetch(PDO::FETCH_ASSOC);
 
-            if ($existingSub && !empty($existingSub['rate_id'])) {
+            $today = date('Y-m-d');
+            $startDate = $today;
+            $existingEndDate = $existingSub['end_date'] ?? null;
+
+            // A member's existing rate (which may be a grandfathered/custom one) only carries
+            // forward when they're renewing the SAME plan within the grace period of their last
+            // expiry. If their plan is changing, or they've let membership lapse past grace and
+            // come back later, rate_id is reset below so they're billed the plan's current price
+            // going forward -- a stale historical rate should never persist through a plan change
+            // or a real gap in membership.
+            $pastGracePeriod = false;
+            if ($existingEndDate) {
+                // Extend from the day after the old expiry if the membership is still active,
+                // or lapsed by the configured grace period days or less. Beyond that, start a
+                // brand-new period from today instead of stacking the term on a stale expiry.
+                // join_date is never touched by the UPDATE below, so this never resets how long
+                // someone has been a member -- it only affects this period's start/end dates.
+                $daysSinceExpiry = (strtotime($today) - strtotime($existingEndDate)) / 86400;
+                if ($daysSinceExpiry <= self::getRenewalGraceDays()) {
+                    $startDate = date('Y-m-d', strtotime($existingEndDate . ' +1 day'));
+                } else {
+                    $pastGracePeriod = true;
+                }
+            }
+            $planIsChanging = $existingSub && (int)$existingSub['plan_id'] !== $planId;
+            $resetRate = $pastGracePeriod || $planIsChanging;
+
+            if ($existingSub && !empty($existingSub['rate_id']) && !$resetRate) {
                 $rateStmt = $appDb->prepare("SELECT * FROM tgg_subscription_rates WHERE id = :rate_id LIMIT 1");
                 $rateStmt->execute(['rate_id' => $existingSub['rate_id']]);
                 $rate = $rateStmt->fetch(PDO::FETCH_ASSOC);
@@ -238,26 +265,6 @@ class BillingHelper {
                     } elseif ($rate['billing_frequency'] === 'daily') {
                         $durationUnit = 'day';
                     }
-                }
-            }
-
-            $today = date('Y-m-d');
-            $startDate = $today;
-            $existingEndDate = null;
-
-            if ($existingSub) {
-                $existingEndDate = $existingSub['end_date'];
-            }
-
-            if ($existingEndDate) {
-                // Extend from the day after the old expiry if the membership is still active,
-                // or lapsed by the configured grace period days or less. Beyond that, start a
-                // brand-new period from today instead of stacking the term on a stale expiry.
-                // join_date is never touched by the UPDATE below, so this never resets how long
-                // someone has been a member -- it only affects this period's start/end dates.
-                $daysSinceExpiry = (strtotime($today) - strtotime($existingEndDate)) / 86400;
-                if ($daysSinceExpiry <= self::getRenewalGraceDays()) {
-                    $startDate = date('Y-m-d', strtotime($existingEndDate . ' +1 day'));
                 }
             }
 
@@ -302,7 +309,8 @@ class BillingHelper {
                         auto_renew_attempts = 0,
                         stripe_customer_id = COALESCE(:stripe_customer_id, stripe_customer_id),
                         stripe_payment_method_id = COALESCE(:stripe_payment_method_id, stripe_payment_method_id)"
-                        . ($setAutoRenewOn ? ", auto_renew = 1" : "") . "
+                        . ($setAutoRenewOn ? ", auto_renew = 1" : "")
+                        . ($resetRate ? ", rate_id = NULL" : "") . "
                     WHERE contact_id = :contact_id
                 ");
                 $updateSub->execute([
@@ -812,16 +820,62 @@ class BillingHelper {
         $paymentMethodLabel = ucwords($paymentMethod);
         $uniqueId = uniqid('offline_', true);
         $paymentIntentId = 'offline_' . str_replace(' ', '_', strtolower($paymentMethod)) . '_' . time();
-        
-        $planPrice = (float)$plan['price'];
-        // Check if the member has a custom rate for this plan
-        $rateStmt = $appDb->prepare("SELECT price FROM tgg_subscription_rates r INNER JOIN tgg_subscriptions s ON s.rate_id = r.id WHERE s.contact_id = :contact_id AND s.plan_id = :plan_id LIMIT 1");
-        $rateStmt->execute(['contact_id' => $contactId, 'plan_id' => $planId]);
-        $customRatePrice = $rateStmt->fetchColumn();
-        if ($customRatePrice !== false) {
-            $planPrice = (float)$customRatePrice;
+
+        // Query existing local subscription up front (a plain read, no need to wait for the
+        // transaction) so grace-period and plan-change status can be determined before deciding
+        // whether the member's existing rate (if any) still applies.
+        $subStmt = $appDb->prepare("SELECT plan_id, join_date, end_date, rate_id FROM tgg_subscriptions WHERE contact_id = :contact_id LIMIT 1");
+        $subStmt->execute(['contact_id' => $contactId]);
+        $existingSub = $subStmt->fetch(PDO::FETCH_ASSOC);
+
+        // Resolve final plan ID based on levelChangeMode
+        $finalPlanId = $planId;
+        $isCustomDuration = in_array($durationMode, ['1_month', '1_year', 'custom_date']);
+        $resolvedChangeMode = $isCustomDuration ? 'extend_current' : $levelChangeMode;
+        if ($resolvedChangeMode === 'extend_current') {
+            if ($existingSub) {
+                $finalPlanId = (int)$existingSub['plan_id'];
+            }
         }
-        
+
+        $today = date('Y-m-d');
+        $startDate = $today;
+
+        // A member's existing rate (which may be a grandfathered/custom one) only carries forward
+        // when they're renewing the SAME plan within the grace period of their last expiry. If
+        // their plan is changing, or they've let membership lapse past grace and come back later,
+        // rate_id is reset below so they're billed the plan's current price going forward -- a
+        // stale historical rate should never persist through a plan change or a real gap in
+        // membership.
+        $pastGracePeriod = false;
+        if ($existingSub) {
+            $existingEndDate = $existingSub['end_date'];
+            // Extend from the day after the old expiry if still active, or lapsed by the configured grace period
+            // days or less. Beyond that, start a fresh period from today instead. join_date
+            // is never touched here (no UPDATE below includes it), so this never resets how long
+            // someone has been a member.
+            $daysSinceExpiry = (strtotime($today) - strtotime($existingEndDate)) / 86400;
+            if ($daysSinceExpiry <= self::getRenewalGraceDays()) {
+                $startDate = date('Y-m-d', strtotime($existingEndDate . ' +1 day'));
+            } else {
+                $pastGracePeriod = true;
+            }
+        }
+        $planIsChanging = $existingSub && (int)$existingSub['plan_id'] !== $finalPlanId;
+        $resetRate = $pastGracePeriod || $planIsChanging;
+
+        $planPrice = (float)$plan['price'];
+        // Check if the member has a custom rate for this plan -- but only honor it if it's still
+        // in force (same plan, within grace); otherwise this renewal bills the plan's current price.
+        if (!$resetRate) {
+            $rateStmt = $appDb->prepare("SELECT price FROM tgg_subscription_rates r INNER JOIN tgg_subscriptions s ON s.rate_id = r.id WHERE s.contact_id = :contact_id AND s.plan_id = :plan_id LIMIT 1");
+            $rateStmt->execute(['contact_id' => $contactId, 'plan_id' => $planId]);
+            $customRatePrice = $rateStmt->fetchColumn();
+            if ($customRatePrice !== false) {
+                $planPrice = (float)$customRatePrice;
+            }
+        }
+
         $amountTotal = ($customAmount !== null) ? $customAmount : (($durationMode === 'standard') ? $planPrice : 0.00);
         $currency = 'usd';
 
@@ -843,38 +897,6 @@ class BillingHelper {
                 'action_type' => $action
             ]);
 
-            // Query existing local subscription
-            $subStmt = $appDb->prepare("SELECT plan_id, join_date, end_date FROM tgg_subscriptions WHERE contact_id = :contact_id LIMIT 1");
-            $subStmt->execute(['contact_id' => $contactId]);
-            $existingSub = $subStmt->fetch(PDO::FETCH_ASSOC);
-
-            // Resolve final plan ID based on levelChangeMode
-            $finalPlanId = $planId;
-
-            $isCustomDuration = in_array($durationMode, ['1_month', '1_year', 'custom_date']);
-            $resolvedChangeMode = $isCustomDuration ? 'extend_current' : $levelChangeMode;
-
-            if ($resolvedChangeMode === 'extend_current') {
-                if ($existingSub) {
-                    $finalPlanId = (int)$existingSub['plan_id'];
-                }
-            }
-
-            $today = date('Y-m-d');
-            $startDate = $today;
-
-            if ($existingSub) {
-                $existingEndDate = $existingSub['end_date'];
-                // Extend from the day after the old expiry if still active, or lapsed by the configured grace period
-                // days or less. Beyond that, start a fresh period from today instead. join_date
-                // is never touched here (no UPDATE below includes it), so this never resets how long
-                // someone has been a member.
-                $daysSinceExpiry = (strtotime($today) - strtotime($existingEndDate)) / 86400;
-                if ($daysSinceExpiry <= self::getRenewalGraceDays()) {
-                    $startDate = date('Y-m-d', strtotime($existingEndDate . ' +1 day'));
-                }
-            }
-
             if ($durationMode === '1_month') {
                 $endDate = self::addPeriodMinusOneDay($startDate, 1, 'month');
             } elseif ($durationMode === '1_year') {
@@ -885,7 +907,7 @@ class BillingHelper {
                 $durationInterval = (int)$plan['duration_interval'];
                 $durationUnit = strtolower($plan['duration_unit']);
 
-                if ($existingSub && !empty($existingSub['rate_id'])) {
+                if ($existingSub && !empty($existingSub['rate_id']) && !$resetRate) {
                     $rateStmt = $appDb->prepare("SELECT * FROM tgg_subscription_rates WHERE id = :rate_id LIMIT 1");
                     $rateStmt->execute(['rate_id' => $existingSub['rate_id']]);
                     $rate = $rateStmt->fetch(PDO::FETCH_ASSOC);
@@ -920,7 +942,8 @@ class BillingHelper {
             if ($existingSub) {
                 $updateSub = $appDb->prepare("
                     UPDATE tgg_subscriptions
-                    SET plan_id = :plan_id, status = 'active', start_date = :start_date, end_date = :end_date, auto_renew_attempts = 0
+                    SET plan_id = :plan_id, status = 'active', start_date = :start_date, end_date = :end_date, auto_renew_attempts = 0"
+                    . ($resetRate ? ", rate_id = NULL" : "") . "
                     WHERE contact_id = :contact_id
                 ");
                 $updateSub->execute([

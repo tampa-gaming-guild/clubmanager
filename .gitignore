@@ -4,6 +4,9 @@ php/
 mailpit/
 scratch/
 
+# Playwright MCP debug artifacts (page snapshots, console logs)
+.playwright-mcp/
+
 # Environments and Secrets
 .env
 

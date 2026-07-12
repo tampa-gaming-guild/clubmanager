@@ -188,6 +188,43 @@ class StripeHelper {
     }
 
     /**
+     * List a Customer's attached card payment methods (read-only), most-recently-attached first
+     * (Stripe's default list ordering). Used as a fallback when a Customer has no
+     * `invoice_settings.default_payment_method` set but does have at least one card on file.
+     * @param string $customerId Stripe Customer ID (e.g. 'cus_...')
+     * @param string|null $apiKey Optional key to use instead of $_ENV['STRIPE_SECRET_KEY'] --
+     *        see retrieveCustomer() above for why.
+     * @return array List of PaymentMethod objects
+     * @throws Exception
+     */
+    public static function listPaymentMethods(string $customerId, ?string $apiKey = null): array {
+        $secretKey = $apiKey ?? ($_ENV['STRIPE_SECRET_KEY'] ?? '');
+        if (empty($secretKey)) {
+            throw new Exception("Stripe Secret Key is not configured.");
+        }
+
+        $ch = curl_init("https://api.stripe.com/v1/payment_methods?" . http_build_query([
+            'customer' => $customerId,
+            'type' => 'card',
+        ]));
+        curl_setopt($ch, CURLOPT_USERPWD, $secretKey . ":");
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $data = json_decode($response, true);
+
+        if ($httpCode !== 200) {
+            $error = $data['error']['message'] ?? 'Unknown Stripe list payment methods error';
+            throw new Exception("Stripe API Error: " . $error);
+        }
+
+        return $data['data'] ?? [];
+    }
+
+    /**
      * Retrieve a PaymentIntent from Stripe (used to read back the payment_method and customer
      * attached to a completed Checkout Session -- the webhook payload only includes the
      * PaymentIntent ID as a string, not its expanded fields).
@@ -213,6 +250,41 @@ class StripeHelper {
 
         if ($httpCode !== 200) {
             $error = $data['error']['message'] ?? 'Unknown Stripe retrieve payment intent error';
+            throw new Exception("Stripe API Error: " . $error);
+        }
+
+        return $data;
+    }
+
+    /**
+     * Retrieve a Customer from Stripe (read-only). Used to resolve a Customer's default saved
+     * payment method -- e.g. for legacy contacts whose Stripe Customer ID is known (from a prior
+     * system) but whose PaymentMethod ID isn't recorded locally yet.
+     * @param string $customerId Stripe Customer ID (e.g. 'cus_...')
+     * @param string|null $apiKey Optional key to use instead of $_ENV['STRIPE_SECRET_KEY'] --
+     *        e.g. bin/backfill-stripe-tokens.php passes its own restricted, read-only key here
+     *        rather than relying on whatever key the rest of the app is configured with.
+     * @return array
+     * @throws Exception
+     */
+    public static function retrieveCustomer(string $customerId, ?string $apiKey = null): array {
+        $secretKey = $apiKey ?? ($_ENV['STRIPE_SECRET_KEY'] ?? '');
+        if (empty($secretKey)) {
+            throw new Exception("Stripe Secret Key is not configured.");
+        }
+
+        $ch = curl_init("https://api.stripe.com/v1/customers/" . urlencode($customerId));
+        curl_setopt($ch, CURLOPT_USERPWD, $secretKey . ":");
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $data = json_decode($response, true);
+
+        if ($httpCode !== 200) {
+            $error = $data['error']['message'] ?? 'Unknown Stripe retrieve customer error';
             throw new Exception("Stripe API Error: " . $error);
         }
 

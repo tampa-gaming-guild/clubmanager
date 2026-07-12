@@ -707,7 +707,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                 <button class="tab-button" onclick="switchTab('attendance')">Attendance</button>
                             <?php endif; ?>
                             <?php if ($canViewBilling): ?>
-                                <button class="tab-button <?php echo !$hasPrivateAccess ? 'active' : ''; ?>" onclick="switchTab('billing')">Billing History</button>
+                                <button class="tab-button <?php echo !$hasPrivateAccess ? 'active' : ''; ?>" onclick="switchTab('billing')">Payment History</button>
                             <?php endif; ?>
                         </div>
                     <?php endif; ?>
@@ -761,6 +761,23 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                                 <span class="badge badge-status <?php echo $membership['is_active'] ? 'badge-active' : 'badge-expired'; ?>">
                                                     <?php echo e($membership['status_label']); ?>
                                                 </span>
+                                                <?php if (($hasPrivateAccess || $canViewBilling) && !empty($subBilling['auto_renew'])): ?>
+                                                <span class="badge badge-active" style="display: inline-flex; align-items: center; gap: 6px; margin-left: 6px;">
+                                                    Auto-Renew
+                                                    <form action="profile.php?id=<?php echo $profileId; ?>" method="POST" style="display: inline; margin: 0;" onsubmit="return confirm('Turn off auto-renew for this membership? Future renewals will require manual payment.');">
+                                                        <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                                        <button type="submit" name="auto_renew_update" title="Remove auto-renew" style="background: none; border: none; color: inherit; cursor: pointer; padding: 0; font-weight: bold; line-height: 1; font-size: 1em;">&times;</button>
+                                                    </form>
+                                                </span>
+                                                <?php elseif (($hasPrivateAccess || $canViewBilling) && !empty($subBilling['stripe_customer_id']) && !empty($subBilling['stripe_payment_method_id'])): ?>
+                                                <span class="badge badge-status" style="display: inline-flex; align-items: center; margin-left: 6px; opacity: 0.85;">
+                                                    <form action="profile.php?id=<?php echo $profileId; ?>" method="POST" style="display: inline; margin: 0;">
+                                                        <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                                        <input type="hidden" name="auto_renew" value="1">
+                                                        <button type="submit" name="auto_renew_update" title="Enable auto-renew" style="background: none; border: none; color: inherit; cursor: pointer; padding: 0; font-size: 0.85em;">Enable Auto-Renew</button>
+                                                    </form>
+                                                </span>
+                                                <?php endif; ?>
                                             </td>
                                         </tr>
                                         <?php endif; ?>
@@ -1151,7 +1168,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                         <!-- BILLING HISTORY SECTION -->
                         <div class="detail-section private-detail-section full-width-section">
                             <div class="section-header">
-                                <h3 class="section-title">Billing History</h3>
+                                <h3 class="section-title">Payment History</h3>
                                 <span class="private-badge">🔒 Owner & Staff Only</span>
                             </div>
                             
