@@ -35,7 +35,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'search') {
             $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
             json_response($results);
         } catch (Exception $e) {
-            json_response(['error' => $e->getMessage()], 500);
+            json_response(['error' => safe_err('Search failed: ', $e)], 500);
         }
     } else {
         json_response([]);

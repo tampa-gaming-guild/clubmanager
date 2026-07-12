@@ -33,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         }
         json_response(['success' => true, 'pending' => $rows]);
     } catch (Exception $e) {
-        json_response(['success' => false, 'error' => $e->getMessage()], 500);
+        json_response(['success' => false, 'error' => safe_err('Failed to load pending payments: ', $e)], 500);
     }
 }
 
@@ -60,6 +60,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             json_response(['success' => true, 'message' => 'Payment request denied.']);
         }
     } catch (Exception $e) {
-        json_response(['success' => false, 'error' => $e->getMessage()], 400);
+        json_response(['success' => false, 'error' => safe_err('Failed to process payment: ', $e)], 400);
     }
 }
