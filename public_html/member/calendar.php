@@ -139,9 +139,6 @@ if ($nextMonth > 12) { $nextMonth = 1; $nextYear++; }
     <title>Club Calendar - Events & Volunteering</title>
     <link rel="stylesheet" href="assets/css/style.css<?php echo asset_version('assets/css/style.css'); ?>">
     <style>
-        .calendar-layout {
-            grid-template-columns: 1fr !important;
-        }
         .calendar-day {
             height: 100px !important;
             padding: 8px !important;
@@ -187,7 +184,7 @@ if ($nextMonth > 12) { $nextMonth = 1; $nextYear++; }
                 <div class="alert alert-success" style="margin-bottom: 20px;"><?php echo e($successMsg); ?></div>
             <?php endif; ?>
 
-            <div class="calendar-layout">
+            <div class="calendar-page-layout">
                 
                 <!-- Left: Grid Calendar -->
                 <section class="calendar-grid-section glass-panel">

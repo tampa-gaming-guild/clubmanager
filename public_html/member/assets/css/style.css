@@ -897,6 +897,12 @@ select option {
     gap: 30px;
 }
 
+.calendar-page-layout {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 30px;
+}
+
 .calendar-controls {
     display: flex;
     justify-content: space-between;
@@ -944,7 +950,7 @@ select option {
 
 .calendar-day.today-day {
     background: rgba(59, 130, 246, 0.1);
-    border-color: var(--color-primary);
+    box-shadow: inset 0 0 0 1px var(--color-primary);
 }
 .calendar-day.today-day .day-num {
     color: var(--color-primary);
@@ -1328,6 +1334,7 @@ select option {
 .dashboard-grid > *,
 .profile-body-grid > *,
 .calendar-layout > *,
+.calendar-page-layout > *,
 .scheduler-split > *,
 .reports-grid > * {
     min-width: 0;
