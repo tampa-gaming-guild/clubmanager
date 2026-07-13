@@ -877,25 +877,6 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                     </form>
                                 </div>
 
-                                <?php if (!empty($subBilling['stripe_customer_id']) && !empty($subBilling['stripe_payment_method_id'])): ?>
-                                <!-- Automatic Renewal Panel -->
-                                <div class="management-card mt-20">
-                                    <h4>Automatic Renewal</h4>
-                                    <p style="font-size: 0.85rem; color: rgba(255, 255, 255, 0.75); margin-bottom: 15px; line-height: 1.4;">
-                                        Your membership dues are automatically charged to your card on file when your current period ends.
-                                    </p>
-                                    <form action="profile.php?id=<?php echo $profileId; ?>" method="POST" class="settings-form">
-                                        <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
-                                        <div class="form-group checkbox-group">
-                                            <input type="checkbox" id="auto_renew" name="auto_renew" value="1"
-                                                <?php echo $subBilling['auto_renew'] ? 'checked' : ''; ?>>
-                                            <label for="auto_renew">Automatically renew my membership</label>
-                                        </div>
-                                        <button type="submit" name="auto_renew_update" class="btn btn-success btn-block mt-15">Save Auto-Renew Setting</button>
-                                    </form>
-                                </div>
-                                <?php endif; ?>
-
                                 <!-- Email Preferences Panel -->
                                 <div class="management-card mt-20">
                                     <h4>Email Preferences</h4>
