@@ -423,7 +423,7 @@ if (empty($createFormSlots)) {
 
                                     <div class="form-group">
                                         <label for="title">Event Title</label>
-                                        <input type="text" id="title" name="title" required value="<?php echo e($_POST['title'] ?? ''); ?>" placeholder="e.g. Saturday Open Lab">
+                                        <input type="text" id="title" name="title" required value="<?php echo e($_POST['title'] ?? ''); ?>" placeholder="e.g. Wednesday Gaming">
                                     </div>
 
                                     <div class="form-group">
