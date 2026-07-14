@@ -434,7 +434,7 @@ $slotTypeColors = [
                                                         );
                                                     ?>
                                                     <?php if ($canDelete): ?>
-                                                        <form action="volunteers.php?highlight=<?php echo $evtDateStr; ?><?php echo isset($_GET['filter']) ? '&filter=' . urlencode($_GET['filter']) : ''; ?>" method="POST" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete this volunteer signup?');">
+                                                        <form action="volunteers.php?highlight=<?php echo $evtDateStr; ?><?php echo isset($_GET['filter']) ? '&filter=' . urlencode($_GET['filter']) : ''; ?>" method="POST" style="display: inline;" data-confirm="Are you sure you want to delete this volunteer signup?">
                                                             <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
                                                             <input type="hidden" name="slot_id" value="<?php echo $slotId; ?>">
                                                             <input type="hidden" name="contact_id" value="<?php echo $volContactId; ?>">

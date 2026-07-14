@@ -547,6 +547,44 @@ select option {
     opacity: 1;
 }
 
+/* --- Confirmation Modal (confirmDialog in main.js) --- */
+.confirm-modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(3px);
+    animation: toastIn 0.15s ease;
+    padding: 20px;
+}
+
+.confirm-modal {
+    background: var(--color-surface-glass-solid);
+    border: 1px solid var(--border-glass);
+    border-radius: 12px;
+    box-shadow: var(--shadow-glass);
+    padding: 24px;
+    max-width: 440px;
+    width: 100%;
+}
+
+.confirm-modal-message {
+    white-space: pre-line;
+    color: var(--color-text-primary);
+    font-size: 0.95rem;
+    line-height: 1.5;
+    margin: 0 0 20px;
+}
+
+.confirm-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
 .alert {
     padding: 15px 36px 15px 15px;
     border-radius: 8px;

@@ -52,7 +52,7 @@
                             <?php endif; ?>
                         </td>
                         <td style="text-align: center;">
-                            <form action="<?php echo e($checkinDeleteFormAction); ?>" method="POST" onsubmit="return confirm('Are you sure you want to delete this check-in record?');" style="margin: 0;">
+                            <form action="<?php echo e($checkinDeleteFormAction); ?>" method="POST" data-confirm="Are you sure you want to delete this check-in record?" style="margin: 0;">
                                 <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
                                 <input type="hidden" name="checkin_id" value="<?php echo e($chk['checkin_id']); ?>">
                                 <button type="submit" name="delete_checkin" class="btn btn-danger btn-icon" aria-label="Delete check-in" title="Delete check-in">🗑️</button>

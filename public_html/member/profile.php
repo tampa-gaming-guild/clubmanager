@@ -754,7 +754,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                                 <?php if (($hasPrivateAccess || $canViewBilling) && !empty($subBilling['auto_renew'])): ?>
                                                 <span class="badge badge-active" style="display: inline-flex; align-items: center; gap: 6px; margin-left: 6px;">
                                                     Auto-Renew
-                                                    <form action="profile.php?id=<?php echo $profileId; ?>" method="POST" style="display: inline; margin: 0;" onsubmit="return confirm('Turn off auto-renew for this membership? Future renewals will require manual payment.');">
+                                                    <form action="profile.php?id=<?php echo $profileId; ?>" method="POST" style="display: inline; margin: 0;" data-confirm="Turn off auto-renew for this membership? Future renewals will require manual payment.">
                                                         <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
                                                         <button type="submit" name="auto_renew_update" title="Remove auto-renew" style="background: none; border: none; color: inherit; cursor: pointer; padding: 0; font-weight: bold; line-height: 1; font-size: 1em;">&times;</button>
                                                     </form>

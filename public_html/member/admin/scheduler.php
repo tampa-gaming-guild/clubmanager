@@ -637,7 +637,7 @@ if (empty($createFormSlots)) {
                                 if (!form) return;
                                 e.preventDefault();
 
-                                if (!confirm('Are you sure you want to delete this event?')) return;
+                                if (!(await confirmDialog('Are you sure you want to delete this event?', { confirmText: 'Delete' }))) return;
 
                                 const row = form.closest('tr');
                                 try {

@@ -379,7 +379,7 @@ $autoOpenRateModal = $isEditing || $rateFormError;
                                                     <?php if ($memberCount > 0): ?>
                                                         <?php if (!$isDefault): ?>
                                                             <form action="rates.php?plan_id=<?php echo $planId; ?>" method="POST" class="inline-form" style="display: inline;"
-                                                                  onsubmit="return confirm('Move all <?php echo $memberCount; ?> member(s) on this rate to the plan\'s current default rate, and retire this rate? Active members will be emailed about the change; expired members will not. This cannot be undone.');">
+                                                                  data-confirm="<?php echo e("Move all {$memberCount} member(s) on this rate to the plan's current default rate, and retire this rate? Active members will be emailed about the change; expired members will not. This cannot be undone."); ?>">
                                                                 <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
                                                                 <input type="hidden" name="rate_id" value="<?php echo (int)$rate['id']; ?>">
                                                                 <button type="submit" name="retire_rate" class="btn btn-danger btn-sm" style="padding: 4px 8px; font-size: 0.8rem;">End Rate</button>
@@ -387,7 +387,7 @@ $autoOpenRateModal = $isEditing || $rateFormError;
                                                         <?php endif; ?>
                                                     <?php else: ?>
                                                         <form action="rates.php?plan_id=<?php echo $planId; ?>" method="POST" class="inline-form" style="display: inline;"
-                                                              onsubmit="return confirm('<?php echo $isDefault ? 'Delete this rate and revert the plan\'s default back to its previous rate?' : 'Delete this unused rate?'; ?> This cannot be undone.');">
+                                                              data-confirm="<?php echo e(($isDefault ? "Delete this rate and revert the plan's default back to its previous rate?" : "Delete this unused rate?") . " This cannot be undone."); ?>">
                                                             <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
                                                             <input type="hidden" name="rate_id" value="<?php echo (int)$rate['id']; ?>">
                                                             <button type="submit" name="delete_rate" class="btn btn-danger btn-sm" style="padding: 4px 8px; font-size: 0.8rem;">Delete</button>

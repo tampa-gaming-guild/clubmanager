@@ -218,6 +218,78 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /**
+ * 6. Themed confirmation modal — replacement for native confirm(), which the
+ * browser may suppress ("prevent this page from creating additional dialogs"),
+ * silently blocking the confirmed action.
+ * @param {string} message - Confirmation text; newlines render as line breaks.
+ * @param {{confirmText?: string, cancelText?: string, alertOnly?: boolean}} [options]
+ *        alertOnly renders a single OK button (an alert() replacement).
+ * @returns {Promise<boolean>} true on Confirm, false on Cancel/Escape/overlay click.
+ */
+function confirmDialog(message, options = {}) {
+    const { alertOnly = false, confirmText = alertOnly ? 'OK' : 'Confirm', cancelText = 'Cancel' } = options;
+
+    return new Promise((resolve) => {
+        const overlay = document.createElement('div');
+        overlay.className = 'confirm-modal-overlay';
+        overlay.innerHTML = `
+            <div class="confirm-modal" role="dialog" aria-modal="true" aria-label="Confirmation">
+                <p class="confirm-modal-message"></p>
+                <div class="confirm-modal-actions">
+                    <button type="button" class="btn btn-secondary confirm-modal-cancel"></button>
+                    <button type="button" class="btn btn-danger confirm-modal-confirm"></button>
+                </div>
+            </div>`;
+        const cancelBtn = overlay.querySelector('.confirm-modal-cancel');
+        const confirmBtn = overlay.querySelector('.confirm-modal-confirm');
+        overlay.querySelector('.confirm-modal-message').textContent = message;
+        cancelBtn.textContent = cancelText;
+        confirmBtn.textContent = confirmText;
+        if (alertOnly) {
+            cancelBtn.remove();
+            confirmBtn.classList.replace('btn-danger', 'btn-primary');
+        }
+
+        const close = (result) => {
+            document.removeEventListener('keydown', onKeydown);
+            overlay.remove();
+            resolve(result);
+        };
+        const onKeydown = (e) => {
+            if (e.key === 'Escape') close(false);
+        };
+
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) close(false);
+        });
+        cancelBtn.addEventListener('click', () => close(false));
+        confirmBtn.addEventListener('click', () => close(true));
+        document.addEventListener('keydown', onKeydown);
+
+        document.body.appendChild(overlay);
+        // Cancel is the safe default focus; in alert mode there's only OK.
+        (alertOnly ? confirmBtn : cancelBtn).focus();
+    });
+}
+
+// Any form with data-confirm="message" gets the modal before submitting.
+// requestSubmit(submitter) keeps the clicked button's name/value in the POST
+// (many forms carry their action in the submit button's name).
+document.addEventListener('submit', (e) => {
+    const form = e.target;
+    if (!(form instanceof HTMLFormElement) || !form.dataset.confirm || form.dataset.confirmed === '1') {
+        return;
+    }
+    e.preventDefault();
+    const submitter = e.submitter;
+    confirmDialog(form.dataset.confirm).then((ok) => {
+        if (!ok) return;
+        form.dataset.confirmed = '1';
+        form.requestSubmit(submitter);
+    });
+});
+
+/**
  * Toggle visibility of password input fields
  * @param {string} fieldId - ID of the password input element
  */

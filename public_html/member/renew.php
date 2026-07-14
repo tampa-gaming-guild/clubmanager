@@ -550,6 +550,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                         }
 
                         function validateOfflineForm(event) {
+                            const form = event.target;
+
+                            // Second pass after the modal was confirmed: let the submit through.
+                            if (form.dataset.confirmed === '1') {
+                                return true;
+                            }
+
                             const modes = document.getElementsByName('duration_mode');
                             let selectedMode = 'standard';
                             for (const mode of modes) {
@@ -558,27 +565,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                                     break;
                                 }
                             }
-                            
+
                             // If standard mode, check that a tier is selected
                             if (selectedMode === 'standard') {
                                 const tierSelect = document.getElementById('offline_tier_id');
                                 if (!tierSelect.value) {
-                                    alert("Please select a standard membership level.");
+                                    confirmDialog("Please select a standard membership level.", { alertOnly: true });
                                     event.preventDefault();
                                     return false;
                                 }
                             } else if (selectedMode === 'custom_date') {
                                 const dateInput = document.getElementById('custom_expiry_date');
                                 if (!dateInput.value) {
-                                    alert("Please select a specific expiration date.");
+                                    confirmDialog("Please select a specific expiration date.", { alertOnly: true });
                                     event.preventDefault();
                                     return false;
                                 }
                             }
-                            
+
                             // Calculate new expiration details
                             const details = calculateNewExpiration();
-                            
+
                             // Expiry warnings
                             const currentExpiryStr = "<?php echo $membership ? $membership['end_date'] : ''; ?>";
                             let warningPrefix = "";
@@ -592,20 +599,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                                     }
                                 }
                             }
-                            
+
                             // Always prompt for confirmation
                             const message = `${warningPrefix}Are you sure you want to record this offline payment?\n\n` +
                                             `- Selected Duration: ${details.duration}\n` +
                                             `- New Expiration Date: ${details.expiryLabel}\n` +
                                             `- Amount Received: ${details.amount}`;
-                                            
-                            const proceed = confirm(message);
-                            if (!proceed) {
-                                event.preventDefault();
-                                return false;
-                            }
-                            
-                            return true;
+
+                            event.preventDefault();
+                            confirmDialog(message, { confirmText: 'Record Payment' }).then((ok) => {
+                                if (ok) {
+                                    form.dataset.confirmed = '1';
+                                    form.requestSubmit();
+                                }
+                            });
+                            return false;
                         }
 
                         // Initialize on load
