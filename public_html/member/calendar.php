@@ -1,12 +1,12 @@
 <?php
 /**
- * Interactive Club Calendar & Volunteer Signup
- * Renders month-grid navigation and list of upcoming events with volunteer enrollment buttons.
+ * Interactive Club Calendar
+ * Renders month-grid navigation with each event's volunteer slots and their fill
+ * status; day cells link to the volunteers page for signups.
  */
 require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
 use App\Event;
-use App\Auth;
 
 $errorMsg = null;
 $successMsg = null;
@@ -34,84 +34,39 @@ try {
     $errorMsg = safe_err("Unable to load events: ", $e);
 }
 
-// Events-to-days mapping and volunteer pre-fetching are handled below the POST action block
-
-// Handle Volunteer Actions (Sign Up / Cancel)
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && Auth::check()) {
-    if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
-        $errorMsg = "Invalid security token.";
-    } else {
-        $eventId = (int)($_POST['event_id'] ?? 0);
-        $contactId = $_SESSION['user']['contact_id'];
-        
-        // A. Sign Up Action
-        if (isset($_POST['action_signup'])) {
-            $role = trim($_POST['role'] ?? 'General Volunteer');
-            try {
-                if (empty($role)) { $role = 'General Volunteer'; }
-                Event::signupVolunteer($eventId, $contactId, $role);
-                $successMsg = "Thank you! You have signed up successfully as a volunteer.";
-                // Refresh events
-                $events = Event::getEvents($monthStart, $monthEnd);
-            } catch (Exception $e) {
-                $errorMsg = safe_err("Volunteer signup failed: ", $e);
-            }
-        }
-        
-        // B. Cancel Action
-        if (isset($_POST['action_cancel'])) {
-            $role = $_POST['role'] ?? null;
-            try {
-                Event::cancelVolunteer($eventId, $contactId, $role);
-                if ($role) {
-                    $successMsg = "Your signup for the role '{$role}' has been cancelled.";
-                } else {
-                    $successMsg = "Your volunteer registration has been cancelled.";
-                }
-                // Refresh events
-                $events = Event::getEvents($monthStart, $monthEnd);
-            } catch (Exception $e) {
-                $errorMsg = safe_err("Failed to cancel volunteer registration: ", $e);
-            }
-        }
-    }
-
-    // PRG: redirect so a page refresh doesn't resubmit the form
-    $qp = ['month' => $month, 'year' => $year];
-    if ($successMsg) $qp['success'] = $successMsg;
-    if ($errorMsg)   $qp['error']   = $errorMsg;
-    redirect('calendar.php?' . http_build_query($qp));
-}
-
-// Map events to days for quick grid rendering (run after potential POST updates)
+// Map events to days for quick grid rendering
 $eventsByDay = [];
 foreach ($events as $evt) {
     $day = (int)date('d', strtotime($evt['start_time']));
     $eventsByDay[$day][] = $evt;
 }
 
-// Pre-fetch volunteer signups and display names for all events in this month
-$signupsByEvent = [];
+// Pre-fetch each event's slot definitions and the volunteer names filling them
+$slotsByEvent = [];
+$volunteerBySlot = [];
 if (!empty($events)) {
     try {
         $appDb = App\Database::getAppConnection();
         $eventIds = array_column($events, 'id');
+        $slotsByEvent = \App\EventSlot::getSlotsForEvents($eventIds);
         $placeholders = implode(',', array_fill(0, count($eventIds), '?'));
-        
-        $stmt = $appDb->prepare("SELECT event_id, contact_id, role FROM tgg_volunteer_signups WHERE event_id IN ($placeholders)");
+
+        $stmt = $appDb->prepare("
+            SELECT s.slot_id, s.contact_id
+            FROM tgg_volunteer_signups s
+            JOIN tgg_event_slots sl ON sl.id = s.slot_id
+            WHERE sl.event_id IN ($placeholders)
+        ");
         $stmt->execute($eventIds);
         $signupsRaw = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        
+
         if (!empty($signupsRaw)) {
             $contactIds = array_unique(array_column($signupsRaw, 'contact_id'));
             $formattedNames = \App\MembershipService::getFormattedNames($contactIds);
-            
+
             foreach ($signupsRaw as $row) {
-                $evtId = (int)$row['event_id'];
                 $cid = (int)$row['contact_id'];
-                $role = $row['role'];
-                $dispName = $formattedNames[$cid] ?? "Member #{$cid}";
-                $signupsByEvent[$evtId][$role] = $dispName;
+                $volunteerBySlot[(int)$row['slot_id']] = $formattedNames[$cid] ?? "Member #{$cid}";
             }
         }
     } catch (Exception $e) {
@@ -244,42 +199,33 @@ if ($nextMonth > 12) { $nextMonth = 1; $nextYear++; }
                                         }
                                         echo '</div>';
 
-                                        // Determine if Open and Close slots are filled
-                                        $openName = '';
-                                        $closeName = '';
-                                        foreach ($eventsByDay[$day] as $evt) {
-                                            $evtId = (int)$evt['id'];
-                                            if (isset($signupsByEvent[$evtId]['Open'])) {
-                                                $openName = $signupsByEvent[$evtId]['Open'];
-                                            }
-                                            if (isset($signupsByEvent[$evtId]['Close'])) {
-                                                $closeName = $signupsByEvent[$evtId]['Close'];
-                                            }
-                                        }
-
-                                        // Role identity drives color (green=Open, red=Close); fill
-                                        // status is shown via the name's presence on desktop and via
-                                        // hollow-vs-solid dots on narrow screens (see .role-dot-mobile).
-                                        $openColor = 'var(--color-success, #22c55e)';
-                                        $closeColor = 'var(--color-danger, #ef4444)';
-                                        $openFilled = !empty($openName);
-                                        $closeFilled = !empty($closeName);
+                                        // One row per volunteer slot per event. Slot type drives
+                                        // the color; fill status is shown via the name's presence
+                                        // on desktop and via hollow-vs-solid dots on narrow
+                                        // screens (see .role-dot-mobile).
+                                        $typeColors = [
+                                            'open'    => 'var(--color-success, #22c55e)',
+                                            'close'   => 'var(--color-danger, #ef4444)',
+                                            'greeter' => 'var(--color-primary, #3b82f6)',
+                                        ];
 
                                         echo "<div class='day-slots' style='margin-top: 8px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; font-size: 0.75rem; font-weight: 500; font-family: var(--font-body); line-height: 1.2;'>";
-                                        echo "<div class='day-slot-row' style='white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; text-align: left;'>";
-                                        echo "<span class='role-dot-mobile" . ($openFilled ? ' filled' : '') . "' style='border-color: {$openColor}; background-color: " . ($openFilled ? $openColor : 'transparent') . ";'></span>";
-                                        echo "<span class='day-slot-label' style='color: {$openColor}; font-weight: 700;'>O:</span> ";
-                                        if ($openFilled) {
-                                            echo "<span class='day-slot-name' style='color: var(--color-text-primary);' title='" . e($openName) . "'>" . e($openName) . "</span>";
+                                        foreach ($eventsByDay[$day] as $evt) {
+                                            foreach ($slotsByEvent[(int)$evt['id']] ?? [] as $slot) {
+                                                $slotColor = $typeColors[$slot['slot_type']] ?? $typeColors['open'];
+                                                $volName = $volunteerBySlot[(int)$slot['id']] ?? '';
+                                                $filled = ($volName !== '');
+                                                $labelInitial = mb_strtoupper(mb_substr($slot['slot_label'], 0, 1));
+
+                                                echo "<div class='day-slot-row' style='white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; text-align: left;'>";
+                                                echo "<span class='role-dot-mobile" . ($filled ? ' filled' : '') . "' style='border-color: {$slotColor}; background-color: " . ($filled ? $slotColor : 'transparent') . ";'></span>";
+                                                echo "<span class='day-slot-label' style='color: {$slotColor}; font-weight: 700;' title='" . e($slot['slot_label']) . "'>" . e($labelInitial) . ":</span> ";
+                                                if ($filled) {
+                                                    echo "<span class='day-slot-name' style='color: var(--color-text-primary);' title='" . e($volName) . "'>" . e($volName) . "</span>";
+                                                }
+                                                echo "</div>";
+                                            }
                                         }
-                                        echo "</div>";
-                                        echo "<div class='day-slot-row' style='white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; text-align: left;'>";
-                                        echo "<span class='role-dot-mobile" . ($closeFilled ? ' filled' : '') . "' style='border-color: {$closeColor}; background-color: " . ($closeFilled ? $closeColor : 'transparent') . ";'></span>";
-                                        echo "<span class='day-slot-label' style='color: {$closeColor}; font-weight: 700;'>C:</span> ";
-                                        if ($closeFilled) {
-                                            echo "<span class='day-slot-name' style='color: var(--color-text-primary);' title='" . e($closeName) . "'>" . e($closeName) . "</span>";
-                                        }
-                                        echo "</div>";
                                         echo "</div>";
                                     }
                                     

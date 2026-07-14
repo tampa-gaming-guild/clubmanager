@@ -1,12 +1,13 @@
 <?php
 /**
  * Public Volunteer Schedule
- * Displays upcoming events and the signup status of the roles: Open, Close.
- * (Greeter role is temporarily not offered here; existing credit logic for it is left intact.)
+ * Displays upcoming events and the signup status of each event's volunteer slots
+ * (defined per event in the admin scheduler; see EventSlot).
  */
 require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
 use App\Event;
+use App\EventSlot;
 use App\Auth;
 use App\Database;
 use App\MembershipService;
@@ -26,17 +27,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && Auth::check()) {
     } else {
         $eventId = (int)($_POST['event_id'] ?? 0);
         $contactId = (int)($_POST['contact_id'] ?? 0);
-        $role = trim($_POST['role'] ?? '');
-        
+        $slotId = (int)($_POST['slot_id'] ?? 0);
+
         if (isset($_POST['action_signup'])) {
             try {
-                if (empty($role)) {
-                    throw new Exception("Role is required.");
+                if (empty($slotId)) {
+                    throw new Exception("Slot is required.");
                 }
                 if (empty($contactId)) {
                     throw new Exception("Member selection is required.");
                 }
-                
+
                 if (!has_permission('volunteer')) {
                     throw new Exception("You do not have permission to sign up as a volunteer.");
                 }
@@ -44,16 +45,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && Auth::check()) {
                 if (!has_permission('manage hosting')) {
                     $contactId = $_SESSION['user']['contact_id'];
                 }
-                
-                Event::signupVolunteer($eventId, $contactId, $role);
-                
+
+                $slot = Event::signupVolunteer($slotId, $contactId);
+
                 // Fetch member name to display in the success message
                 $appDb = Database::getAppConnection();
                 $stmtName = $appDb->prepare("SELECT display_name FROM tgg_contacts WHERE id = :id LIMIT 1");
                 $stmtName->execute(['id' => $contactId]);
                 $displayName = $stmtName->fetchColumn() ?: "Member #{$contactId}";
-                
-                $successMsg = "Success! Signed up {$displayName} as {$role} volunteer.";
+
+                $successMsg = "Success! Signed up {$displayName} as {$slot['slot_label']} volunteer.";
             } catch (Exception $e) {
                 $errorMsg = safe_err("Volunteer signup failed: ", $e);
             }
@@ -71,7 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && Auth::check()) {
                     $contactId = $_SESSION['user']['contact_id'];
                 }
 
-                $results = Event::signupVolunteerAllOpenRoles($eventId, $contactId, ['Open', 'Close']);
+                $results = Event::signupVolunteerAllOpenSlots($eventId, $contactId);
 
                 $appDb = Database::getAppConnection();
                 $stmtName = $appDb->prepare("SELECT display_name FROM tgg_contacts WHERE id = :id LIMIT 1");
@@ -96,22 +97,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && Auth::check()) {
             }
         } elseif (isset($_POST['action_delete'])) {
             try {
-                if (empty($role)) {
-                    throw new Exception("Role is required.");
+                if (empty($slotId)) {
+                    throw new Exception("Slot is required.");
                 }
                 if (empty($contactId)) {
                     throw new Exception("Member ID is required.");
                 }
-                
+
                 $isAdmin = has_permission('manage hosting');
                 $isSelf = ($contactId === (int)$_SESSION['user']['contact_id']);
-                
+
                 if (!$isAdmin && !$isSelf) {
                     throw new Exception("You are not authorized to delete this signup.");
                 }
-                
+
+                $slot = EventSlot::getSlot($slotId);
+                if (!$slot) {
+                    throw new Exception("Slot not found.");
+                }
+
                 if (!$isAdmin) {
-                    $event = Event::getEvent($eventId);
+                    $event = Event::getEvent((int)$slot['event_id']);
                     if (!$event) {
                         throw new Exception("Event not found.");
                     }
@@ -121,15 +127,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && Auth::check()) {
                         throw new Exception("Members can only delete signups dated today or later.");
                     }
                 }
-                
-                Event::cancelVolunteer($eventId, $contactId, $role);
-                
+
+                Event::cancelVolunteer($slotId, $contactId);
+
                 $appDb = Database::getAppConnection();
                 $stmtName = $appDb->prepare("SELECT display_name FROM tgg_contacts WHERE id = :id LIMIT 1");
                 $stmtName->execute(['id' => $contactId]);
                 $displayName = $stmtName->fetchColumn() ?: "Member #{$contactId}";
-                
-                $successMsg = "Success! Removed {$displayName} from {$role} volunteer slot.";
+
+                $successMsg = "Success! Removed {$displayName} from {$slot['slot_label']} volunteer slot.";
             } catch (Exception $e) {
                 $errorMsg = safe_err("Failed to delete volunteer signup: ", $e);
             }
@@ -162,13 +168,23 @@ try {
         }
     }
     
+    $slotsByEvent = EventSlot::getSlotsForEvents(array_column($events, 'id'));
+
     if (has_permission('manage hosting')) {
         $allActiveMembers = MembershipService::getMembersList();
     }
 } catch (Exception $e) {
     $events = [];
+    $slotsByEvent = [];
     $errorMsg = safe_err("Unable to load schedule: ", $e);
 }
+
+// Slot type drives the accent color (and the credit weight -- see EventSlot::creditKey)
+$slotTypeColors = [
+    'open'    => ['var' => '--color-success', 'rgb' => '34,197,94'],
+    'close'   => ['var' => '--color-danger',  'rgb' => '239,68,68'],
+    'greeter' => ['var' => '--color-primary', 'rgb' => '59,130,246'],
+];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -243,7 +259,7 @@ try {
         }
         .bullet-open { background-color: var(--color-success); }
         .bullet-close { background-color: var(--color-danger); }
-        .bullet-greeter { background-color: var(--color-success); }
+        .bullet-greeter { background-color: var(--color-primary); }
     </style>
 </head>
 <body>
@@ -293,13 +309,14 @@ try {
                                     <?php 
                                         $evtId = (int)$evt['id'];
                                         $vols = Event::getVolunteers($evtId);
-                                        
-                                        // Map role -> volunteer info
-                                        $roleVolunteers = [];
+
+                                        // Map slot id -> volunteer info
+                                        $slotVolunteers = [];
                                         foreach ($vols as $vol) {
-                                            $roleVolunteers[$vol['role']] = $vol;
+                                            $slotVolunteers[(int)$vol['slot_id']] = $vol;
                                         }
-                                        $openRolesForEvent = array_values(array_diff(['Open', 'Close'], array_keys($roleVolunteers)));
+                                        $eventSlots = $slotsByEvent[$evtId] ?? [];
+                                        $openSlotCount = count(array_filter($eventSlots, fn($s) => !isset($slotVolunteers[(int)$s['id']])));
 
                                         $eventDate = date('F d, Y (l)', strtotime($evt['start_time']));
                                         $eventTime = date('g:i A', strtotime($evt['start_time'])) . ' - ' . date('g:i A', strtotime($evt['end_time']));
@@ -323,7 +340,7 @@ try {
                                                         (⏰ <?php echo $eventTime; ?>)
                                                     </span>
                                                 </div>
-                                                <?php if (has_permission('volunteer') && !empty($openRolesForEvent)): ?>
+                                                <?php if (has_permission('volunteer') && $openSlotCount > 0): ?>
                                                     <div style="font-weight: normal; font-family: var(--font-body); flex-shrink: 0;">
                                                         <div id="btn-container-<?php echo $evtId; ?>-ALL">
                                                             <button class="btn btn-success btn-small" onclick="showSignupConfirm(<?php echo $evtId; ?>, 'ALL')" style="padding: 6px 12px; font-size: 0.8rem; white-space: nowrap;">
@@ -365,18 +382,20 @@ try {
                                         </td>
                                     </tr>
                                     
-                                    <?php 
-                                        $roles = ['Open', 'Close'];
-                                        foreach ($roles as $role):
-                                            $hasVol = isset($roleVolunteers[$role]);
-                                            $volName = $hasVol ? $roleVolunteers[$role]['display_name'] : null;
-                                            $volContactId = $hasVol ? (int)$roleVolunteers[$role]['contact_id'] : null;
-                                            
-                                            // Format the bullet class
-                                            $bulletClass = 'bullet-' . strtolower($role);
+                                    <?php
+                                        foreach ($eventSlots as $slot):
+                                            $slotId = (int)$slot['id'];
+                                            $role = $slot['slot_label'];
+                                            $hasVol = isset($slotVolunteers[$slotId]);
+                                            $volName = $hasVol ? $slotVolunteers[$slotId]['display_name'] : null;
+                                            $volContactId = $hasVol ? (int)$slotVolunteers[$slotId]['contact_id'] : null;
+
+                                            // Slot type drives the bullet + accent color
+                                            $bulletClass = 'bullet-' . $slot['slot_type'];
                                             $isMe = $hasVol && Auth::check() && $volContactId === (int)($_SESSION['user']['contact_id'] ?? 0);
-                                            $roleColorVar = $role === 'Open' ? '--color-success' : '--color-danger';
-                                            $roleRgb = $role === 'Open' ? '34,197,94' : '239,68,68';
+                                            $typeColors = $slotTypeColors[$slot['slot_type']] ?? $slotTypeColors['open'];
+                                            $roleColorVar = $typeColors['var'];
+                                            $roleRgb = $typeColors['rgb'];
 
                                             // Link to the specific event on the calendar page
                                             $monthStr = date('m', strtotime($evt['start_time']));
@@ -386,7 +405,7 @@ try {
                                         <tr class="role-subrow">
                                             <td>
                                                 <span class="role-bullet <?php echo $bulletClass; ?>"></span>
-                                                <strong><?php echo $role; ?></strong>
+                                                <strong><?php echo e($role); ?></strong>
                                             </td>
                                             <td>
                                                 <?php if ($hasVol): ?>
@@ -417,8 +436,7 @@ try {
                                                     <?php if ($canDelete): ?>
                                                         <form action="volunteers.php?highlight=<?php echo $evtDateStr; ?><?php echo isset($_GET['filter']) ? '&filter=' . urlencode($_GET['filter']) : ''; ?>" method="POST" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete this volunteer signup?');">
                                                             <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
-                                                            <input type="hidden" name="event_id" value="<?php echo $evtId; ?>">
-                                                            <input type="hidden" name="role" value="<?php echo e($role); ?>">
+                                                            <input type="hidden" name="slot_id" value="<?php echo $slotId; ?>">
                                                             <input type="hidden" name="contact_id" value="<?php echo $volContactId; ?>">
                                                             <button type="submit" name="action_delete" class="btn btn-danger btn-small" style="padding: 6px 12px; font-size: 0.8rem;">
                                                                 Cancel Signup
@@ -433,38 +451,37 @@ try {
                                                             Log In to Sign Up &rarr;
                                                         </a>
                                                     <?php elseif (has_permission('volunteer')): ?>
-                                                        <div id="btn-container-<?php echo $evtId; ?>-<?php echo $role; ?>">
-                                                            <button class="btn btn-success btn-small" onclick="showSignupConfirm(<?php echo $evtId; ?>, '<?php echo $role; ?>')" style="padding: 6px 12px; font-size: 0.8rem;">
+                                                        <div id="btn-container-<?php echo $evtId; ?>-<?php echo $slotId; ?>">
+                                                            <button class="btn btn-success btn-small" onclick="showSignupConfirm(<?php echo $evtId; ?>, <?php echo $slotId; ?>)" style="padding: 6px 12px; font-size: 0.8rem;">
                                                                 Sign Up &rarr;
                                                             </button>
                                                         </div>
-                                                        <div id="confirm-container-<?php echo $evtId; ?>-<?php echo $role; ?>" style="display: none; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-glass); border-radius: 8px; padding: 10px; min-width: 220px; text-align: left;">
+                                                        <div id="confirm-container-<?php echo $evtId; ?>-<?php echo $slotId; ?>" style="display: none; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-glass); border-radius: 8px; padding: 10px; min-width: 220px; text-align: left;">
                                                             <?php if (has_permission('manage hosting')): ?>
                                                                 <div style="margin-bottom: 8px;">
                                                                     <label style="font-size: 0.8rem; margin-right: 12px; cursor: pointer; color: #fff;">
-                                                                        <input type="radio" name="signup_type_<?php echo $evtId; ?>_<?php echo $role; ?>" value="self" checked onclick="toggleAdminSignupType(<?php echo $evtId; ?>, '<?php echo $role; ?>', 'self')" style="margin-right: 4px;"> Myself
+                                                                        <input type="radio" name="signup_type_<?php echo $evtId; ?>_<?php echo $slotId; ?>" value="self" checked onclick="toggleAdminSignupType(<?php echo $evtId; ?>, <?php echo $slotId; ?>, 'self')" style="margin-right: 4px;"> Myself
                                                                     </label>
                                                                     <label style="font-size: 0.8rem; cursor: pointer; color: #fff;">
-                                                                        <input type="radio" name="signup_type_<?php echo $evtId; ?>_<?php echo $role; ?>" value="other" onclick="toggleAdminSignupType(<?php echo $evtId; ?>, '<?php echo $role; ?>', 'other')" style="margin-right: 4px;"> Other Member
+                                                                        <input type="radio" name="signup_type_<?php echo $evtId; ?>_<?php echo $slotId; ?>" value="other" onclick="toggleAdminSignupType(<?php echo $evtId; ?>, <?php echo $slotId; ?>, 'other')" style="margin-right: 4px;"> Other Member
                                                                     </label>
                                                                 </div>
-                                                                <div id="admin-search-<?php echo $evtId; ?>-<?php echo $role; ?>" style="display: none; margin-bottom: 8px;">
-                                                                    <input type="text" list="members-list" placeholder="Type member name..." oninput="updateMemberId(this, <?php echo $evtId; ?>, '<?php echo $role; ?>')" style="width: 100%; padding: 6px 10px; font-size: 0.8rem; border-radius: 4px; border: 1px solid var(--border-glass); background: rgba(255, 255, 255, 0.05); color: #fff; outline: none;">
+                                                                <div id="admin-search-<?php echo $evtId; ?>-<?php echo $slotId; ?>" style="display: none; margin-bottom: 8px;">
+                                                                    <input type="text" list="members-list" placeholder="Type member name..." oninput="updateMemberId(this, <?php echo $evtId; ?>, <?php echo $slotId; ?>)" style="width: 100%; padding: 6px 10px; font-size: 0.8rem; border-radius: 4px; border: 1px solid var(--border-glass); background: rgba(255, 255, 255, 0.05); color: #fff; outline: none;">
                                                                 </div>
                                                             <?php endif; ?>
-                                                            <form action="volunteers.php?highlight=<?php echo $evtDateStr; ?><?php echo isset($_GET['filter']) ? '&filter=' . urlencode($_GET['filter']) : ''; ?>" method="POST" style="display: inline;" onsubmit="return validateAdminSignup(this, <?php echo $evtId; ?>, '<?php echo $role; ?>')">
+                                                            <form action="volunteers.php?highlight=<?php echo $evtDateStr; ?><?php echo isset($_GET['filter']) ? '&filter=' . urlencode($_GET['filter']) : ''; ?>" method="POST" style="display: inline;" onsubmit="return validateAdminSignup(this, <?php echo $evtId; ?>, <?php echo $slotId; ?>)">
                                                                 <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
-                                                                <input type="hidden" name="event_id" value="<?php echo $evtId; ?>">
-                                                                <input type="hidden" name="role" value="<?php echo e($role); ?>">
-                                                                <input type="hidden" name="contact_id" id="contact-id-<?php echo $evtId; ?>-<?php echo $role; ?>" value="<?php echo $_SESSION['user']['contact_id']; ?>">
-                                                                
+                                                                <input type="hidden" name="slot_id" value="<?php echo $slotId; ?>">
+                                                                <input type="hidden" name="contact_id" id="contact-id-<?php echo $evtId; ?>-<?php echo $slotId; ?>" value="<?php echo $_SESSION['user']['contact_id']; ?>">
+
                                                                 <?php if (!has_permission('manage hosting')): ?>
                                                                     <span style="font-size: 0.8rem; color: var(--color-text-secondary); display: block; margin-bottom: 8px;">Confirm volunteering?</span>
                                                                 <?php endif; ?>
-                                                                
+
                                                                 <div style="display: flex; gap: 6px;">
                                                                     <button type="submit" name="action_signup" class="btn btn-success btn-small" style="padding: 4px 8px; font-size: 0.75rem;">Confirm</button>
-                                                                    <button type="button" class="btn btn-secondary btn-small" onclick="cancelSignup(<?php echo $evtId; ?>, '<?php echo $role; ?>')" style="padding: 4px 8px; font-size: 0.75rem; background: rgba(255,255,255,0.05); color: #fff; border: 1px solid var(--border-glass);">Cancel</button>
+                                                                    <button type="button" class="btn btn-secondary btn-small" onclick="cancelSignup(<?php echo $evtId; ?>, <?php echo $slotId; ?>)" style="padding: 4px 8px; font-size: 0.75rem; background: rgba(255,255,255,0.05); color: #fff; border: 1px solid var(--border-glass);">Cancel</button>
                                                                 </div>
                                                             </form>
                                                         </div>
@@ -505,30 +522,31 @@ try {
         }
     });
 
-    function showSignupConfirm(evtId, role) {
-        document.getElementById('btn-container-' + evtId + '-' + role).style.display = 'none';
-        document.getElementById('confirm-container-' + evtId + '-' + role).style.display = 'block';
+    // slotKey is a slot id, or the literal 'ALL' for the sign-up-for-everything widget
+    function showSignupConfirm(evtId, slotKey) {
+        document.getElementById('btn-container-' + evtId + '-' + slotKey).style.display = 'none';
+        document.getElementById('confirm-container-' + evtId + '-' + slotKey).style.display = 'block';
     }
 
-    function cancelSignup(evtId, role) {
-        document.getElementById('confirm-container-' + evtId + '-' + role).style.display = 'none';
-        document.getElementById('btn-container-' + evtId + '-' + role).style.display = 'block';
-        
+    function cancelSignup(evtId, slotKey) {
+        document.getElementById('confirm-container-' + evtId + '-' + slotKey).style.display = 'none';
+        document.getElementById('btn-container-' + evtId + '-' + slotKey).style.display = 'block';
+
         // Reset admin selection if applicable
-        const radioSelf = document.querySelector('input[name="signup_type_' + evtId + '_' + role + '"][value="self"]');
+        const radioSelf = document.querySelector('input[name="signup_type_' + evtId + '_' + slotKey + '"][value="self"]');
         if (radioSelf) {
             radioSelf.checked = true;
-            toggleAdminSignupType(evtId, role, 'self');
+            toggleAdminSignupType(evtId, slotKey, 'self');
         }
-        const searchInput = document.querySelector('#admin-search-' + evtId + '-' + role + ' input');
+        const searchInput = document.querySelector('#admin-search-' + evtId + '-' + slotKey + ' input');
         if (searchInput) {
             searchInput.value = '';
         }
     }
 
-    function toggleAdminSignupType(evtId, role, type) {
-        const searchDiv = document.getElementById('admin-search-' + evtId + '-' + role);
-        const contactIdInput = document.getElementById('contact-id-' + evtId + '-' + role);
+    function toggleAdminSignupType(evtId, slotKey, type) {
+        const searchDiv = document.getElementById('admin-search-' + evtId + '-' + slotKey);
+        const contactIdInput = document.getElementById('contact-id-' + evtId + '-' + slotKey);
         if (type === 'other') {
             searchDiv.style.display = 'block';
             contactIdInput.value = ''; // Clear so they must select
@@ -542,10 +560,10 @@ try {
         }
     }
 
-    function updateMemberId(input, evtId, role) {
+    function updateMemberId(input, evtId, slotKey) {
         const val = input.value;
         const match = val.match(/\(ID:\s*(\d+)\)/);
-        const contactIdInput = document.getElementById('contact-id-' + evtId + '-' + role);
+        const contactIdInput = document.getElementById('contact-id-' + evtId + '-' + slotKey);
         if (match) {
             contactIdInput.value = match[1];
         } else {
@@ -572,9 +590,9 @@ try {
         }
     }
 
-    function validateAdminSignup(form, evtId, role) {
-        const contactIdInput = document.getElementById('contact-id-' + evtId + '-' + role);
-        const radioOther = document.querySelector('input[name="signup_type_' + evtId + '_' + role + '"][value="other"]');
+    function validateAdminSignup(form, evtId, slotKey) {
+        const contactIdInput = document.getElementById('contact-id-' + evtId + '-' + slotKey);
+        const radioOther = document.querySelector('input[name="signup_type_' + evtId + '_' + slotKey + '"][value="other"]');
         if (radioOther && radioOther.checked) {
             if (!contactIdInput.value || contactIdInput.value === '<?php echo Auth::check() ? $_SESSION['user']['contact_id'] : 0; ?>') {
                 alert("Please search and select a valid member from the dropdown list.");

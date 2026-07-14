@@ -6,6 +6,7 @@
 require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
 use App\Database;
+use App\EventSlot;
 use App\MembershipService;
 use App\Auth;
 use App\MailHelper;
@@ -150,10 +151,11 @@ if ($hasPrivateAccess && $appDb) {
 
         // 1. Fetch completed shifts from volunteer signups (past events)
         $stmtShifts = $appDb->prepare("
-            SELECT s.event_id, s.role, e.title as event_title, e.start_time, t.id as processed_id
+            SELECT sl.slot_label AS role, sl.slot_type, e.title as event_title, e.start_time, t.id as processed_id
             FROM tgg_volunteer_signups s
-            INNER JOIN tgg_events e ON s.event_id = e.id
-            LEFT JOIN tgg_volunteer_credit_transactions t ON t.event_id = s.event_id AND t.contact_id = s.contact_id AND t.shift = s.role
+            INNER JOIN tgg_event_slots sl ON sl.id = s.slot_id
+            INNER JOIN tgg_events e ON sl.event_id = e.id
+            LEFT JOIN tgg_volunteer_credit_transactions t ON t.slot_id = s.slot_id AND t.contact_id = s.contact_id
             WHERE s.contact_id = :contact_id AND e.start_time < :now
             ORDER BY e.start_time DESC
         ");
@@ -162,31 +164,19 @@ if ($hasPrivateAccess && $appDb) {
             'now' => date('Y-m-d H:i:s')
         ]);
         $completedShifts = $stmtShifts->fetchAll();
-        
+
         foreach ($completedShifts as $shift) {
-            $role = $shift['role'];
-            $isSunday = (date('w', strtotime($shift['start_time'])) == 0);
-            
-            if ($role === 'Open') {
-                $key = $isSunday ? 'sunday_open' : 'weekday_open';
-            } elseif ($role === 'Close') {
-                $key = $isSunday ? 'sunday_close' : 'weekday_close';
-            } elseif ($role === 'Greeter') {
-                $key = $isSunday ? 'sunday_greeter' : 'weekday_greeter';
-            } else {
-                $key = 'weekday_open';
-            }
-            
+            $key = EventSlot::creditKey($shift['slot_type'], $shift['start_time']);
             $creditsVal = (float)($creditsMap[$key] ?? 0.0);
-            
+
             if (!$shift['processed_id']) {
                 $pendingCredits += $creditsVal;
             }
-            
+
             $volunteerShifts[] = [
                 'date' => date('Y-m-d', strtotime($shift['start_time'])),
                 'event_title' => $shift['event_title'],
-                'shift' => $role,
+                'shift' => $shift['role'],
                 'credits' => $creditsVal,
                 'status' => $shift['processed_id'] ? 'Processed' : 'Pending'
             ];

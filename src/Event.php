@@ -7,13 +7,127 @@ use PDO;
 /**
  * Event and Volunteer Management
  * Handles scheduling events, retrieving schedules, and volunteer signups.
+ * Volunteer capacity is structural: each event defines named slots (see EventSlot)
+ * and every slot holds exactly one volunteer.
  */
 class Event {
 
     /**
-     * Create a new event
+     * Create a new event with its volunteer slots. Returns the new event id.
      */
-    public static function createEvent(string $title, string $description, string $startTime, string $endTime, int $maxVolunteers): bool {
+    public static function createEvent(string $title, string $description, string $startTime, string $endTime, ?array $slots = null): int {
+        self::validateEventFields($title, $startTime, $endTime);
+
+        $appDb = Database::getAppConnection();
+        $ownTransaction = !$appDb->inTransaction();
+        if ($ownTransaction) {
+            $appDb->beginTransaction();
+        }
+
+        try {
+            $stmt = $appDb->prepare("
+                INSERT INTO tgg_events (title, description, start_time, end_time)
+                VALUES (:title, :description, :start_time, :end_time)
+            ");
+            $stmt->execute([
+                'title' => $title,
+                'description' => $description,
+                'start_time' => $startTime,
+                'end_time' => $endTime
+            ]);
+            $eventId = (int)$appDb->lastInsertId();
+
+            EventSlot::setSlots($eventId, $slots ?? EventSlot::DEFAULT_SLOTS);
+
+            if ($ownTransaction) {
+                $appDb->commit();
+            }
+            return $eventId;
+        } catch (Exception $e) {
+            if ($ownTransaction && $appDb->inTransaction()) {
+                $appDb->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * Update an event's details and reconcile its volunteer slots.
+     */
+    public static function updateEvent(int $eventId, string $title, string $description, string $startTime, string $endTime, array $slots): void {
+        self::validateEventFields($title, $startTime, $endTime);
+
+        if (!self::getEvent($eventId)) {
+            throw new Exception("Event not found.", 423);
+        }
+
+        $appDb = Database::getAppConnection();
+        $ownTransaction = !$appDb->inTransaction();
+        if ($ownTransaction) {
+            $appDb->beginTransaction();
+        }
+
+        try {
+            $stmt = $appDb->prepare("
+                UPDATE tgg_events
+                SET title = :title, description = :description, start_time = :start_time, end_time = :end_time
+                WHERE id = :id
+            ");
+            $stmt->execute([
+                'title' => $title,
+                'description' => $description,
+                'start_time' => $startTime,
+                'end_time' => $endTime,
+                'id' => $eventId
+            ]);
+
+            EventSlot::setSlots($eventId, $slots);
+
+            if ($ownTransaction) {
+                $appDb->commit();
+            }
+        } catch (Exception $e) {
+            if ($ownTransaction && $appDb->inTransaction()) {
+                $appDb->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * Delete an event. Signups must go first (their FK RESTRICTs slot deletion);
+     * slots then cascade with the event row.
+     */
+    public static function deleteEvent(int $eventId): void {
+        $appDb = Database::getAppConnection();
+        $ownTransaction = !$appDb->inTransaction();
+        if ($ownTransaction) {
+            $appDb->beginTransaction();
+        }
+
+        try {
+            $stmt = $appDb->prepare("
+                DELETE s FROM tgg_volunteer_signups s
+                JOIN tgg_event_slots sl ON sl.id = s.slot_id
+                WHERE sl.event_id = :event_id
+            ");
+            $stmt->execute(['event_id' => $eventId]);
+
+            $stmt = $appDb->prepare("DELETE FROM tgg_events WHERE id = :id");
+            $stmt->execute(['id' => $eventId]);
+
+            if ($ownTransaction) {
+                $appDb->commit();
+            }
+        } catch (Exception $e) {
+            if ($ownTransaction && $appDb->inTransaction()) {
+                $appDb->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    private static function validateEventFields(string $title, string $startTime, string $endTime): void {
         if (empty($title) || empty($startTime) || empty($endTime)) {
             throw new Exception("Title, start time, and end time are required.");
         }
@@ -21,19 +135,6 @@ class Event {
         if (strtotime($startTime) >= strtotime($endTime)) {
             throw new Exception("Start time must be before end time.");
         }
-
-        $appDb = Database::getAppConnection();
-        $stmt = $appDb->prepare("
-            INSERT INTO tgg_events (title, description, start_time, end_time, max_volunteers) 
-            VALUES (:title, :description, :start_time, :end_time, :max_volunteers)
-        ");
-        return $stmt->execute([
-            'title' => $title,
-            'description' => $description,
-            'start_time' => $startTime,
-            'end_time' => $endTime,
-            'max_volunteers' => $maxVolunteers
-        ]);
     }
 
     /**
@@ -41,8 +142,8 @@ class Event {
      */
     public static function getEvents(string $start = null, string $end = null): array {
         $appDb = Database::getAppConnection();
-        
-        $sql = "SELECT id, title, description, start_time, end_time, max_volunteers FROM tgg_events";
+
+        $sql = "SELECT id, title, description, start_time, end_time FROM tgg_events";
         $params = [];
 
         if ($start && $end) {
@@ -61,7 +162,7 @@ class Event {
      */
     public static function getEvent(int $id): ?array {
         $appDb = Database::getAppConnection();
-        $stmt = $appDb->prepare("SELECT id, title, description, start_time, end_time, max_volunteers FROM tgg_events WHERE id = :id LIMIT 1");
+        $stmt = $appDb->prepare("SELECT id, title, description, start_time, end_time FROM tgg_events WHERE id = :id LIMIT 1");
         $stmt->execute(['id' => $id]);
         $row = $stmt->fetch();
         return $row ?: null;
@@ -76,7 +177,7 @@ class Event {
     public static function getActiveSession(): ?array {
         $appDb = Database::getAppConnection();
         $stmt = $appDb->prepare("
-            SELECT id, title, description, start_time, end_time, max_volunteers
+            SELECT id, title, description, start_time, end_time
             FROM tgg_events
             WHERE DATE(start_time) = CURDATE()
               AND NOW() >= DATE_SUB(start_time, INTERVAL 2 HOUR)
@@ -113,57 +214,60 @@ class Event {
     }
 
     /**
-     * Register a volunteer for an event
+     * Register a volunteer for a slot. Returns the slot row on success.
+     * UNIQUE(slot_id) makes the insert the race guard: whoever commits first
+     * gets the slot, everyone else lands in the 23000 handler.
      */
-    public static function signupVolunteer(int $eventId, int $contactId, string $role): bool {
+    public static function signupVolunteer(int $slotId, int $contactId): array {
         $appDb = Database::getAppConnection();
 
-        // Check if event exists
-        $event = self::getEvent($eventId);
-        if (!$event) {
+        $slot = EventSlot::getSlot($slotId);
+        if (!$slot) {
             // Code 423 marks this as a deliberate, user-safe message (see safe_err()).
-            throw new Exception("Event not found.", 423);
+            throw new Exception("That volunteer slot does not exist.", 423);
         }
 
-        // Check capacity
-        if ($event['max_volunteers'] > 0) {
-            $countStmt = $appDb->prepare("SELECT COUNT(*) FROM tgg_volunteer_signups WHERE event_id = :event_id");
-            $countStmt->execute(['event_id' => $eventId]);
-            $currentCount = (int)$countStmt->fetchColumn();
-            if ($currentCount >= $event['max_volunteers']) {
-                throw new Exception("Volunteer capacity reached for this event.", 423);
+        try {
+            $stmt = $appDb->prepare("
+                INSERT INTO tgg_volunteer_signups (slot_id, contact_id, signed_up_at)
+                VALUES (:slot_id, :contact_id, NOW())
+            ");
+            $stmt->execute([
+                'slot_id' => $slotId,
+                'contact_id' => $contactId
+            ]);
+        } catch (\PDOException $e) {
+            if ($e->getCode() == 23000) {
+                throw new Exception("The \"{$slot['slot_label']}\" slot has already been filled.", 423);
             }
+            throw $e;
         }
 
-        $stmt = $appDb->prepare("
-            INSERT INTO tgg_volunteer_signups (event_id, contact_id, role, signed_up_at) 
-            VALUES (:event_id, :contact_id, :role, NOW())
-        ");
-        return $stmt->execute([
-            'event_id' => $eventId,
-            'contact_id' => $contactId,
-            'role' => $role
-        ]);
+        return $slot;
     }
 
     /**
-     * Sign a contact up for every role in $roles that isn't already taken,
-     * skipping ones that are filled and capturing per-role failures (e.g. capacity).
+     * Sign a contact up for every open slot on an event, capturing per-slot results.
      */
-    public static function signupVolunteerAllOpenRoles(int $eventId, int $contactId, array $roles): array {
-        $vols = self::getVolunteers($eventId);
-        $takenRoles = array_column($vols, 'role');
+    public static function signupVolunteerAllOpenSlots(int $eventId, int $contactId): array {
+        $appDb = Database::getAppConnection();
+        $stmt = $appDb->prepare("
+            SELECT sl.id, sl.slot_label
+            FROM tgg_event_slots sl
+            LEFT JOIN tgg_volunteer_signups s ON s.slot_id = sl.id
+            WHERE sl.event_id = :event_id AND s.id IS NULL
+            ORDER BY sl.sort_order ASC, sl.id ASC
+        ");
+        $stmt->execute(['event_id' => $eventId]);
+        $openSlots = $stmt->fetchAll();
 
         $results = [];
-        foreach ($roles as $role) {
-            if (in_array($role, $takenRoles, true)) {
-                continue;
-            }
+        foreach ($openSlots as $slot) {
             try {
-                self::signupVolunteer($eventId, $contactId, $role);
-                $results[] = ['role' => $role, 'success' => true];
+                self::signupVolunteer((int)$slot['id'], $contactId);
+                $results[] = ['slot_id' => (int)$slot['id'], 'role' => $slot['slot_label'], 'success' => true];
             } catch (Exception $e) {
-                $results[] = ['role' => $role, 'success' => false, 'error' => safe_err('Signup failed: ', $e)];
+                $results[] = ['slot_id' => (int)$slot['id'], 'role' => $slot['slot_label'], 'success' => false, 'error' => safe_err('Signup failed: ', $e)];
             }
         }
         return $results;
@@ -172,30 +276,27 @@ class Event {
     /**
      * Cancel a volunteer signup
      */
-    public static function cancelVolunteer(int $eventId, int $contactId, string $role = null): bool {
+    public static function cancelVolunteer(int $slotId, int $contactId): bool {
         $appDb = Database::getAppConnection();
-        if ($role) {
-            $stmt = $appDb->prepare("DELETE FROM tgg_volunteer_signups WHERE event_id = :event_id AND contact_id = :contact_id AND role = :role");
-            return $stmt->execute([
-                'event_id' => $eventId,
-                'contact_id' => $contactId,
-                'role' => $role
-            ]);
-        } else {
-            $stmt = $appDb->prepare("DELETE FROM tgg_volunteer_signups WHERE event_id = :event_id AND contact_id = :contact_id");
-            return $stmt->execute([
-                'event_id' => $eventId,
-                'contact_id' => $contactId
-            ]);
-        }
+        $stmt = $appDb->prepare("DELETE FROM tgg_volunteer_signups WHERE slot_id = :slot_id AND contact_id = :contact_id");
+        return $stmt->execute([
+            'slot_id' => $slotId,
+            'contact_id' => $contactId
+        ]);
     }
 
     /**
-     * Get list of roles a member has signed up for on an event
+     * Get list of slot labels a member has signed up for on an event
      */
     public static function getMemberRolesForEvent(int $eventId, int $contactId): array {
         $appDb = Database::getAppConnection();
-        $stmt = $appDb->prepare("SELECT role FROM tgg_volunteer_signups WHERE event_id = :event_id AND contact_id = :contact_id");
+        $stmt = $appDb->prepare("
+            SELECT sl.slot_label
+            FROM tgg_volunteer_signups s
+            JOIN tgg_event_slots sl ON sl.id = s.slot_id
+            WHERE sl.event_id = :event_id AND s.contact_id = :contact_id
+            ORDER BY sl.sort_order ASC, sl.id ASC
+        ");
         $stmt->execute([
             'event_id' => $eventId,
             'contact_id' => $contactId
@@ -210,7 +311,13 @@ class Event {
         $appDb = Database::getAppConnection();
 
         // Get volunteer rows from local database
-        $stmt = $appDb->prepare("SELECT contact_id, role, signed_up_at FROM tgg_volunteer_signups WHERE event_id = :event_id ORDER BY signed_up_at ASC");
+        $stmt = $appDb->prepare("
+            SELECT s.contact_id, s.slot_id, sl.slot_label, sl.slot_type, s.signed_up_at
+            FROM tgg_volunteer_signups s
+            JOIN tgg_event_slots sl ON sl.id = s.slot_id
+            WHERE sl.event_id = :event_id
+            ORDER BY s.signed_up_at ASC
+        ");
         $stmt->execute(['event_id' => $eventId]);
         $signups = $stmt->fetchAll();
 
@@ -236,7 +343,13 @@ class Event {
      */
     public static function isSignedUp(int $eventId, int $contactId): bool {
         $appDb = Database::getAppConnection();
-        $stmt = $appDb->prepare("SELECT id FROM tgg_volunteer_signups WHERE event_id = :event_id AND contact_id = :contact_id LIMIT 1");
+        $stmt = $appDb->prepare("
+            SELECT s.id
+            FROM tgg_volunteer_signups s
+            JOIN tgg_event_slots sl ON sl.id = s.slot_id
+            WHERE sl.event_id = :event_id AND s.contact_id = :contact_id
+            LIMIT 1
+        ");
         $stmt->execute([
             'event_id' => $eventId,
             'contact_id' => $contactId

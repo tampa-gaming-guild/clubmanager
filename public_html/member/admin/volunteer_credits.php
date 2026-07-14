@@ -8,6 +8,7 @@ require_once dirname(dirname(dirname(__DIR__))) . '/config/bootstrap.php';
 
 use App\Auth;
 use App\Database;
+use App\EventSlot;
 use App\MailHelper;
 
 Auth::requirePermission('manage hosting');
@@ -153,6 +154,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             $appDb->beginTransaction();
             foreach ($credits as $key => $val) {
+                // Membership setting stored in this table; only editable on the Memberships page.
+                if ($key === 'renewal_grace_days') {
+                    continue;
+                }
                 $valFloat = (float)$val;
                 if ($valFloat < 0) {
                     throw new Exception("Credit values cannot be negative.");
@@ -199,24 +204,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $todayStr = date('Y-m-d');
                 $emailsToSend = [];
                 
-                // Insert transaction statement
+                // Insert transaction statement. shift keeps a label snapshot for
+                // display; slot_id is the precise processed-signup marker.
                 $insertTrans = $appDb->prepare("
-                    INSERT INTO tgg_volunteer_credit_transactions (contact_id, event_id, volunteer_date, shift, credits_earned, credits_applied)
-                    VALUES (:contact_id, :event_id, :volunteer_date, :shift, :credits_earned, 0.0)
+                    INSERT INTO tgg_volunteer_credit_transactions (contact_id, event_id, slot_id, volunteer_date, shift, credits_earned, credits_applied)
+                    VALUES (:contact_id, :event_id, :slot_id, :volunteer_date, :shift, :credits_earned, 0.0)
                 ");
-                
+
                 foreach ($selectedMembers as $cid) {
                     $cid = (int)$cid;
-                    
+
                     // Fetch unprocessed signups for this member in date range
                     $stmtUnprocessed = $appDb->prepare("
-                        SELECT s.event_id, s.role, e.start_time
+                        SELECT s.slot_id, sl.event_id, sl.slot_label AS role, sl.slot_type, e.start_time
                         FROM tgg_volunteer_signups s
-                        INNER JOIN tgg_events e ON s.event_id = e.id
-                        LEFT JOIN tgg_volunteer_credit_transactions t ON t.event_id = s.event_id AND t.contact_id = s.contact_id AND t.shift = s.role
-                        WHERE s.contact_id = :contact_id 
-                          AND e.start_time >= :start_time 
-                          AND e.start_time <= :end_time 
+                        INNER JOIN tgg_event_slots sl ON sl.id = s.slot_id
+                        INNER JOIN tgg_events e ON sl.event_id = e.id
+                        LEFT JOIN tgg_volunteer_credit_transactions t ON t.slot_id = s.slot_id AND t.contact_id = s.contact_id
+                        WHERE s.contact_id = :contact_id
+                          AND e.start_time >= :start_time
+                          AND e.start_time <= :end_time
                           AND t.id IS NULL
                     ");
                     $stmtUnprocessed->execute([
@@ -231,27 +238,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                     
                     foreach ($newShifts as $shift) {
-                        $role = $shift['role'];
-                        $isSunday = (date('w', strtotime($shift['start_time'])) == 0);
-                        
-                        if ($role === 'Open') {
-                            $key = $isSunday ? 'sunday_open' : 'weekday_open';
-                        } elseif ($role === 'Close') {
-                            $key = $isSunday ? 'sunday_close' : 'weekday_close';
-                        } elseif ($role === 'Greeter') {
-                            $key = $isSunday ? 'sunday_greeter' : 'weekday_greeter';
-                        } else {
-                            $key = 'weekday_open';
-                        }
-                        
+                        $key = EventSlot::creditKey($shift['slot_type'], $shift['start_time']);
                         $earned = (float)($creditsMap[$key] ?? 0.0);
-                        
+
                         // Log shifts transaction
                         $insertTrans->execute([
                             'contact_id' => $cid,
                             'event_id' => (int)$shift['event_id'],
+                            'slot_id' => (int)$shift['slot_id'],
                             'volunteer_date' => date('Y-m-d', strtotime($shift['start_time'])),
-                            'shift' => $role,
+                            'shift' => $shift['role'],
                             'credits_earned' => $earned
                         ]);
                     }
@@ -363,9 +359,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // GET Handler: Retrieve Settings
+// renewal_grace_days lives in this table for storage convenience but is a
+// membership setting, edited on the Memberships page -- not shown here.
 try {
     $appDb = Database::getAppConnection();
-    $stmt = $appDb->query("SELECT credit_key, credit_label, credits FROM tgg_volunteer_credits ORDER BY id ASC");
+    $stmt = $appDb->query("SELECT credit_key, credit_label, credits FROM tgg_volunteer_credits WHERE credit_key <> 'renewal_grace_days' ORDER BY id ASC");
     $creditSettings = $stmt->fetchAll();
 } catch (Exception $e) {
     $creditSettings = [];
@@ -390,12 +388,13 @@ if (!empty($startDate) && !empty($endDate)) {
         
         // Fetch all unprocessed signups during the time range
         $stmtSignups = $appDb->prepare("
-            SELECT s.event_id, s.contact_id, s.role, e.title, e.start_time
+            SELECT s.slot_id, sl.event_id, s.contact_id, sl.slot_label AS role, sl.slot_type, e.title, e.start_time
             FROM tgg_volunteer_signups s
-            INNER JOIN tgg_events e ON s.event_id = e.id
-            LEFT JOIN tgg_volunteer_credit_transactions t ON t.event_id = s.event_id AND t.contact_id = s.contact_id AND t.shift = s.role
-            WHERE e.start_time >= :start_time 
-              AND e.start_time <= :end_time 
+            INNER JOIN tgg_event_slots sl ON sl.id = s.slot_id
+            INNER JOIN tgg_events e ON sl.event_id = e.id
+            LEFT JOIN tgg_volunteer_credit_transactions t ON t.slot_id = s.slot_id AND t.contact_id = s.contact_id
+            WHERE e.start_time >= :start_time
+              AND e.start_time <= :end_time
               AND t.id IS NULL
             ORDER BY e.start_time ASC
         ");
@@ -435,19 +434,7 @@ if (!empty($startDate) && !empty($endDate)) {
                 $shiftDetails = [];
                 
                 foreach ($shifts as $shift) {
-                    $role = $shift['role'];
-                    $isSunday = (date('w', strtotime($shift['start_time'])) == 0);
-                    
-                    if ($role === 'Open') {
-                        $key = $isSunday ? 'sunday_open' : 'weekday_open';
-                    } elseif ($role === 'Close') {
-                        $key = $isSunday ? 'sunday_close' : 'weekday_close';
-                    } elseif ($role === 'Greeter') {
-                        $key = $isSunday ? 'sunday_greeter' : 'weekday_greeter';
-                    } else {
-                        $key = 'weekday_open';
-                    }
-                    
+                    $key = EventSlot::creditKey($shift['slot_type'], $shift['start_time']);
                     $val = (float)($creditsMap[$key] ?? 0.0);
                     $newCredits += $val;
                     

@@ -2,11 +2,14 @@
 /**
  * Admin Session Scheduler
  * Allows administrators to schedule new sessions/events and manage existing ones.
+ * Each event carries its own named volunteer slots; a slot's type (open/close/greeter)
+ * determines which credit weight the volunteer earns.
  */
 require_once dirname(dirname(dirname(__DIR__))) . '/config/bootstrap.php';
 
 use App\Auth;
 use App\Event;
+use App\EventSlot;
 use App\Database;
 
 Auth::requirePermission('schedule events');
@@ -20,13 +23,13 @@ function matches_monthly_rule($date, $selectedWeeks, $dayOfWeekIndex) {
     if ($w !== (int)$dayOfWeekIndex) {
         return false;
     }
-    
+
     $dayOfMonth = (int)date('j', $date);
     $nth = (int)ceil($dayOfMonth / 7);
-    
+
     $daysInMonth = (int)date('t', $date);
     $isLast = ($dayOfMonth + 7 > $daysInMonth);
-    
+
     foreach ($selectedWeeks as $week) {
         if ($week === '1st' && $nth === 1) return true;
         if ($week === '2nd' && $nth === 2) return true;
@@ -34,8 +37,24 @@ function matches_monthly_rule($date, $selectedWeeks, $dayOfWeekIndex) {
         if ($week === '4th' && $nth === 4) return true;
         if ($week === 'last' && $isLast) return true;
     }
-    
+
     return false;
+}
+
+// Slot definitions arrive as slots[n][id|label|type] parallel to the form rows.
+function parse_slots_input(): array {
+    $slots = [];
+    foreach ($_POST['slots'] ?? [] as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $slots[] = [
+            'id' => isset($row['id']) && $row['id'] !== '' ? (int)$row['id'] : null,
+            'label' => trim((string)($row['label'] ?? '')),
+            'type' => (string)($row['type'] ?? 'open'),
+        ];
+    }
+    return $slots;
 }
 
 // Handle Delete Event Action
@@ -45,9 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_delete'])) {
     } else {
         $eventId = (int)($_POST['event_id'] ?? 0);
         try {
-            $appDb = Database::getAppConnection();
-            $stmt = $appDb->prepare("DELETE FROM tgg_events WHERE id = :id");
-            $stmt->execute(['id' => $eventId]);
+            Event::deleteEvent($eventId);
             $successMsg = "Event deleted successfully.";
         } catch (Exception $e) {
             $errorMsg = safe_err("Failed to delete event: ", $e);
@@ -64,7 +81,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_create'])) {
         $description = trim($_POST['description'] ?? '');
         $startTime = trim($_POST['start_time'] ?? '');
         $endTime = trim($_POST['end_time'] ?? '');
-        $maxVolunteers = (int)($_POST['max_volunteers'] ?? 0);
 
         if (empty($title) || empty($startTime) || empty($endTime)) {
             $errorMsg = "Event Title, Start Time, and End Time are required.";
@@ -74,13 +90,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_create'])) {
                 $mysqlStart = date('Y-m-d H:i:s', strtotime($startTime));
                 $mysqlEnd = date('Y-m-d H:i:s', strtotime($endTime));
 
-                Event::createEvent($title, $description, $mysqlStart, $mysqlEnd, $maxVolunteers);
+                Event::createEvent($title, $description, $mysqlStart, $mysqlEnd, parse_slots_input());
                 $successMsg = "New session scheduled successfully!";
-                
+
                 // Clear post inputs on success
                 $_POST = [];
             } catch (Exception $e) {
                 $errorMsg = safe_err("Scheduling failed: ", $e);
+            }
+        }
+    }
+}
+
+// Handle Edit Event Action
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_update'])) {
+    if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
+        $errorMsg = "Invalid security token.";
+    } else {
+        $eventId = (int)($_POST['event_id'] ?? 0);
+        $title = trim($_POST['title'] ?? '');
+        $description = trim($_POST['description'] ?? '');
+        $startTime = trim($_POST['start_time'] ?? '');
+        $endTime = trim($_POST['end_time'] ?? '');
+
+        if (empty($title) || empty($startTime) || empty($endTime)) {
+            $errorMsg = "Event Title, Start Time, and End Time are required.";
+        } else {
+            try {
+                $mysqlStart = date('Y-m-d H:i:s', strtotime($startTime));
+                $mysqlEnd = date('Y-m-d H:i:s', strtotime($endTime));
+
+                Event::updateEvent($eventId, $title, $description, $mysqlStart, $mysqlEnd, parse_slots_input());
+                $successMsg = "Event updated successfully!";
+            } catch (Exception $e) {
+                $errorMsg = safe_err("Update failed: ", $e);
+                // Re-open the edit card so the admin can correct and retry
+                $_GET['edit'] = (string)$eventId;
             }
         }
     }
@@ -96,11 +141,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_create_recurri
         $startDateInput = trim($_POST['start_date'] ?? '');
         $startTimeInput = trim($_POST['start_time'] ?? '');
         $endTimeInput = trim($_POST['end_time'] ?? '');
-        $maxVolunteers = (int)($_POST['max_volunteers'] ?? 0);
         $recurrenceType = $_POST['recurrence_type'] ?? 'weekly';
         $dayOfWeek = (int)($_POST['day_of_week'] ?? 0);
         $monthlyWeeks = $_POST['monthly_weeks'] ?? [];
-        
+
         if (empty($title) || empty($startDateInput) || empty($startTimeInput) || empty($endTimeInput)) {
             $errorMsg = "Event Title, Start Date, Start Time, and End Time are required.";
         } elseif ($recurrenceType === 'monthly' && empty($monthlyWeeks)) {
@@ -109,13 +153,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_create_recurri
             try {
                 $startDate = strtotime($startDateInput);
                 $endDate = strtotime("+4 months", $startDate);
-                
+
                 $currentDate = $startDate;
                 $insertedCount = 0;
-                
+
                 while ($currentDate <= $endDate) {
                     $shouldInsert = false;
-                    
+
                     if ($recurrenceType === 'weekly') {
                         $w = (int)date('w', $currentDate);
                         if ($w === $dayOfWeek) {
@@ -126,24 +170,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_create_recurri
                             $shouldInsert = true;
                         }
                     }
-                    
+
                     if ($shouldInsert) {
                         $dateStr = date('Y-m-d', $currentDate);
                         $mysqlStart = "{$dateStr} {$startTimeInput}:00";
                         $mysqlEnd = "{$dateStr} {$endTimeInput}:00";
-                        
+
                         // Handle overnight events (if end time is less than start time)
                         if (strtotime($mysqlEnd) < strtotime($mysqlStart)) {
                             $mysqlEnd = date('Y-m-d H:i:s', strtotime("+1 day", strtotime($mysqlEnd)));
                         }
-                        
-                        Event::createEvent($title, $description, $mysqlStart, $mysqlEnd, $maxVolunteers);
+
+                        // Recurring events always get the standard Open/Close slots
+                        Event::createEvent($title, $description, $mysqlStart, $mysqlEnd);
                         $insertedCount++;
                     }
-                    
+
                     $currentDate = strtotime("+1 day", $currentDate);
                 }
-                
+
                 $successMsg = "Successfully scheduled {$insertedCount} recurring events populated 4 months in advance!";
                 $_POST = [];
             } catch (Exception $e) {
@@ -153,12 +198,87 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_create_recurri
     }
 }
 
-// Fetch all events for display
+// Edit mode: load the event being edited (?edit=<id>)
+$editEvent = null;
+$editSlots = [];
+$editFilledBySlotId = [];
+if (isset($_GET['edit'])) {
+    $editEvent = Event::getEvent((int)$_GET['edit']);
+    if ($editEvent) {
+        $editId = (int)$editEvent['id'];
+        $editSlots = EventSlot::getSlotsForEvent($editId);
+        foreach (Event::getVolunteers($editId) as $vol) {
+            $editFilledBySlotId[(int)$vol['slot_id']] = $vol['display_name'];
+        }
+    } else {
+        $errorMsg = $errorMsg ?? "Event not found.";
+    }
+}
+
+// Fetch all events for display, with filled/total slot counts batched up front
+$slotTotals = [];
+$slotFilled = [];
 try {
     $events = Event::getEvents();
+    $appDb = Database::getAppConnection();
+    $slotTotals = $appDb->query("
+        SELECT event_id, COUNT(*) FROM tgg_event_slots GROUP BY event_id
+    ")->fetchAll(PDO::FETCH_KEY_PAIR);
+    $slotFilled = $appDb->query("
+        SELECT sl.event_id, COUNT(s.id)
+        FROM tgg_event_slots sl
+        JOIN tgg_volunteer_signups s ON s.slot_id = sl.id
+        GROUP BY sl.event_id
+    ")->fetchAll(PDO::FETCH_KEY_PAIR);
 } catch (Exception $e) {
     $events = [];
     $errorMsg = safe_err("Unable to load events: ", $e);
+}
+
+/**
+ * Render the editable slot rows for a create/edit form.
+ * $slots rows: ['id' => int|null, 'label' => string, 'type' => string]
+ * $filledBySlotId maps slot id => volunteer display name (edit form only).
+ */
+function render_slot_rows(array $slots, array $filledBySlotId = []): void {
+    // Explicit row indexes keep the three fields of one row under the same key
+    // (a bare slots[] would give each input its own auto-index).
+    foreach (array_values($slots) as $i => $slot) {
+        $slotId = $slot['id'] ?? null;
+        $volName = $slotId !== null ? ($filledBySlotId[$slotId] ?? null) : null;
+        ?>
+        <div class="slot-row" style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
+            <input type="hidden" name="slots[<?php echo $i; ?>][id]" value="<?php echo $slotId !== null ? (int)$slotId : ''; ?>">
+            <input type="text" name="slots[<?php echo $i; ?>][label]" required placeholder="Slot name" value="<?php echo e($slot['label']); ?>" style="flex: 1; min-width: 0;">
+            <select name="slots[<?php echo $i; ?>][type]" style="width: 110px; flex-shrink: 0;">
+                <?php foreach (EventSlot::TYPES as $type): ?>
+                    <option value="<?php echo $type; ?>" <?php echo $slot['type'] === $type ? 'selected' : ''; ?>><?php echo ucfirst($type); ?></option>
+                <?php endforeach; ?>
+            </select>
+            <?php if ($volName !== null): ?>
+                <span class="slot-filled-hint" title="Filled by <?php echo e($volName); ?>" style="font-size: 0.75rem; color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px;">👤 <?php echo e($volName); ?></span>
+                <button type="button" class="btn btn-secondary btn-small slot-remove" disabled title="A volunteer is signed up for this slot. Cancel the signup on the Volunteers page first." style="flex-shrink: 0;">×</button>
+            <?php else: ?>
+                <button type="button" class="btn btn-danger btn-small slot-remove" title="Remove slot" style="flex-shrink: 0;">×</button>
+            <?php endif; ?>
+        </div>
+        <?php
+    }
+}
+
+// Slot rows to show on the create form: repost after a failed create, else defaults
+$createFormSlots = [];
+if (isset($_POST['action_create'])) {
+    foreach ($_POST['slots'] ?? [] as $row) {
+        if (is_array($row)) {
+            $createFormSlots[] = ['id' => null, 'label' => (string)($row['label'] ?? ''), 'type' => (string)($row['type'] ?? 'open')];
+        }
+    }
+}
+if (empty($createFormSlots)) {
+    foreach (EventSlot::DEFAULT_SLOTS as $slot) {
+        $createFormSlots[] = ['id' => null, 'label' => $slot['label'], 'type' => $slot['type']];
+    }
 }
 ?>
 <!DOCTYPE html>
@@ -184,13 +304,13 @@ try {
 
         <main class="main-content">
             <div class="admin-grid">
-                
+
                 <?php include 'sidebar.php'; ?>
 
                 <!-- Work Area: Scheduler -->
                 <section class="admin-workspace glass-panel">
                     <h2>Session & Event Scheduler</h2>
-                    
+
                     <?php if ($errorMsg): ?>
                         <div class="alert alert-danger"><?php echo e($errorMsg); ?></div>
                     <?php endif; ?>
@@ -199,15 +319,64 @@ try {
                         <div class="alert alert-success"><?php echo e($successMsg); ?></div>
                     <?php endif; ?>
 
+                    <?php if ($editEvent): ?>
+                        <!-- Edit Event Card -->
+                        <div class="scheduler-form-card" style="margin-bottom: 25px; border: 1px solid var(--color-primary, #6366f1);">
+                            <h3>Edit Event — <?php echo e($editEvent['title']); ?></h3>
+                            <form action="scheduler.php" method="POST" class="standard-form">
+                                <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                <input type="hidden" name="event_id" value="<?php echo (int)$editEvent['id']; ?>">
+
+                                <div class="form-group">
+                                    <label for="edit_title">Event Title</label>
+                                    <input type="text" id="edit_title" name="title" required value="<?php echo e($editEvent['title']); ?>">
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="edit_description">Description (Optional)</label>
+                                    <textarea id="edit_description" name="description"><?php echo e($editEvent['description'] ?? ''); ?></textarea>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="edit_start_time">Start Date & Time</label>
+                                        <input type="datetime-local" id="edit_start_time" name="start_time" required value="<?php echo date('Y-m-d\TH:i', strtotime($editEvent['start_time'])); ?>">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="edit_end_time">End Date & Time</label>
+                                        <input type="datetime-local" id="edit_end_time" name="end_time" required value="<?php echo date('Y-m-d\TH:i', strtotime($editEvent['end_time'])); ?>">
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label>Volunteer Slots</label>
+                                    <p style="font-size: 0.75rem; color: var(--color-text-secondary); margin: 0 0 8px;">The type determines which credit weight the volunteer earns.</p>
+                                    <div class="slot-rows" id="edit-slot-rows">
+                                        <?php
+                                            $editSlotRows = array_map(fn($s) => ['id' => (int)$s['id'], 'label' => $s['slot_label'], 'type' => $s['slot_type']], $editSlots);
+                                            render_slot_rows($editSlotRows, $editFilledBySlotId);
+                                        ?>
+                                    </div>
+                                    <button type="button" class="btn btn-secondary btn-small" onclick="addSlotRow('edit-slot-rows')">+ Add Slot</button>
+                                </div>
+
+                                <div style="display: flex; gap: 10px;">
+                                    <button type="submit" name="action_update" class="btn btn-primary" style="flex: 1;">Save Changes</button>
+                                    <a href="scheduler.php" class="btn btn-secondary" style="flex-shrink: 0;">Cancel</a>
+                                </div>
+                            </form>
+                        </div>
+                    <?php endif; ?>
+
                     <div class="scheduler-split">
-                        
+
                         <div class="scheduler-forms-container" style="display: flex; flex-direction: column; gap: 25px;">
                             <!-- Form: Create New Event -->
                             <div class="scheduler-form-card">
                                 <h3>Schedule a New Event</h3>
                                 <form action="scheduler.php" method="POST" class="standard-form">
                                     <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
-                                    
+
                                     <div class="form-group">
                                         <label for="title">Event Title</label>
                                         <input type="text" id="title" name="title" required value="<?php echo e($_POST['title'] ?? ''); ?>" placeholder="e.g. Saturday Open Lab">
@@ -230,8 +399,12 @@ try {
                                     </div>
 
                                     <div class="form-group">
-                                        <label for="max_volunteers">Max Volunteers Needed (0 for unlimited)</label>
-                                        <input type="number" id="max_volunteers" name="max_volunteers" min="0" value="<?php echo isset($_POST['max_volunteers']) ? (int)$_POST['max_volunteers'] : 0; ?>">
+                                        <label>Volunteer Slots</label>
+                                        <p style="font-size: 0.75rem; color: var(--color-text-secondary); margin: 0 0 8px;">The type determines which credit weight the volunteer earns.</p>
+                                        <div class="slot-rows" id="create-slot-rows">
+                                            <?php render_slot_rows($createFormSlots); ?>
+                                        </div>
+                                        <button type="button" class="btn btn-secondary btn-small" onclick="addSlotRow('create-slot-rows')">+ Add Slot</button>
                                     </div>
 
                                     <button type="submit" name="action_create" class="btn btn-primary btn-block">Add Event to Calendar</button>
@@ -241,10 +414,10 @@ try {
                             <!-- Form: Create Recurring Events -->
                             <div class="scheduler-form-card">
                                 <h3>Schedule Recurring Events</h3>
-                                <p style="font-size: 0.8rem; color: var(--color-text-secondary); margin-bottom: 15px;">Automatically populates events for 4 months starting from the selected date.</p>
+                                <p style="font-size: 0.8rem; color: var(--color-text-secondary); margin-bottom: 15px;">Automatically populates events for 4 months starting from the selected date. Each event is created with the standard Open + Close volunteer slots.</p>
                                 <form action="scheduler.php" method="POST" class="standard-form">
                                     <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
-                                    
+
                                     <div class="form-group">
                                         <label for="rec_title">Event Title</label>
                                         <input type="text" id="rec_title" name="title" required placeholder="e.g. Wednesday Night Club Session">
@@ -255,15 +428,9 @@ try {
                                         <textarea id="rec_description" name="description" placeholder="Provide event details..."></textarea>
                                     </div>
 
-                                    <div class="form-row">
-                                        <div class="form-group">
-                                            <label for="rec_start_date">Recurrence Start Date</label>
-                                            <input type="date" id="rec_start_date" name="start_date" required value="<?php echo date('Y-m-d'); ?>">
-                                        </div>
-                                        <div class="form-group">
-                                            <label for="rec_max_volunteers">Max Volunteers</label>
-                                            <input type="number" id="rec_max_volunteers" name="max_volunteers" min="0" value="0">
-                                        </div>
+                                    <div class="form-group">
+                                        <label for="rec_start_date">Recurrence Start Date</label>
+                                        <input type="date" id="rec_start_date" name="start_date" required value="<?php echo date('Y-m-d'); ?>">
                                     </div>
 
                                     <div class="form-row">
@@ -341,12 +508,40 @@ try {
                                 }
                             }
                             document.addEventListener('DOMContentLoaded', toggleRecurrenceFields);
+
+                            // Indexes only need to be unique per form; start well above
+                            // anything the server rendered.
+                            let slotRowIdx = 1000;
+                            function addSlotRow(containerId) {
+                                const container = document.getElementById(containerId);
+                                const i = slotRowIdx++;
+                                const row = document.createElement('div');
+                                row.className = 'slot-row';
+                                row.style.cssText = 'display: flex; gap: 8px; align-items: center; margin-bottom: 8px;';
+                                row.innerHTML = `
+                                    <input type="hidden" name="slots[${i}][id]" value="">
+                                    <input type="text" name="slots[${i}][label]" required placeholder="Slot name" style="flex: 1; min-width: 0;">
+                                    <select name="slots[${i}][type]" style="width: 110px; flex-shrink: 0;">
+                                        <option value="open">Open</option>
+                                        <option value="close">Close</option>
+                                        <option value="greeter">Greeter</option>
+                                    </select>
+                                    <button type="button" class="btn btn-danger btn-small slot-remove" title="Remove slot" style="flex-shrink: 0;">×</button>`;
+                                container.appendChild(row);
+                                row.querySelector('input[type="text"]').focus();
+                            }
+
+                            document.addEventListener('click', function(e) {
+                                if (e.target.classList.contains('slot-remove') && !e.target.disabled) {
+                                    e.target.closest('.slot-row').remove();
+                                }
+                            });
                         </script>
 
                         <!-- Table: Existing Scheduled Events -->
                         <div class="scheduler-list-card">
                             <h3>Upcoming Events</h3>
-                            
+
                             <?php if (empty($events)): ?>
                                 <p class="empty-text">No events scheduled yet. Add one using the form.</p>
                             <?php else: ?>
@@ -362,10 +557,7 @@ try {
                                         </thead>
                                         <tbody>
                                             <?php foreach ($events as $evt): ?>
-                                                <?php 
-                                                    $eid = (int)$evt['id'];
-                                                    $volCount = (int)Database::getAppConnection()->query("SELECT COUNT(*) FROM tgg_volunteer_signups WHERE event_id = {$eid}")->fetchColumn();
-                                                ?>
+                                                <?php $eid = (int)$evt['id']; ?>
                                                 <tr>
                                                     <td><strong><?php echo e($evt['title']); ?></strong></td>
                                                     <td>
@@ -375,14 +567,17 @@ try {
                                                         </span>
                                                     </td>
                                                     <td>
-                                                        <?php echo $volCount; ?> / <?php echo $evt['max_volunteers'] > 0 ? (int)$evt['max_volunteers'] : '∞'; ?>
+                                                        <?php echo (int)($slotFilled[$eid] ?? 0); ?> / <?php echo (int)($slotTotals[$eid] ?? 0); ?>
                                                     </td>
                                                     <td>
-                                                        <form action="scheduler.php" method="POST" onsubmit="return confirm('Are you sure you want to delete this event?');" class="inline-form">
-                                                            <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
-                                                            <input type="hidden" name="event_id" value="<?php echo $eid; ?>">
-                                                            <button type="submit" name="action_delete" class="btn btn-danger btn-small">Delete</button>
-                                                        </form>
+                                                        <div style="display: flex; gap: 6px;">
+                                                            <a href="scheduler.php?edit=<?php echo $eid; ?>" class="btn btn-secondary btn-small">Edit</a>
+                                                            <form action="scheduler.php" method="POST" onsubmit="return confirm('Are you sure you want to delete this event?');" class="inline-form">
+                                                                <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                                                <input type="hidden" name="event_id" value="<?php echo $eid; ?>">
+                                                                <button type="submit" name="action_delete" class="btn btn-danger btn-small">Delete</button>
+                                                            </form>
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             <?php endforeach; ?>
