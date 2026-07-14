@@ -41,6 +41,17 @@ function matches_monthly_rule($date, $selectedWeeks, $dayOfWeekIndex) {
     return false;
 }
 
+// Events are single-day: forms submit one date plus start/end times. An end
+// time at or before the start time is treated as running past midnight.
+function build_event_times(string $date, string $startTime, string $endTime): array {
+    $mysqlStart = "{$date} {$startTime}:00";
+    $mysqlEnd = "{$date} {$endTime}:00";
+    if (strtotime($mysqlEnd) <= strtotime($mysqlStart)) {
+        $mysqlEnd = date('Y-m-d H:i:s', strtotime("+1 day", strtotime($mysqlEnd)));
+    }
+    return [$mysqlStart, $mysqlEnd];
+}
+
 // Slot definitions arrive as slots[n][id|label|type] parallel to the form rows.
 function parse_slots_input(): array {
     $slots = [];
@@ -79,16 +90,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_create'])) {
     } else {
         $title = trim($_POST['title'] ?? '');
         $description = trim($_POST['description'] ?? '');
+        $eventDate = trim($_POST['event_date'] ?? '');
         $startTime = trim($_POST['start_time'] ?? '');
         $endTime = trim($_POST['end_time'] ?? '');
 
-        if (empty($title) || empty($startTime) || empty($endTime)) {
-            $errorMsg = "Event Title, Start Time, and End Time are required.";
+        if (empty($title) || empty($eventDate) || empty($startTime) || empty($endTime)) {
+            $errorMsg = "Event Title, Date, Start Time, and End Time are required.";
         } else {
             try {
-                // Reformat datetime-local (YYYY-MM-DDTHH:MM) to MySQL format (YYYY-MM-DD HH:MM:SS)
-                $mysqlStart = date('Y-m-d H:i:s', strtotime($startTime));
-                $mysqlEnd = date('Y-m-d H:i:s', strtotime($endTime));
+                [$mysqlStart, $mysqlEnd] = build_event_times($eventDate, $startTime, $endTime);
 
                 Event::createEvent($title, $description, $mysqlStart, $mysqlEnd, parse_slots_input());
                 $successMsg = "New session scheduled successfully!";
@@ -110,15 +120,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_update'])) {
         $eventId = (int)($_POST['event_id'] ?? 0);
         $title = trim($_POST['title'] ?? '');
         $description = trim($_POST['description'] ?? '');
+        $eventDate = trim($_POST['event_date'] ?? '');
         $startTime = trim($_POST['start_time'] ?? '');
         $endTime = trim($_POST['end_time'] ?? '');
 
-        if (empty($title) || empty($startTime) || empty($endTime)) {
-            $errorMsg = "Event Title, Start Time, and End Time are required.";
+        if (empty($title) || empty($eventDate) || empty($startTime) || empty($endTime)) {
+            $errorMsg = "Event Title, Date, Start Time, and End Time are required.";
         } else {
             try {
-                $mysqlStart = date('Y-m-d H:i:s', strtotime($startTime));
-                $mysqlEnd = date('Y-m-d H:i:s', strtotime($endTime));
+                [$mysqlStart, $mysqlEnd] = build_event_times($eventDate, $startTime, $endTime);
 
                 Event::updateEvent($eventId, $title, $description, $mysqlStart, $mysqlEnd, parse_slots_input());
                 $successMsg = "Event updated successfully!";
@@ -172,14 +182,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_create_recurri
                     }
 
                     if ($shouldInsert) {
-                        $dateStr = date('Y-m-d', $currentDate);
-                        $mysqlStart = "{$dateStr} {$startTimeInput}:00";
-                        $mysqlEnd = "{$dateStr} {$endTimeInput}:00";
-
-                        // Handle overnight events (if end time is less than start time)
-                        if (strtotime($mysqlEnd) < strtotime($mysqlStart)) {
-                            $mysqlEnd = date('Y-m-d H:i:s', strtotime("+1 day", strtotime($mysqlEnd)));
-                        }
+                        [$mysqlStart, $mysqlEnd] = build_event_times(date('Y-m-d', $currentDate), $startTimeInput, $endTimeInput);
 
                         // Recurring events always get the standard Open/Close slots
                         Event::createEvent($title, $description, $mysqlStart, $mysqlEnd);
@@ -337,14 +340,19 @@ if (empty($createFormSlots)) {
                                     <textarea id="edit_description" name="description"><?php echo e($editEvent['description'] ?? ''); ?></textarea>
                                 </div>
 
+                                <div class="form-group">
+                                    <label for="edit_event_date">Event Date</label>
+                                    <input type="date" id="edit_event_date" name="event_date" required value="<?php echo date('Y-m-d', strtotime($editEvent['start_time'])); ?>">
+                                </div>
+
                                 <div class="form-row">
                                     <div class="form-group">
-                                        <label for="edit_start_time">Start Date & Time</label>
-                                        <input type="datetime-local" id="edit_start_time" name="start_time" required value="<?php echo date('Y-m-d\TH:i', strtotime($editEvent['start_time'])); ?>">
+                                        <label for="edit_start_time">Start Time</label>
+                                        <input type="time" id="edit_start_time" name="start_time" required value="<?php echo date('H:i', strtotime($editEvent['start_time'])); ?>">
                                     </div>
                                     <div class="form-group">
-                                        <label for="edit_end_time">End Date & Time</label>
-                                        <input type="datetime-local" id="edit_end_time" name="end_time" required value="<?php echo date('Y-m-d\TH:i', strtotime($editEvent['end_time'])); ?>">
+                                        <label for="edit_end_time">End Time</label>
+                                        <input type="time" id="edit_end_time" name="end_time" required value="<?php echo date('H:i', strtotime($editEvent['end_time'])); ?>">
                                     </div>
                                 </div>
 
@@ -387,14 +395,19 @@ if (empty($createFormSlots)) {
                                         <textarea id="description" name="description" placeholder="Provide event details..."><?php echo e($_POST['description'] ?? ''); ?></textarea>
                                     </div>
 
+                                    <div class="form-group">
+                                        <label for="event_date">Event Date</label>
+                                        <input type="date" id="event_date" name="event_date" required value="<?php echo e($_POST['event_date'] ?? date('Y-m-d')); ?>">
+                                    </div>
+
                                     <div class="form-row">
                                         <div class="form-group">
-                                            <label for="start_time">Start Date & Time</label>
-                                            <input type="datetime-local" id="start_time" name="start_time" required value="<?php echo e($_POST['start_time'] ?? ''); ?>">
+                                            <label for="start_time">Start Time</label>
+                                            <input type="time" id="start_time" name="start_time" required value="<?php echo e($_POST['start_time'] ?? '17:30'); ?>">
                                         </div>
                                         <div class="form-group">
-                                            <label for="end_time">End Date & Time</label>
-                                            <input type="datetime-local" id="end_time" name="end_time" required value="<?php echo e($_POST['end_time'] ?? ''); ?>">
+                                            <label for="end_time">End Time</label>
+                                            <input type="time" id="end_time" name="end_time" required value="<?php echo e($_POST['end_time'] ?? '23:00'); ?>">
                                         </div>
                                     </div>
 
@@ -436,11 +449,11 @@ if (empty($createFormSlots)) {
                                     <div class="form-row">
                                         <div class="form-group">
                                             <label for="rec_start_time">Start Time</label>
-                                            <input type="time" id="rec_start_time" name="start_time" required value="18:00">
+                                            <input type="time" id="rec_start_time" name="start_time" required value="17:30">
                                         </div>
                                         <div class="form-group">
                                             <label for="rec_end_time">End Time</label>
-                                            <input type="time" id="rec_end_time" name="end_time" required value="21:00">
+                                            <input type="time" id="rec_end_time" name="end_time" required value="23:00">
                                         </div>
                                     </div>
 

@@ -13,6 +13,10 @@
 
 /* --- CSS Variables & Design Tokens --- */
 :root {
+    /* Render native browser widgets (date/time picker popups, select dropdowns,
+       scrollbars) in dark mode to match the theme. */
+    color-scheme: dark;
+
     --font-heading: 'Outfit', 'Inter', -apple-system, sans-serif;
     --font-body: 'Inter', -apple-system, sans-serif;
 
@@ -354,6 +358,12 @@ select option {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 15px;
+}
+
+/* Let columns shrink below their content's intrinsic width -- datetime-local
+   inputs are wide enough to overflow the panel otherwise. */
+.form-row > .form-group {
+    min-width: 0;
 }
 
 .form-group.checkbox-group,
