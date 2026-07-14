@@ -68,17 +68,36 @@ function parse_slots_input(): array {
     return $slots;
 }
 
-// Handle Delete Event Action
+// Handle Delete Event Action. The page's JS deletes via fetch (JSON response,
+// row removed in place); the plain form POST path remains as the no-JS fallback.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_delete'])) {
+    $isAjax = isset($_POST['ajax']) || (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest');
+
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
+        if ($isAjax) {
+            json_response(['success' => false, 'error' => 'Invalid security token.'], 403);
+        }
         $errorMsg = "Invalid security token.";
     } else {
         $eventId = (int)($_POST['event_id'] ?? 0);
-        try {
-            Event::deleteEvent($eventId);
-            $successMsg = "Event deleted successfully.";
-        } catch (Exception $e) {
-            $errorMsg = safe_err("Failed to delete event: ", $e);
+        if ($eventId <= 0 || !Event::getEvent($eventId)) {
+            if ($isAjax) {
+                json_response(['success' => false, 'error' => 'Event not found.'], 400);
+            }
+            $errorMsg = "Event not found.";
+        } else {
+            try {
+                Event::deleteEvent($eventId);
+                if ($isAjax) {
+                    json_response(['success' => true]);
+                }
+                $successMsg = "Event deleted successfully.";
+            } catch (Exception $e) {
+                if ($isAjax) {
+                    json_response(['success' => false, 'error' => safe_err('Failed to delete event: ', $e)], 400);
+                }
+                $errorMsg = safe_err("Failed to delete event: ", $e);
+            }
         }
     }
 }
@@ -298,6 +317,27 @@ if (empty($createFormSlots)) {
     <style>
         .main-content {
             max-width: 1600px;
+        }
+        th.sortable {
+            cursor: pointer;
+            position: relative;
+            user-select: none;
+        }
+        th.sortable:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        th.sortable::after {
+            content: ' ↕';
+            font-size: 0.8rem;
+            color: rgba(255, 255, 255, 0.3);
+        }
+        th.sortable.asc::after {
+            content: ' ▲';
+            color: var(--color-primary);
+        }
+        th.sortable.desc::after {
+            content: ' ▼';
+            color: var(--color-primary);
         }
     </style>
 </head>
@@ -549,6 +589,83 @@ if (empty($createFormSlots)) {
                                     e.target.closest('.slot-row').remove();
                                 }
                             });
+
+                            // --- Sortable Title / Date columns (client-side) ---
+                            document.addEventListener('DOMContentLoaded', function() {
+                                const getCellValue = (tr, idx) => {
+                                    const cell = tr.children[idx];
+                                    return cell.getAttribute('data-sort') || cell.innerText || cell.textContent;
+                                };
+
+                                const comparer = (idx, asc) => (a, b) => ((v1, v2) =>
+                                    v1 !== '' && v2 !== '' && !isNaN(v1) && !isNaN(v2) ? v1 - v2 : v1.toString().localeCompare(v2)
+                                )(getCellValue(asc ? a : b, idx), getCellValue(asc ? b : a, idx));
+
+                                document.querySelectorAll('#events-table th.sortable').forEach(th => th.addEventListener('click', (() => {
+                                    const tbody = th.closest('table').querySelector('tbody');
+                                    const rows = Array.from(tbody.querySelectorAll('tr'));
+                                    const isAsc = th.classList.contains('asc');
+
+                                    th.closest('tr').querySelectorAll('th').forEach(header => {
+                                        if (header !== th) header.classList.remove('asc', 'desc');
+                                    });
+                                    th.classList.toggle('asc', !isAsc);
+                                    th.classList.toggle('desc', isAsc);
+
+                                    rows.sort(comparer(Array.from(th.parentNode.children).indexOf(th), !isAsc))
+                                        .forEach(tr => tbody.appendChild(tr));
+                                })));
+                            });
+
+                            // --- AJAX delete: remove the row in place instead of reloading ---
+                            const CSRF_TOKEN = <?php echo json_encode(get_csrf_token()); ?>;
+
+                            function showListError(message) {
+                                const card = document.querySelector('.scheduler-list-card');
+                                const existing = card.querySelector('.alert');
+                                if (existing) existing.remove();
+                                const alert = document.createElement('div');
+                                alert.className = 'alert alert-danger';
+                                alert.textContent = message;
+                                card.insertBefore(alert, card.querySelector('.admin-table-container'));
+                            }
+
+                            document.addEventListener('submit', async function(e) {
+                                const form = e.target.closest('.delete-event-form');
+                                if (!form) return;
+                                e.preventDefault();
+
+                                if (!confirm('Are you sure you want to delete this event?')) return;
+
+                                const row = form.closest('tr');
+                                try {
+                                    const resp = await fetch('scheduler.php', {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/x-www-form-urlencoded',
+                                            'X-Requested-With': 'XMLHttpRequest'
+                                        },
+                                        body: new URLSearchParams({
+                                            action_delete: '1',
+                                            ajax: '1',
+                                            event_id: form.querySelector('input[name="event_id"]').value,
+                                            csrf_token: CSRF_TOKEN
+                                        })
+                                    });
+                                    const data = await resp.json();
+                                    if (data.success) {
+                                        const tbody = row.closest('tbody');
+                                        row.remove();
+                                        if (!tbody.querySelector('tr')) {
+                                            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--color-text-secondary); padding: 20px;">No events scheduled yet. Add one using the form.</td></tr>';
+                                        }
+                                    } else {
+                                        showListError(data.error || 'Failed to delete event.');
+                                    }
+                                } catch (err) {
+                                    showListError('Failed to delete event: network error.');
+                                }
+                            });
                         </script>
 
                         <!-- Table: Existing Scheduled Events -->
@@ -559,11 +676,11 @@ if (empty($createFormSlots)) {
                                 <p class="empty-text">No events scheduled yet. Add one using the form.</p>
                             <?php else: ?>
                                 <div class="admin-table-container">
-                                    <table class="admin-table">
+                                    <table class="admin-table" id="events-table">
                                         <thead>
                                             <tr>
-                                                <th>Title</th>
-                                                <th>Date & Time</th>
+                                                <th class="sortable">Title</th>
+                                                <th class="sortable asc">Date & Time</th>
                                                 <th>Vols</th>
                                                 <th>Actions</th>
                                             </tr>
@@ -573,7 +690,7 @@ if (empty($createFormSlots)) {
                                                 <?php $eid = (int)$evt['id']; ?>
                                                 <tr>
                                                     <td><strong><?php echo e($evt['title']); ?></strong></td>
-                                                    <td>
+                                                    <td data-sort="<?php echo e($evt['start_time']); ?>">
                                                         <span class="table-datetime">
                                                             <?php echo date('m/d/y', strtotime($evt['start_time'])); ?><br>
                                                             <?php echo date('g:i A', strtotime($evt['start_time'])); ?> - <?php echo date('g:i A', strtotime($evt['end_time'])); ?>
@@ -585,7 +702,7 @@ if (empty($createFormSlots)) {
                                                     <td>
                                                         <div style="display: flex; gap: 6px;">
                                                             <a href="scheduler.php?edit=<?php echo $eid; ?>" class="btn btn-secondary btn-small">Edit</a>
-                                                            <form action="scheduler.php" method="POST" onsubmit="return confirm('Are you sure you want to delete this event?');" class="inline-form">
+                                                            <form action="scheduler.php" method="POST" class="inline-form delete-event-form">
                                                                 <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
                                                                 <input type="hidden" name="event_id" value="<?php echo $eid; ?>">
                                                                 <button type="submit" name="action_delete" class="btn btn-danger btn-small">Delete</button>
