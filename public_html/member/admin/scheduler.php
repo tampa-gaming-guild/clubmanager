@@ -17,6 +17,11 @@ Auth::requirePermission('schedule events');
 $errorMsg = null;
 $successMsg = null;
 
+// PRG: successful actions redirect back here with the flash message in GET,
+// so refreshing the page never re-submits a create/update/delete.
+if (isset($_GET['success'])) $successMsg = trim($_GET['success']);
+if (isset($_GET['error']))   $errorMsg   = trim($_GET['error']);
+
 // Helper to determine if a date matches monthly occurrence rules (e.g. 1st, 3rd, last)
 function matches_monthly_rule($date, $selectedWeeks, $dayOfWeekIndex) {
     $w = (int)date('w', $date);
@@ -91,7 +96,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_delete'])) {
                 if ($isAjax) {
                     json_response(['success' => true]);
                 }
-                $successMsg = "Event deleted successfully.";
+                redirect('admin/scheduler.php?' . http_build_query(['success' => 'Event deleted successfully.']));
             } catch (Exception $e) {
                 if ($isAjax) {
                     json_response(['success' => false, 'error' => safe_err('Failed to delete event: ', $e)], 400);
@@ -102,7 +107,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_delete'])) {
     }
 }
 
-// Handle Add Event Action
+// Handle Add Event Action (single or recurring, per the Make Recurring checkbox).
+// Success redirects (PRG); validation errors re-render so the form keeps its input.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_create'])) {
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
         $errorMsg = "Invalid security token.";
@@ -112,20 +118,69 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_create'])) {
         $eventDate = trim($_POST['event_date'] ?? '');
         $startTime = trim($_POST['start_time'] ?? '');
         $endTime = trim($_POST['end_time'] ?? '');
+        $isRecurring = isset($_POST['recurring']);
 
         if (empty($title) || empty($eventDate) || empty($startTime) || empty($endTime)) {
             $errorMsg = "Event Title, Date, Start Time, and End Time are required.";
-        } else {
+        } elseif (!$isRecurring) {
             try {
                 [$mysqlStart, $mysqlEnd] = build_event_times($eventDate, $startTime, $endTime);
 
                 Event::createEvent($title, $description, $mysqlStart, $mysqlEnd, parse_slots_input());
-                $successMsg = "New session scheduled successfully!";
-
-                // Clear post inputs on success
-                $_POST = [];
+                redirect('admin/scheduler.php?' . http_build_query(['success' => 'New session scheduled successfully!']));
             } catch (Exception $e) {
                 $errorMsg = safe_err("Scheduling failed: ", $e);
+            }
+        } else {
+            $recurrenceEndInput = trim($_POST['recurrence_end_date'] ?? '');
+            $recurrenceType = $_POST['recurrence_type'] ?? 'weekly';
+            $dayOfWeek = (int)($_POST['day_of_week'] ?? 0);
+            $monthlyWeeks = $_POST['monthly_weeks'] ?? [];
+
+            $startDate = strtotime($eventDate);
+            $maxEnd = strtotime('+4 months', $startDate);
+            // End date is optional and defaults to the maximum window (4 months out)
+            $recurrenceEnd = $recurrenceEndInput !== '' ? strtotime($recurrenceEndInput) : $maxEnd;
+
+            if ($recurrenceEnd < $startDate) {
+                $errorMsg = "End Date must be on or after the Start Date.";
+            } elseif ($recurrenceEnd > $maxEnd) {
+                $errorMsg = "End Date cannot be more than 4 months after the Start Date.";
+            } elseif ($recurrenceType === 'monthly' && empty($monthlyWeeks)) {
+                $errorMsg = "Please select at least one week of the month for monthly recurrence.";
+            } else {
+                try {
+                    $slots = parse_slots_input();
+                    $currentDate = $startDate;
+                    $insertedCount = 0;
+
+                    while ($currentDate <= $recurrenceEnd) {
+                        $shouldInsert = false;
+
+                        if ($recurrenceType === 'weekly') {
+                            $w = (int)date('w', $currentDate);
+                            if ($w === $dayOfWeek) {
+                                $shouldInsert = true;
+                            }
+                        } else if ($recurrenceType === 'monthly') {
+                            if (matches_monthly_rule($currentDate, $monthlyWeeks, $dayOfWeek)) {
+                                $shouldInsert = true;
+                            }
+                        }
+
+                        if ($shouldInsert) {
+                            [$mysqlStart, $mysqlEnd] = build_event_times(date('Y-m-d', $currentDate), $startTime, $endTime);
+                            Event::createEvent($title, $description, $mysqlStart, $mysqlEnd, $slots);
+                            $insertedCount++;
+                        }
+
+                        $currentDate = strtotime("+1 day", $currentDate);
+                    }
+
+                    redirect('admin/scheduler.php?' . http_build_query(['success' => "Successfully scheduled {$insertedCount} recurring events!"]));
+                } catch (Exception $e) {
+                    $errorMsg = safe_err("Failed to schedule recurring events: ", $e);
+                }
             }
         }
     }
@@ -150,71 +205,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_update'])) {
                 [$mysqlStart, $mysqlEnd] = build_event_times($eventDate, $startTime, $endTime);
 
                 Event::updateEvent($eventId, $title, $description, $mysqlStart, $mysqlEnd, parse_slots_input());
-                $successMsg = "Event updated successfully!";
+                redirect('admin/scheduler.php?' . http_build_query(['success' => 'Event updated successfully!']));
             } catch (Exception $e) {
                 $errorMsg = safe_err("Update failed: ", $e);
                 // Re-open the edit card so the admin can correct and retry
                 $_GET['edit'] = (string)$eventId;
-            }
-        }
-    }
-}
-
-// Handle Add Recurring Events Action
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_create_recurring'])) {
-    if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
-        $errorMsg = "Invalid security token.";
-    } else {
-        $title = trim($_POST['title'] ?? '');
-        $description = trim($_POST['description'] ?? '');
-        $startDateInput = trim($_POST['start_date'] ?? '');
-        $startTimeInput = trim($_POST['start_time'] ?? '');
-        $endTimeInput = trim($_POST['end_time'] ?? '');
-        $recurrenceType = $_POST['recurrence_type'] ?? 'weekly';
-        $dayOfWeek = (int)($_POST['day_of_week'] ?? 0);
-        $monthlyWeeks = $_POST['monthly_weeks'] ?? [];
-
-        if (empty($title) || empty($startDateInput) || empty($startTimeInput) || empty($endTimeInput)) {
-            $errorMsg = "Event Title, Start Date, Start Time, and End Time are required.";
-        } elseif ($recurrenceType === 'monthly' && empty($monthlyWeeks)) {
-            $errorMsg = "Please select at least one week of the month for monthly recurrence.";
-        } else {
-            try {
-                $startDate = strtotime($startDateInput);
-                $endDate = strtotime("+4 months", $startDate);
-
-                $currentDate = $startDate;
-                $insertedCount = 0;
-
-                while ($currentDate <= $endDate) {
-                    $shouldInsert = false;
-
-                    if ($recurrenceType === 'weekly') {
-                        $w = (int)date('w', $currentDate);
-                        if ($w === $dayOfWeek) {
-                            $shouldInsert = true;
-                        }
-                    } else if ($recurrenceType === 'monthly') {
-                        if (matches_monthly_rule($currentDate, $monthlyWeeks, $dayOfWeek)) {
-                            $shouldInsert = true;
-                        }
-                    }
-
-                    if ($shouldInsert) {
-                        [$mysqlStart, $mysqlEnd] = build_event_times(date('Y-m-d', $currentDate), $startTimeInput, $endTimeInput);
-
-                        // Recurring events always get the standard Open/Close slots
-                        Event::createEvent($title, $description, $mysqlStart, $mysqlEnd);
-                        $insertedCount++;
-                    }
-
-                    $currentDate = strtotime("+1 day", $currentDate);
-                }
-
-                $successMsg = "Successfully scheduled {$insertedCount} recurring events populated 4 months in advance!";
-                $_POST = [];
-            } catch (Exception $e) {
-                $errorMsg = safe_err("Failed to schedule recurring events: ", $e);
             }
         }
     }
@@ -266,13 +261,14 @@ function render_slot_rows(array $slots, array $filledBySlotId = []): void {
     // Explicit row indexes keep the three fields of one row under the same key
     // (a bare slots[] would give each input its own auto-index).
     foreach (array_values($slots) as $i => $slot) {
+        $i = (int)$i;
         $slotId = $slot['id'] ?? null;
         $volName = $slotId !== null ? ($filledBySlotId[$slotId] ?? null) : null;
         ?>
         <div class="slot-row" style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
-            <input type="hidden" name="slots[<?php echo $i; ?>][id]" value="<?php echo $slotId !== null ? (int)$slotId : ''; ?>">
-            <input type="text" name="slots[<?php echo $i; ?>][label]" required placeholder="Slot name" value="<?php echo e($slot['label']); ?>" style="flex: 1; min-width: 0;">
-            <select name="slots[<?php echo $i; ?>][type]" style="width: 110px; flex-shrink: 0;">
+            <input type="hidden" name="slots[<?php echo (int)$i; ?>][id]" value="<?php echo $slotId !== null ? (int)$slotId : ''; ?>">
+            <input type="text" name="slots[<?php echo (int)$i; ?>][label]" required placeholder="Slot name" value="<?php echo e($slot['label']); ?>" style="flex: 1; min-width: 0;">
+            <select name="slots[<?php echo (int)$i; ?>][type]" style="width: 110px; flex-shrink: 0;">
                 <?php foreach (EventSlot::TYPES as $type): ?>
                     <option value="<?php echo $type; ?>" <?php echo $slot['type'] === $type ? 'selected' : ''; ?>><?php echo ucfirst($type); ?></option>
                 <?php endforeach; ?>
@@ -419,7 +415,7 @@ if (empty($createFormSlots)) {
                     <div class="scheduler-split">
 
                         <div class="scheduler-forms-container" style="display: flex; flex-direction: column; gap: 25px;">
-                            <!-- Form: Create New Event -->
+                            <!-- Form: Create New Event (single or recurring) -->
                             <div class="scheduler-form-card">
                                 <h3>Schedule a New Event</h3>
                                 <form action="scheduler.php" method="POST" class="standard-form">
@@ -436,7 +432,7 @@ if (empty($createFormSlots)) {
                                     </div>
 
                                     <div class="form-group">
-                                        <label for="event_date">Event Date</label>
+                                        <label for="event_date" id="event-date-label">Event Date</label>
                                         <input type="date" id="event_date" name="event_date" required value="<?php echo e($_POST['event_date'] ?? date('Y-m-d')); ?>">
                                     </div>
 
@@ -451,106 +447,94 @@ if (empty($createFormSlots)) {
                                         </div>
                                     </div>
 
+                                    <div class="form-group checkbox-group" style="display: flex; align-items: center; gap: 10px;">
+                                        <input type="checkbox" id="recurring" name="recurring" onchange="toggleRecurring()" <?php echo isset($_POST['recurring']) ? 'checked' : ''; ?>>
+                                        <label for="recurring" style="text-transform: none; font-weight: normal; margin-bottom: 0; cursor: pointer;">Make Recurring</label>
+                                    </div>
+
+                                    <div id="recurrence-options" style="display: none; background: rgba(0, 0, 0, 0.15); padding: 12px; border-radius: 8px; border: 1px solid var(--border-glass); margin-bottom: 15px;">
+                                        <div class="form-group">
+                                            <label for="recurrence_end_date">Recurrence End Date</label>
+                                            <input type="date" id="recurrence_end_date" name="recurrence_end_date" value="<?php echo e($_POST['recurrence_end_date'] ?? ''); ?>">
+                                            <p style="font-size: 0.75rem; color: var(--color-text-secondary); margin: 4px 0 0;">Events are generated from the Start Date through this date. Defaults to 4 months out (the maximum).</p>
+                                        </div>
+
+                                        <div class="form-row">
+                                            <div class="form-group">
+                                                <label for="recurrence_type">Recurrence Type</label>
+                                                <select id="recurrence_type" name="recurrence_type" onchange="toggleRecurrenceFields()">
+                                                    <option value="weekly" <?php echo ($_POST['recurrence_type'] ?? '') !== 'monthly' ? 'selected' : ''; ?>>Weekly (Every week)</option>
+                                                    <option value="monthly" <?php echo ($_POST['recurrence_type'] ?? '') === 'monthly' ? 'selected' : ''; ?>>Monthly (Specific weeks)</option>
+                                                </select>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="day_of_week">Day of the Week</label>
+                                                <select id="day_of_week" name="day_of_week">
+                                                    <?php
+                                                        $selectedDow = (string)($_POST['day_of_week'] ?? '3');
+                                                        foreach (['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as $dowIdx => $dowName):
+                                                    ?>
+                                                        <option value="<?php echo $dowIdx; ?>" <?php echo (string)$dowIdx === $selectedDow ? 'selected' : ''; ?>><?php echo $dowName; ?></option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <div id="monthly-weeks-container" class="form-group" style="display: none; margin-bottom: 0;">
+                                            <label style="margin-bottom: 8px; display: block; font-size: 0.85rem; font-weight: bold; color: var(--color-text-secondary);">Select Weeks of the Month:</label>
+                                            <div style="display: flex; flex-direction: column; gap: 8px;">
+                                                <div class="checkbox-group" style="display: flex; align-items: center; gap: 10px;">
+                                                    <input type="checkbox" id="week_1st" name="monthly_weeks[]" value="1st" checked>
+                                                    <label for="week_1st" style="text-transform: none; font-weight: normal; margin-bottom: 0;">First week of the month</label>
+                                                </div>
+                                                <div class="checkbox-group" style="display: flex; align-items: center; gap: 10px;">
+                                                    <input type="checkbox" id="week_2nd" name="monthly_weeks[]" value="2nd">
+                                                    <label for="week_2nd" style="text-transform: none; font-weight: normal; margin-bottom: 0;">Second week of the month</label>
+                                                </div>
+                                                <div class="checkbox-group" style="display: flex; align-items: center; gap: 10px;">
+                                                    <input type="checkbox" id="week_3rd" name="monthly_weeks[]" value="3rd" checked>
+                                                    <label for="week_3rd" style="text-transform: none; font-weight: normal; margin-bottom: 0;">Third week of the month</label>
+                                                </div>
+                                                <div class="checkbox-group" style="display: flex; align-items: center; gap: 10px;">
+                                                    <input type="checkbox" id="week_4th" name="monthly_weeks[]" value="4th">
+                                                    <label for="week_4th" style="text-transform: none; font-weight: normal; margin-bottom: 0;">Fourth week of the month</label>
+                                                </div>
+                                                <div class="checkbox-group" style="display: flex; align-items: center; gap: 10px;">
+                                                    <input type="checkbox" id="week_last" name="monthly_weeks[]" value="last">
+                                                    <label for="week_last" style="text-transform: none; font-weight: normal; margin-bottom: 0;">Last week of the month</label>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     <div class="form-group">
                                         <label>Volunteer Slots</label>
-                                        <p style="font-size: 0.75rem; color: var(--color-text-secondary); margin: 0 0 8px;">The type determines which credit weight the volunteer earns.</p>
+                                        <p style="font-size: 0.75rem; color: var(--color-text-secondary); margin: 0 0 8px;">The type determines which credit weight the volunteer earns. Recurring events all get these slots.</p>
                                         <div class="slot-rows" id="create-slot-rows">
                                             <?php render_slot_rows($createFormSlots); ?>
                                         </div>
                                         <button type="button" class="btn btn-secondary btn-small" onclick="addSlotRow('create-slot-rows')">+ Add Slot</button>
                                     </div>
 
-                                    <button type="submit" name="action_create" class="btn btn-primary btn-block">Add Event to Calendar</button>
-                                </form>
-                            </div>
-
-                            <!-- Form: Create Recurring Events -->
-                            <div class="scheduler-form-card">
-                                <h3>Schedule Recurring Events</h3>
-                                <p style="font-size: 0.8rem; color: var(--color-text-secondary); margin-bottom: 15px;">Automatically populates events for 4 months starting from the selected date. Each event is created with the standard Open + Close volunteer slots.</p>
-                                <form action="scheduler.php" method="POST" class="standard-form">
-                                    <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
-
-                                    <div class="form-group">
-                                        <label for="rec_title">Event Title</label>
-                                        <input type="text" id="rec_title" name="title" required placeholder="e.g. Wednesday Night Club Session">
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label for="rec_description">Description (Optional)</label>
-                                        <textarea id="rec_description" name="description" placeholder="Provide event details..."></textarea>
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label for="rec_start_date">Recurrence Start Date</label>
-                                        <input type="date" id="rec_start_date" name="start_date" required value="<?php echo date('Y-m-d'); ?>">
-                                    </div>
-
-                                    <div class="form-row">
-                                        <div class="form-group">
-                                            <label for="rec_start_time">Start Time</label>
-                                            <input type="time" id="rec_start_time" name="start_time" required value="17:30">
-                                        </div>
-                                        <div class="form-group">
-                                            <label for="rec_end_time">End Time</label>
-                                            <input type="time" id="rec_end_time" name="end_time" required value="23:00">
-                                        </div>
-                                    </div>
-
-                                    <div class="form-row">
-                                        <div class="form-group">
-                                            <label for="recurrence_type">Recurrence Type</label>
-                                            <select id="recurrence_type" name="recurrence_type" onchange="toggleRecurrenceFields()" required>
-                                                <option value="weekly">Weekly (Every week)</option>
-                                                <option value="monthly">Monthly (Specific weeks)</option>
-                                            </select>
-                                        </div>
-                                        <div class="form-group">
-                                            <label for="day_of_week">Day of the Week</label>
-                                            <select id="day_of_week" name="day_of_week" required>
-                                                <option value="0">Sunday</option>
-                                                <option value="1">Monday</option>
-                                                <option value="2">Tuesday</option>
-                                                <option value="3" selected>Wednesday</option>
-                                                <option value="4">Thursday</option>
-                                                <option value="5">Friday</option>
-                                                <option value="6">Saturday</option>
-                                            </select>
-                                        </div>
-                                    </div>
-
-                                    <div id="monthly-weeks-container" class="form-group" style="display: none; background: rgba(0, 0, 0, 0.15); padding: 12px; border-radius: 8px; border: 1px solid var(--border-glass);">
-                                        <label style="margin-bottom: 8px; display: block; font-size: 0.85rem; font-weight: bold; color: var(--color-text-secondary);">Select Weeks of the Month:</label>
-                                        <div style="display: flex; flex-direction: column; gap: 8px;">
-                                            <div class="checkbox-group" style="display: flex; align-items: center; gap: 10px;">
-                                                <input type="checkbox" id="week_1st" name="monthly_weeks[]" value="1st" checked>
-                                                <label for="week_1st" style="text-transform: none; font-weight: normal; margin-bottom: 0;">First week of the month</label>
-                                            </div>
-                                            <div class="checkbox-group" style="display: flex; align-items: center; gap: 10px;">
-                                                <input type="checkbox" id="week_2nd" name="monthly_weeks[]" value="2nd">
-                                                <label for="week_2nd" style="text-transform: none; font-weight: normal; margin-bottom: 0;">Second week of the month</label>
-                                            </div>
-                                            <div class="checkbox-group" style="display: flex; align-items: center; gap: 10px;">
-                                                <input type="checkbox" id="week_3rd" name="monthly_weeks[]" value="3rd" checked>
-                                                <label for="week_3rd" style="text-transform: none; font-weight: normal; margin-bottom: 0;">Third week of the month</label>
-                                            </div>
-                                            <div class="checkbox-group" style="display: flex; align-items: center; gap: 10px;">
-                                                <input type="checkbox" id="week_4th" name="monthly_weeks[]" value="4th">
-                                                <label for="week_4th" style="text-transform: none; font-weight: normal; margin-bottom: 0;">Fourth week of the month</label>
-                                            </div>
-                                            <div class="checkbox-group" style="display: flex; align-items: center; gap: 10px;">
-                                                <input type="checkbox" id="week_last" name="monthly_weeks[]" value="last">
-                                                <label for="week_last" style="text-transform: none; font-weight: normal; margin-bottom: 0;">Last week of the month</label>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <button type="submit" name="action_create_recurring" class="btn btn-primary btn-block mt-10">Populate Recurring Events</button>
+                                    <button type="submit" name="action_create" id="create-submit" class="btn btn-primary btn-block">Add Event to Calendar</button>
                                 </form>
                             </div>
                         </div>
 
                         <script>
+                            // Make Recurring checkbox: swaps the form between single-event and
+                            // recurring-series mode.
+                            function toggleRecurring() {
+                                const recurring = document.getElementById('recurring').checked;
+                                document.getElementById('recurrence-options').style.display = recurring ? 'block' : 'none';
+                                document.getElementById('event-date-label').textContent = recurring ? 'Start Date' : 'Event Date';
+                                document.getElementById('create-submit').textContent = recurring ? 'Add Recurring Events to Calendar' : 'Add Event to Calendar';
+                                if (recurring) {
+                                    updateRecurrenceEndLimit();
+                                    toggleRecurrenceFields();
+                                }
+                            }
+
                             function toggleRecurrenceFields() {
                                 const type = document.getElementById('recurrence_type').value;
                                 const monthlyOpts = document.getElementById('monthly-weeks-container');
@@ -560,7 +544,25 @@ if (empty($createFormSlots)) {
                                     monthlyOpts.style.display = 'none';
                                 }
                             }
-                            document.addEventListener('DOMContentLoaded', toggleRecurrenceFields);
+
+                            // The recurrence window is capped at 4 months from the start date;
+                            // mirror the server-side limit in the date picker's min/max and
+                            // default the end date to that maximum when it's empty.
+                            function updateRecurrenceEndLimit() {
+                                const start = document.getElementById('event_date').value;
+                                const endInput = document.getElementById('recurrence_end_date');
+                                if (!start) return;
+                                const max = new Date(start + 'T00:00:00');
+                                max.setMonth(max.getMonth() + 4);
+                                endInput.min = start;
+                                endInput.max = max.toISOString().slice(0, 10);
+                                if (!endInput.value || endInput.value > endInput.max) {
+                                    endInput.value = endInput.max;
+                                }
+                            }
+
+                            document.getElementById('event_date').addEventListener('change', updateRecurrenceEndLimit);
+                            document.addEventListener('DOMContentLoaded', toggleRecurring);
 
                             // Indexes only need to be unique per form; start well above
                             // anything the server rendered.

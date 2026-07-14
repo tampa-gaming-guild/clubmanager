@@ -3,6 +3,15 @@
  * Provides general micro-interactions, form validation helpers, and client-side notifications.
  */
 
+// Flash messages arrive via PRG redirects' query strings (?success=/&error=);
+// scrub them from the URL after render so a refresh doesn't re-show them.
+if (window.location.search.includes('success=') || window.location.search.includes('error=')) {
+    const cleanUrl = new URL(window.location);
+    cleanUrl.searchParams.delete('success');
+    cleanUrl.searchParams.delete('error');
+    history.replaceState(null, '', cleanUrl);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     // 1. Alert Auto-Disposal — move page-level alerts into a fixed toast container
     const alerts = document.querySelectorAll('.alert:not(.terminal-alert)');
