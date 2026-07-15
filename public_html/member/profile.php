@@ -731,32 +731,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($hasPrivateAccess || $canManageCon
                     throw new Exception("This member does not have a registered email address.");
                 }
 
-                // 1. Generate secure token
-                $rawToken = bin2hex(random_bytes(32));
-                $hashedToken = hash('sha256', $rawToken);
-                $expiresAt = date('Y-m-d H:i:s', strtotime('+1 hour'));
+                // 1. Generate secure token + 6-digit code and save to password resets table
+                $reset = Auth::createPasswordSetupToken($email, '+1 hour');
 
-                // 2. Save to password resets table
-                $stmtReset = $appDb->prepare("
-                    INSERT INTO tgg_password_resets (email, token, expires_at)
-                    VALUES (:email, :token, :expires_at)
-                    ON DUPLICATE KEY UPDATE token = :token2, expires_at = :expires_at2
-                ");
-                $stmtReset->execute([
-                    'email' => $email,
-                    'token' => $hashedToken,
-                    'expires_at' => $expiresAt,
-                    'token2' => $hashedToken,
-                    'expires_at2' => $expiresAt
-                ]);
-
-                // 3. Send Email using Template
-                $resetLink = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/reset-password.php?token=' . $rawToken;
+                // 2. Send Email using Template
+                $resetLink = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/reset-password.php?token=' . $reset['token'];
                 $displayName = !empty(trim($settings['custom_display_name'] ?? '')) ? trim($settings['custom_display_name']) : $contact['display_name'];
                 $placeholders = [
                     'display_name' => $displayName,
                     'reset_link' => $resetLink,
-                    'reset_code' => $rawToken,
+                    'reset_code' => $reset['code'],
                     'expires_in' => '1 hour'
                 ];
 

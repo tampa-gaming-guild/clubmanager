@@ -81,12 +81,12 @@ if (empty($rawToken)) {
                 // link to the restored address. Best-effort -- the revert
                 // itself already succeeded.
                 try {
-                    $rawResetToken = Auth::createPasswordSetupToken($oldEmail, '+1 hour');
-                    $resetLink = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/reset-password.php?token=' . $rawResetToken;
+                    $reset = Auth::createPasswordSetupToken($oldEmail, '+1 hour');
+                    $resetLink = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/reset-password.php?token=' . $reset['token'];
                     MailHelper::sendTemplate($oldEmail, 'password_reset_link', [
                         'display_name' => $contact['display_name'] ?? 'Member',
                         'reset_link' => $resetLink,
-                        'reset_code' => $rawResetToken,
+                        'reset_code' => $reset['code'],
                         'expires_in' => '1 hour'
                     ], $contactId, null);
                 } catch (Exception $mailEx) {

@@ -416,7 +416,7 @@ class BillingHelper {
                     // first payment clears, send a welcome email with a link they can use to
                     // set one up if they ever want portal access -- it's optional, not required.
                     if ($action === 'join') {
-                        $rawToken = Auth::createPasswordSetupToken($contact['email'], '+7 days');
+                        $rawToken = Auth::createPasswordSetupToken($contact['email'], '+7 days')['token'];
                         $setPasswordLink = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/reset-password.php?token=' . $rawToken;
                         MailHelper::sendTemplate($contact['email'], 'signup', [
                             'display_name' => $contact['display_name'] ?? 'Member',
@@ -595,7 +595,7 @@ class BillingHelper {
             return;
         }
         try {
-            $rawToken = Auth::createPasswordSetupToken($email, '+7 days');
+            $rawToken = Auth::createPasswordSetupToken($email, '+7 days')['token'];
             $loginUrl = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/index.php';
             $setPasswordLink = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/reset-password.php?token=' . $rawToken;
             MailHelper::sendTemplate($email, 'trial_activated', [
@@ -781,7 +781,7 @@ class BillingHelper {
             // email sent after a self-service Stripe join (or, for Trial, after email verification).
             try {
                 $membership = self::getMemberSubscriptionDetails($newContactId);
-                $rawToken = Auth::createPasswordSetupToken($email, '+7 days');
+                $rawToken = Auth::createPasswordSetupToken($email, '+7 days')['token'];
                 $setPasswordLink = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/reset-password.php?token=' . $rawToken;
                 if ($isTrialActivation) {
                     $loginUrl = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/index.php';

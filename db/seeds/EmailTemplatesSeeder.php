@@ -36,8 +36,8 @@ final class EmailTemplatesSeeder extends AbstractSeed
             [
                 'template_key' => 'password_reset_link',
                 'subject' => 'Reset Your TGG Portal Password',
-                'body' => '<h2>Password Reset Request</h2><p>Hello, {display_name},</p><p>We received a request to reset the password for your TGG Membership Portal account.</p><p>To reset your password, please click the link below:</p><p><a href="{reset_link}">{reset_link}</a></p><p>You can enter this reset code manually in the app:<br><code>{reset_code}</code></p><p>This code and link are secure and will expire in <strong>{expires_in}</strong>.</p><p>If you did not request a password reset, you can safely ignore this email.</p><p>Best regards,<br>TGG Club Team</p>',
-                'description' => 'Sent when a user requests a password reset link.',
+                'body' => '<h2>Password Reset Request</h2><p>Hello, {display_name},</p><p>We received a request to reset the password for your TGG Membership Portal account.</p><p>To reset your password, please click the link below:</p><p><a href="{reset_link}">{reset_link}</a></p><p>Or enter this code on the reset page, along with your email address:</p><p style="font-family: \'Courier New\', Courier, monospace; font-size: 28px; font-weight: bold; letter-spacing: 6px; margin: 16px 0;">{reset_code}</p><p>This code and link will expire in <strong>{expires_in}</strong>.</p><p>If you did not request a password reset, you can safely ignore this email.</p><p>Best regards,<br>TGG Club Team</p>',
+                'description' => 'Sent when a user requests a password reset link, with a short numeric code as an alternative to the link.',
             ],
             [
                 'template_key' => 'password_reset_completed',

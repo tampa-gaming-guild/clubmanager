@@ -178,35 +178,42 @@ class Auth {
 
     /**
      * Generate a password setup/reset token for an email address, storing its hash in
-     * tgg_password_resets, and return the raw token to embed in an emailed link.
+     * tgg_password_resets, and return the raw token to embed in an emailed link,
+     * along with a short 6-digit code the user can type on enter-code.php instead.
      * Used both for "forgot password" requests and for "set up your portal password"
      * links sent after a new member joins (members aren't required to have a password).
      * @param string $email
      * @param string $expiresIn A strtotime()-compatible relative expiry, e.g. '+1 hour'
-     * @return string The raw (unhashed) token
+     * @return array{token: string, code: string} The raw (unhashed) token and code
      */
-    public static function createPasswordSetupToken(string $email, string $expiresIn = '+1 hour'): string {
+    public static function createPasswordSetupToken(string $email, string $expiresIn = '+1 hour'): array {
         $appDb = Database::getAppConnection();
         $email = trim(strtolower($email));
 
         $rawToken = bin2hex(random_bytes(32));
         $hashedToken = hash('sha256', $rawToken);
+        $rawCode = str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+        $hashedCode = hash('sha256', $rawCode);
         $expiresAt = date('Y-m-d H:i:s', strtotime($expiresIn));
 
+        // code_attempts resets to 0 on re-request so a fresh code never
+        // inherits a prior row's strike count.
         $stmt = $appDb->prepare("
-            INSERT INTO tgg_password_resets (email, token, expires_at)
-            VALUES (:email, :token, :expires_at)
-            ON DUPLICATE KEY UPDATE token = :token2, expires_at = :expires_at2
+            INSERT INTO tgg_password_resets (email, token, code, code_attempts, expires_at)
+            VALUES (:email, :token, :code, 0, :expires_at)
+            ON DUPLICATE KEY UPDATE token = :token2, code = :code2, code_attempts = 0, expires_at = :expires_at2
         ");
         $stmt->execute([
             'email' => $email,
             'token' => $hashedToken,
+            'code' => $hashedCode,
             'expires_at' => $expiresAt,
             'token2' => $hashedToken,
+            'code2' => $hashedCode,
             'expires_at2' => $expiresAt
         ]);
 
-        return $rawToken;
+        return ['token' => $rawToken, 'code' => $rawCode];
     }
 
     /**

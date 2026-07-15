@@ -35,20 +35,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $contactId = (int)$civiRow['id'];
                     $displayName = $civiRow['display_name'] ?? 'Member';
 
-                    // 2. Generate secure token and save to password resets table
-                    $rawToken = Auth::createPasswordSetupToken($email, '+1 hour');
+                    // 2. Generate secure token + 6-digit code and save to password resets table
+                    $reset = Auth::createPasswordSetupToken($email, '+1 hour');
 
                     // 3. Send Email using Template
-                    $resetLink = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/reset-password.php?token=' . $rawToken;
+                    $resetLink = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/reset-password.php?token=' . $reset['token'];
                     $placeholders = [
                         'display_name' => $displayName,
                         'reset_link' => $resetLink,
-                        'reset_code' => $rawToken,
+                        'reset_code' => $reset['code'],
                         'expires_in' => '1 hour'
                     ];
 
                     MailHelper::sendTemplate($email, 'password_reset_link', $placeholders, $contactId, null);
                 }
+
+                // Prefill for enter-code.php. Set regardless of whether the email
+                // matched a contact, so it doesn't leak account existence.
+                $_SESSION['password_reset_email'] = $email;
 
                 // Redirect to code entry page
                 redirect('enter-code.php?sent=1');
@@ -102,7 +106,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </form>
 
                     <div class="auth-footer">
-                        <p><a href="reset-password.php">Already have a reset code? Enter it manually</a></p>
+                        <p><a href="enter-code.php">Already have a reset code? Enter it manually</a></p>
                         <p><a href="index.php">Back to Sign In</a></p>
                     </div>
                 <?php endif; ?>
