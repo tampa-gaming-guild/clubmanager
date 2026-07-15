@@ -70,6 +70,9 @@ class MailHelper {
             $mail->addAddress($to);
 
             // Content Format
+            // PHPMailer defaults to ISO-8859-1; template bodies and member
+            // names are UTF-8 (em-dashes, accented characters)
+            $mail->CharSet = PHPMailer::CHARSET_UTF8;
             $mail->isHTML(true);
             $mail->Subject = $subject;
             $mail->Body    = $body;

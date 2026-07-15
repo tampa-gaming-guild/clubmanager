@@ -88,6 +88,36 @@ final class EmailTemplatesSeeder extends AbstractSeed
                 'description' => 'Sent once after a member\'s grace period ends and they have not renewed, for members without a failed auto-renewal (those get auto_renew_expired instead).',
             ],
             [
+                'template_key' => 'email_change_verification',
+                'subject' => 'Confirm Your New TGG Portal Email Address',
+                'body' => '<h2>Hello, {display_name}!</h2><p>A request was made to change the login email for the TGG account currently registered to <strong>{old_email}</strong> to this address (<strong>{new_email}</strong>).</p><p>Click the link below to confirm the change:</p><p><a href="{verify_link}">{verify_link}</a></p><p>This link will expire in <strong>{expires_in}</strong>. Your email will not change until you click it.</p><p>If you did not request this, you can safely ignore this email — nothing will change.</p><p>Best regards,<br>TGG Club Team</p>',
+                'description' => 'Sent to the NEW address when a member requests an email change, asking them to confirm before the change takes effect.',
+            ],
+            [
+                'template_key' => 'email_change_requested',
+                'subject' => 'Security Alert: Email Change Requested on Your TGG Account',
+                'body' => '<h2>Hello, {display_name},</h2><p>A request was made to change your TGG portal login email to <strong>{new_email}</strong>. Your email has <strong>NOT</strong> changed yet — the request expires in <strong>{expires_in}</strong> unless it is confirmed from the new address.</p><p>If this was you, check the new address\'s inbox for a confirmation link. No further action is needed here.</p><p><strong>If this was NOT you:</strong></p><ol><li>Cancel the change immediately (no login required): <a href="{cancel_link}">{cancel_link}</a></li><li>Then reset your password right away, because whoever requested this knows your current password: <a href="{reset_link}">{reset_link}</a></li></ol><p>Best regards,<br>TGG Club Team</p>',
+                'description' => 'Security alarm sent to the OLD address when an email change is requested, with a one-click cancel link and password reset guidance.',
+            ],
+            [
+                'template_key' => 'email_change_completed',
+                'subject' => 'Your TGG Portal Login Email Was Changed',
+                'body' => '<h2>Hello, {display_name},</h2><p>Your TGG portal login email was changed from <strong>{old_email}</strong> to <strong>{new_email}</strong>. This address no longer works for portal login.</p><p><strong>If you did not do this</strong>, click the link below within <strong>{revert_expires}</strong> to restore this address and lock the intruder out — then reset your password immediately, because whoever changed your email knew your password:</p><p><a href="{revert_link}">{revert_link}</a></p><p>If the link has expired, contact an administrator immediately.</p><p>Best regards,<br>TGG Club Team</p>',
+                'description' => 'Sent to the OLD address when a member-verified email change completes, with a time-limited revert link for account takeover recovery.',
+            ],
+            [
+                'template_key' => 'email_change_admin_notice',
+                'subject' => 'Your TGG Portal Login Email Was Updated',
+                'body' => '<h2>Hello, {display_name},</h2><p>A staff member updated your TGG portal login email to this address (<strong>{new_email}</strong>).</p><p>Use this address to log in from now on. Your password has not changed.</p><p>If this is unexpected, please contact an administrator.</p><p>Best regards,<br>TGG Club Team</p>',
+                'description' => 'Sent to the NEW address when a staff member directly updates a member\'s login email.',
+            ],
+            [
+                'template_key' => 'email_change_staff_notice',
+                'subject' => 'Your TGG Portal Login Email Was Changed by Staff',
+                'body' => '<h2>Hello, {display_name},</h2><p>A staff member changed your TGG portal login email from <strong>{old_email}</strong> to <strong>{new_email}</strong>. This address no longer works for portal login.</p><p>If this change is unexpected, please contact an administrator.</p><p>Best regards,<br>TGG Club Team</p>',
+                'description' => 'Sent to the OLD address when a staff member directly updates a member\'s login email. Deliberately has no revert link — a stranger at a mistyped old address must not be able to undo a staff fix.',
+            ],
+            [
                 'template_key' => 'rate_retired',
                 'subject' => 'Your TGG Membership Rate is Changing',
                 'body' => '<h2>Hello, {display_name}!</h2><p>The <strong>${old_price}/{billing_frequency}</strong> rate on your <strong>{tier_name}</strong> membership is being retired.</p><p>Starting <strong>{effective_date}</strong> (the start of your next billing period), your rate will be <strong>${new_price}/{billing_frequency}</strong>.</p><p>Your current membership period, through <strong>{end_date}</strong>, is not affected.</p><p>Best regards,<br>TGG Club Team</p>',

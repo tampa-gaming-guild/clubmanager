@@ -29,6 +29,40 @@ class BillingHelper {
 
 
     /**
+     * Best-effort sync of a contact's new email onto their Stripe Customer
+     * record(s), so Stripe-sent receipts reach the right inbox. A contact can
+     * have zero or more customer ids on tgg_subscriptions rows (each checkout
+     * historically minted a new customer); only those stored rows matter for
+     * charging. Failures are logged and never thrown -- Stripe customer email
+     * is cosmetic and must never block a local email change.
+     * @param int $contactId
+     * @param string $newEmail
+     */
+    public static function syncStripeCustomerEmail(int $contactId, string $newEmail): void {
+        try {
+            $db = Database::getAppConnection();
+            $stmt = $db->prepare("
+                SELECT DISTINCT stripe_customer_id FROM tgg_subscriptions
+                WHERE contact_id = :id AND stripe_customer_id IS NOT NULL AND stripe_customer_id != ''
+            ");
+            $stmt->execute(['id' => $contactId]);
+            $customerIds = $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        } catch (Exception $e) {
+            error_log("syncStripeCustomerEmail: failed to look up customer ids for contact {$contactId}: " . $e->getMessage());
+            return;
+        }
+
+        foreach ($customerIds as $customerId) {
+            try {
+                StripeHelper::updateCustomer($customerId, ['email' => $newEmail]);
+            } catch (Exception $e) {
+                error_log("syncStripeCustomerEmail: failed to update Stripe customer {$customerId} for contact {$contactId}: " . $e->getMessage());
+            }
+        }
+    }
+
+
+    /**
      * Add a number of calendar months/years to a date and subtract one day, giving the
      * last day of an N-month/year membership period that starts on $startDate (e.g. a
      * 1-month join on 2026-06-05 ends 2026-07-04; a 1-month renewal starting the day

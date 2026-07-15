@@ -10,6 +10,7 @@ use App\EventSlot;
 use App\MembershipService;
 use App\Auth;
 use App\MailHelper;
+use App\BillingHelper;
 
 $errorMsg = null;
 $successMsg = null;
@@ -104,6 +105,19 @@ $isOwner = Auth::check() && $_SESSION['user']['contact_id'] === $profileId;
 $isAdmin = has_permission('admin panel');
 $hasPrivateAccess = $isOwner || $isAdmin;
 $canViewBilling = $isOwner || has_permission('process payments');
+$canManageContact = $isOwner || $isAdmin || has_permission('process payments');
+
+// Fetch any pending (unexpired) email change request for display
+$pendingEmailChange = null;
+if ($canManageContact && $appDb) {
+    try {
+        $pendingStmt = $appDb->prepare("SELECT new_email, expires_at FROM tgg_email_change_requests WHERE contact_id = :id AND expires_at > NOW() LIMIT 1");
+        $pendingStmt->execute(['id' => $profileId]);
+        $pendingEmailChange = $pendingStmt->fetch() ?: null;
+    } catch (Exception $e) {
+        $errorMsg = safe_err(($errorMsg ? $errorMsg . " | " : "") . "Failed to load pending email change: ", $e);
+    }
+}
 
 // 3. Privacy Gate
 if (!$settings['is_profile_public'] && !$hasPrivateAccess && !$canViewBilling) {
@@ -320,13 +334,13 @@ if ($hasPrivateAccess && $appDb) {
     }
 }
 
-// 4. Handle Settings Updates (Only owner or admin)
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
+// 4. Handle Settings Updates (Owner, admin, or contact-managing staff)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($hasPrivateAccess || $canManageContact)) {
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
         $errorMsg = "Invalid security token. Please try again.";
     } else {
         // A. Handle Privacy Toggles
-        if (isset($_POST['privacy_update'])) {
+        if (isset($_POST['privacy_update']) && $hasPrivateAccess) {
             $isPublic = isset($_POST['is_profile_public']) ? 1 : 0;
             $allowedFields = $_POST['public_fields'] ?? [];
             $customDisplayName = trim($_POST['custom_display_name'] ?? '');
@@ -378,7 +392,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
         }
 
         // A0. Handle Auto-Renew Toggle
-        if (isset($_POST['auto_renew_update'])) {
+        if (isset($_POST['auto_renew_update']) && $hasPrivateAccess) {
             $newAutoRenew = isset($_POST['auto_renew']) ? 1 : 0;
             try {
                 if (empty($subBilling['stripe_customer_id']) || empty($subBilling['stripe_payment_method_id'])) {
@@ -394,7 +408,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
         }
 
         // A0b. Handle Bulk Email Opt-Out Toggle
-        if (isset($_POST['opt_out_update'])) {
+        if (isset($_POST['opt_out_update']) && $hasPrivateAccess) {
             $newOptOut = isset($_POST['is_opt_out']) ? 1 : 0;
             try {
                 $update = $appDb->prepare("UPDATE tgg_contacts SET is_opt_out = :is_opt_out WHERE id = :id");
@@ -403,6 +417,188 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasPrivateAccess) {
                 $successMsg = $newOptOut ? "Opted out of bulk emails." : "Opted back in to bulk emails.";
             } catch (Exception $e) {
                 $errorMsg = safe_err("Failed to update email preference: ", $e);
+            }
+        }
+
+        // A0c. Handle Phone Update (Owner or contact-managing staff)
+        if (isset($_POST['phone_update']) && $canManageContact) {
+            $rawPhone = trim($_POST['phone'] ?? '');
+            try {
+                if ($rawPhone === '') {
+                    $update = $appDb->prepare("UPDATE tgg_contacts SET phone = NULL WHERE id = :id");
+                    $update->execute(['id' => $profileId]);
+                    $contact['phone'] = null;
+                    $successMsg = "Phone number removed.";
+                } else {
+                    $digits = normalize_phone($rawPhone);
+                    if (strlen($digits) !== 10) {
+                        throw new Exception("Please enter a 10-digit US phone number.");
+                    }
+                    $update = $appDb->prepare("UPDATE tgg_contacts SET phone = :phone WHERE id = :id");
+                    $update->execute(['phone' => $digits, 'id' => $profileId]);
+                    $contact['phone'] = $digits;
+                    $successMsg = "Phone number updated.";
+                }
+            } catch (Exception $e) {
+                $errorMsg = safe_err("Failed to update phone number: ", $e);
+            }
+        }
+
+        // A0d. Handle Email Change Request (Owner only -- requires verification
+        // from the new address before anything changes, since email is the login)
+        if (isset($_POST['request_email_change']) && $isOwner) {
+            $newEmail = trim(strtolower($_POST['new_email'] ?? ''));
+            try {
+                if (!filter_var($newEmail, FILTER_VALIDATE_EMAIL) || strlen($newEmail) > 254) {
+                    throw new Exception("Please enter a valid email address.");
+                }
+                if ($newEmail === trim(strtolower($contact['email'] ?? ''))) {
+                    throw new Exception("That is already your current email address.");
+                }
+
+                // Re-authenticate: changing the login identifier must not be
+                // possible from an unattended session alone
+                $pwStmt = $appDb->prepare("SELECT password_hash FROM tgg_member_settings WHERE contact_id = :id LIMIT 1");
+                $pwStmt->execute(['id' => $profileId]);
+                $pwRow = $pwStmt->fetch();
+                if (!$pwRow || !password_verify($_POST['current_password'] ?? '', $pwRow['password_hash'])) {
+                    throw new Exception("Current password is incorrect.");
+                }
+
+                // No unique index on tgg_contacts.email, so enforce at app level
+                // (checked again at verification time to close the race window)
+                $dupStmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE email = :email AND is_deleted = 0 AND id != :id LIMIT 1");
+                $dupStmt->execute(['email' => $newEmail, 'id' => $profileId]);
+                if ($dupStmt->fetch()) {
+                    throw new Exception("That email address is already in use by another member.");
+                }
+
+                $rawToken = bin2hex(random_bytes(32));
+                $rawCancelToken = bin2hex(random_bytes(32));
+                $expiresAt = date('Y-m-d H:i:s', strtotime('+1 hour'));
+                $oldEmail = trim(strtolower($contact['email']));
+
+                $stmtReq = $appDb->prepare("
+                    INSERT INTO tgg_email_change_requests (contact_id, new_email, old_email, token, cancel_token, expires_at)
+                    VALUES (:contact_id, :new_email, :old_email, :token, :cancel_token, :expires_at)
+                    ON DUPLICATE KEY UPDATE new_email = :new_email2, old_email = :old_email2, token = :token2, cancel_token = :cancel_token2, expires_at = :expires_at2
+                ");
+                $stmtReq->execute([
+                    'contact_id' => $profileId,
+                    'new_email' => $newEmail,
+                    'old_email' => $oldEmail,
+                    'token' => hash('sha256', $rawToken),
+                    'cancel_token' => hash('sha256', $rawCancelToken),
+                    'expires_at' => $expiresAt,
+                    'new_email2' => $newEmail,
+                    'old_email2' => $oldEmail,
+                    'token2' => hash('sha256', $rawToken),
+                    'cancel_token2' => hash('sha256', $rawCancelToken),
+                    'expires_at2' => $expiresAt
+                ]);
+
+                $baseUrl = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/');
+                $displayName = !empty(trim($settings['custom_display_name'] ?? '')) ? trim($settings['custom_display_name']) : $contact['display_name'];
+
+                // Verification link to the NEW address -- a send failure here
+                // must surface, the flow is dead without it
+                MailHelper::sendTemplate($newEmail, 'email_change_verification', [
+                    'display_name' => $displayName,
+                    'old_email' => $oldEmail,
+                    'new_email' => $newEmail,
+                    'verify_link' => $baseUrl . '/verify-email-change.php?token=' . $rawToken,
+                    'expires_in' => '1 hour'
+                ], $profileId, $_SESSION['user']['contact_id']);
+
+                // Takeover alarm to the OLD address -- best-effort
+                try {
+                    MailHelper::sendTemplate($oldEmail, 'email_change_requested', [
+                        'display_name' => $displayName,
+                        'new_email' => $newEmail,
+                        'expires_in' => '1 hour',
+                        'cancel_link' => $baseUrl . '/cancel-email-change.php?token=' . $rawCancelToken,
+                        'reset_link' => $baseUrl . '/forgot-password.php'
+                    ], $profileId, $_SESSION['user']['contact_id']);
+                } catch (Exception $alarmEx) {
+                    error_log("Failed to send email-change alarm to old address for contact {$profileId}: " . $alarmEx->getMessage());
+                }
+
+                $successMsg = "Verification link sent to {$newEmail}. Your email will not change until you click it (expires in 1 hour).";
+            } catch (Exception $e) {
+                $errorMsg = safe_err("Failed to request email change: ", $e);
+            }
+        }
+
+        // A0e. Handle Cancel Pending Email Change (Owner or contact-managing staff)
+        if (isset($_POST['cancel_email_change']) && $canManageContact) {
+            try {
+                $del = $appDb->prepare("DELETE FROM tgg_email_change_requests WHERE contact_id = :id");
+                $del->execute(['id' => $profileId]);
+                $successMsg = "Pending email change cancelled.";
+            } catch (Exception $e) {
+                $errorMsg = safe_err("Failed to cancel email change: ", $e);
+            }
+        }
+
+        // A0f. Handle Staff Direct Email Update (contact-managing staff on
+        // someone else's profile -- immediate, no verification; both the old
+        // and new addresses are notified)
+        if (isset($_POST['staff_contact_update']) && $canManageContact && !$isOwner) {
+            $newEmail = trim(strtolower($_POST['new_email'] ?? ''));
+            try {
+                // Email is the login identifier: changing a superadmin's email is
+                // account takeover of that login, so mirror the role_update rule
+                if (in_array('superadmin', $memberRoles, true) && !has_role('superadmin')) {
+                    throw new Exception("Only superadmins can change a superadmin's email address.");
+                }
+                if (!filter_var($newEmail, FILTER_VALIDATE_EMAIL) || strlen($newEmail) > 254) {
+                    throw new Exception("Please enter a valid email address.");
+                }
+
+                $oldEmail = trim(strtolower($contact['email'] ?? ''));
+                if ($newEmail === $oldEmail) {
+                    throw new Exception("That is already this member's email address.");
+                }
+
+                $dupStmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE email = :email AND is_deleted = 0 AND id != :id LIMIT 1");
+                $dupStmt->execute(['email' => $newEmail, 'id' => $profileId]);
+                if ($dupStmt->fetch()) {
+                    throw new Exception("That email address is already in use by another member.");
+                }
+
+                $update = $appDb->prepare("UPDATE tgg_contacts SET email = :email WHERE id = :id");
+                $update->execute(['email' => $newEmail, 'id' => $profileId]);
+
+                // A staff fix supersedes any in-flight member request AND any
+                // outstanding revert token -- neither may later undo it
+                $appDb->prepare("DELETE FROM tgg_email_change_requests WHERE contact_id = :id")->execute(['id' => $profileId]);
+                $appDb->prepare("DELETE FROM tgg_email_change_reverts WHERE contact_id = :id")->execute(['id' => $profileId]);
+
+                $contact['email'] = $newEmail;
+                BillingHelper::syncStripeCustomerEmail($profileId, $newEmail);
+
+                $displayName = !empty(trim($settings['custom_display_name'] ?? '')) ? trim($settings['custom_display_name']) : $contact['display_name'];
+                try {
+                    MailHelper::sendTemplate($oldEmail, 'email_change_staff_notice', [
+                        'display_name' => $displayName,
+                        'old_email' => $oldEmail,
+                        'new_email' => $newEmail
+                    ], $profileId, $_SESSION['user']['contact_id']);
+                } catch (Exception $mailEx) {
+                    error_log("Failed to send staff email-change notice to old address for contact {$profileId}: " . $mailEx->getMessage());
+                }
+                try {
+                    MailHelper::sendTemplate($newEmail, 'email_change_admin_notice', [
+                        'display_name' => $displayName,
+                        'new_email' => $newEmail
+                    ], $profileId, $_SESSION['user']['contact_id']);
+                } catch (Exception $mailEx) {
+                    error_log("Failed to send staff email-change notice to new address for contact {$profileId}: " . $mailEx->getMessage());
+                }
+
+                $successMsg = "Email address updated. Both the old and new addresses have been notified.";
+            } catch (Exception $e) {
+                $errorMsg = safe_err("Failed to update email address: ", $e);
             }
         }
 
@@ -808,7 +1004,14 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                     <table class="profile-data-table">
                                         <tr>
                                             <td><strong>Email:</strong></td>
-                                            <td><a href="mailto:<?php echo e($contact['email']); ?>"><?php echo e($contact['email']); ?></a></td>
+                                            <td>
+                                                <a href="mailto:<?php echo e($contact['email']); ?>"><?php echo e($contact['email']); ?></a>
+                                                <?php if ($pendingEmailChange): ?>
+                                                    <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 4px;">
+                                                        Pending change to <strong><?php echo e($pendingEmailChange['new_email']); ?></strong> &mdash; confirm from that inbox (expires <?php echo date('g:i A, M j', strtotime($pendingEmailChange['expires_at'])); ?>)
+                                                    </div>
+                                                <?php endif; ?>
+                                            </td>
                                         </tr>
                                         <tr>
                                             <td><strong>Phone:</strong></td>
@@ -831,9 +1034,10 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                             </div>
                         </div>
 
-                        <!-- Right Panel: Management (Only for Owner or Admin) -->
-                        <?php if ($hasPrivateAccess): ?>
+                        <!-- Right Panel: Management (Owner, admin, or contact-managing staff) -->
+                        <?php if ($hasPrivateAccess || $canManageContact): ?>
                             <div class="profile-actions-column">
+                                <?php if ($hasPrivateAccess): ?>
                                 <!-- Privacy Settings Panel -->
                                 <div class="management-card">
                                     <h4>Profile Privacy Preferences</h4>
@@ -880,7 +1084,66 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                         <button type="submit" name="opt_out_update" class="btn btn-success btn-block mt-15">Save Email Preferences</button>
                                     </form>
                                 </div>
+                                <?php endif; ?>
 
+                                <!-- Contact Details Panel (Owner, admin, or contact-managing staff) -->
+                                <div class="management-card <?php echo $hasPrivateAccess ? 'mt-20' : ''; ?>">
+                                    <h4>Contact Details</h4>
+
+                                    <form action="profile.php?id=<?php echo $profileId; ?>" method="POST" class="settings-form">
+                                        <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                        <div class="form-group">
+                                            <label for="phone" style="display: block; font-size: 0.85rem; margin-bottom: 5px; color: rgba(255,255,255,0.85);">Phone Number</label>
+                                            <input type="tel" id="phone" name="phone" value="<?php echo e($contact['phone'] ? format_phone($contact['phone']) : ''); ?>" placeholder="(813) 555-0123">
+                                            <p style="font-size: 0.75rem; color: rgba(255,255,255,0.6); margin-top: 5px;">US 10-digit number; leave blank to remove.</p>
+                                        </div>
+                                        <button type="submit" name="phone_update" class="btn btn-success btn-block">Save Phone Number</button>
+                                    </form>
+
+                                    <hr style="border-color: rgba(255,255,255,0.1); margin: 20px 0;">
+
+                                    <?php if ($pendingEmailChange): ?>
+                                        <div class="alert alert-warning" style="font-size: 0.85rem;">
+                                            Pending change to <strong><?php echo e($pendingEmailChange['new_email']); ?></strong>, awaiting confirmation from that inbox (expires <?php echo date('g:i A, M j', strtotime($pendingEmailChange['expires_at'])); ?>).
+                                        </div>
+                                        <form action="profile.php?id=<?php echo $profileId; ?>" method="POST" style="margin-bottom: 15px;">
+                                            <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                            <button type="submit" name="cancel_email_change" class="btn btn-secondary btn-block">Cancel Pending Email Change</button>
+                                        </form>
+                                    <?php endif; ?>
+
+                                    <?php if ($isOwner): ?>
+                                        <p style="font-size: 0.85rem; color: rgba(255, 255, 255, 0.75); margin-bottom: 15px; line-height: 1.4;">
+                                            To change your login email, enter the new address and your current password. A verification link will be sent to the new address &mdash; your email won't change until you click it.<?php if ($pendingEmailChange): ?> Submitting again replaces the pending request.<?php endif; ?>
+                                        </p>
+                                        <form action="profile.php?id=<?php echo $profileId; ?>" method="POST" class="settings-form">
+                                            <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                            <div class="form-group">
+                                                <label for="new_email" style="display: block; font-size: 0.85rem; margin-bottom: 5px; color: rgba(255,255,255,0.85);">New Email Address</label>
+                                                <input type="email" id="new_email" name="new_email" required placeholder="new@example.com" autocomplete="off">
+                                            </div>
+                                            <div class="form-group" style="margin-top: 10px;">
+                                                <label for="current_password" style="display: block; font-size: 0.85rem; margin-bottom: 5px; color: rgba(255,255,255,0.85);">Confirm Current Password</label>
+                                                <input type="password" id="current_password" name="current_password" required placeholder="••••••••" autocomplete="current-password">
+                                            </div>
+                                            <button type="submit" name="request_email_change" class="btn btn-warning btn-block mt-15">Send Verification Link</button>
+                                        </form>
+                                    <?php else: ?>
+                                        <p style="font-size: 0.85rem; color: rgba(255, 255, 255, 0.75); margin-bottom: 15px; line-height: 1.4;">
+                                            <strong>Staff:</strong> this changes the member's login email immediately; both the old and new addresses will be notified.
+                                        </p>
+                                        <form action="profile.php?id=<?php echo $profileId; ?>" method="POST" class="settings-form" data-confirm="Change this member's login email immediately? Both addresses will be notified.">
+                                            <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                            <div class="form-group">
+                                                <label for="new_email" style="display: block; font-size: 0.85rem; margin-bottom: 5px; color: rgba(255,255,255,0.85);">Email Address</label>
+                                                <input type="email" id="new_email" name="new_email" required value="<?php echo e($contact['email']); ?>">
+                                            </div>
+                                            <button type="submit" name="staff_contact_update" class="btn btn-warning btn-block mt-15">Update Email Address</button>
+                                        </form>
+                                    <?php endif; ?>
+                                </div>
+
+                                <?php if ($hasPrivateAccess): ?>
                                 <!-- Password Reset Panel -->
                                 <div class="management-card mt-20">
                                     <h4>Portal Password Reset</h4>
@@ -892,6 +1155,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                         <button type="submit" name="trigger_password_reset" class="btn btn-warning btn-block">Send Password Reset Email</button>
                                     </form>
                                 </div>
+                                <?php endif; ?>
 
                                 <!-- Admin Role Assignment Card -->
                                 <?php if ($isAdmin): ?>

@@ -158,6 +158,43 @@ class StripeHelper {
     }
 
     /**
+     * Update an existing Stripe Customer (e.g. keep its email in sync after a
+     * local email change so Stripe-sent receipts reach the right inbox).
+     * Cosmetic only -- off-session charging keys off the stored customer id,
+     * never the customer's email.
+     * @param string $customerId Stripe Customer ID (cus_...)
+     * @param array $fields Fields to update, e.g. ['email' => ...]
+     * @return array Customer object response from Stripe
+     * @throws Exception
+     */
+    public static function updateCustomer(string $customerId, array $fields): array {
+        $secretKey = $_ENV['STRIPE_SECRET_KEY'] ?? '';
+        if (empty($secretKey)) {
+            throw new Exception("Stripe Secret Key is not configured in environment.");
+        }
+
+        $ch = curl_init("https://api.stripe.com/v1/customers/" . urlencode($customerId));
+        curl_setopt($ch, CURLOPT_USERPWD, $secretKey . ":");
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($fields));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/x-www-form-urlencoded']);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $data = json_decode($response, true);
+
+        if ($httpCode !== 200) {
+            $error = $data['error']['message'] ?? 'Unknown Stripe Customer Error';
+            throw new Exception("Stripe API Error: " . $error);
+        }
+
+        return $data;
+    }
+
+    /**
      * Retrieve a Checkout Session from Stripe (used to verify payments on success page redirect)
      * @param string $sessionId Stripe Checkout Session ID
      * @return array

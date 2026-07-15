@@ -109,6 +109,13 @@ if (empty($rawToken)) {
                         $stmtDelete = $appDb->prepare("DELETE FROM tgg_password_resets WHERE email = :email");
                         $stmtDelete->execute(['email' => $email]);
 
+                        // 3b. Void any pending email change: a password reset is
+                        // the member's recovery action, and a still-live change
+                        // verification link (possibly attacker-initiated) must
+                        // not complete after they've re-secured the account.
+                        $stmtVoidChange = $appDb->prepare("DELETE FROM tgg_email_change_requests WHERE contact_id = :contact_id");
+                        $stmtVoidChange->execute(['contact_id' => $contactId]);
+
                         $appDb->commit();
 
                         // 4. Send Confirmation Email

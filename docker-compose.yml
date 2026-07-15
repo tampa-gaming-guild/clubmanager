@@ -25,9 +25,15 @@ services:
     image: axllent/mailpit:latest
     container_name: tgg-mailpit
     restart: unless-stopped
+    environment:
+      # Persist messages across container restarts -- without this the
+      # message store lives inside the container and every restart wipes it.
+      MP_DATABASE: /data/mailpit.db
     ports:
       - "8025:8025" # Web UI
       - "1025:1025" # SMTP
+    volumes:
+      - mailpit_data:/data
 
   app:
     build:
@@ -58,3 +64,4 @@ services:
 volumes:
   db_data:
   vendor_data:
+  mailpit_data:
