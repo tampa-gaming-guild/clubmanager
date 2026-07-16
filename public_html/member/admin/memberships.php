@@ -7,6 +7,7 @@
 require_once dirname(dirname(dirname(__DIR__))) . '/config/bootstrap.php';
 
 use App\Auth;
+use App\AuditLog;
 use App\BillingHelper;
 
 Auth::requirePermission('manage configuration');
@@ -67,6 +68,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_plan'])) {
             ];
 
             $result = BillingHelper::savePlan($data);
+
+            AuditLog::log('rates', 'plan_saved', [
+                'plan_id' => $result['plan_id'],
+                'name' => $name,
+                'price' => $price,
+                'active' => $active,
+                'new_rate_created' => $result['new_rate_created'],
+                'effective_date' => $result['effective_date']
+            ]);
+
             if ($result['new_rate_created']) {
                 $successMsg = "Membership level updated. New rate added, effective " . date('F j, Y', strtotime($result['effective_date'])) . ".";
             } else {

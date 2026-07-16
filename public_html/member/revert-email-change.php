@@ -13,6 +13,7 @@ require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
 use App\Database;
 use App\Auth;
+use App\AuditLog;
 use App\MailHelper;
 use App\BillingHelper;
 
@@ -28,7 +29,7 @@ if (empty($rawToken)) {
     try {
         $appDb = Database::getAppConnection();
 
-        $stmt = $appDb->prepare("SELECT id, contact_id, old_email, expires_at FROM tgg_email_change_reverts WHERE token = :token LIMIT 1");
+        $stmt = $appDb->prepare("SELECT id, contact_id, old_email, new_email, expires_at FROM tgg_email_change_reverts WHERE token = :token LIMIT 1");
         $stmt->execute(['token' => $hashedToken]);
         $revert = $stmt->fetch();
 
@@ -70,6 +71,12 @@ if (empty($rawToken)) {
                     if ($appDb->inTransaction()) $appDb->rollBack();
                     throw $txEx;
                 }
+
+                // Token-link flow with no session; attribute to the account owner.
+                AuditLog::log('security', 'email_change_reverted', [
+                    'restored_email' => $oldEmail,
+                    'reverted_email' => $revert['new_email']
+                ], $contactId, $contactId);
 
                 if (Auth::check() && (int)$_SESSION['user']['contact_id'] === $contactId) {
                     $_SESSION['user']['email'] = $oldEmail;

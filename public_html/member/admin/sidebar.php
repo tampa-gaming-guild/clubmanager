@@ -35,12 +35,13 @@ $current_page = basename($_SERVER['PHP_SELF']);
         <?php endif; ?>
         
         <?php 
-        $reports_active = in_array($current_page, ['reports.php', 'payments.php', 'attendance.php', 'email_log.php', 'autorenew_log.php']);
+        $reports_active = in_array($current_page, ['reports.php', 'payments.php', 'attendance.php', 'email_log.php', 'autorenew_log.php', 'audit_log.php']);
         $show_payments = has_permission('process payments');
         $show_attendance = has_permission('edit checkins');
         $show_email_log = has_permission('all');
-        
-        if ($show_payments || $show_attendance || $show_email_log):
+        $show_audit_log = has_permission('admin panel');
+
+        if ($show_payments || $show_attendance || $show_email_log || $show_audit_log):
         ?>
             <li>
                 <a href="reports.php" class="<?php echo $reports_active ? 'active' : ''; ?>">Reports & Analytics</a>
@@ -55,6 +56,9 @@ $current_page = basename($_SERVER['PHP_SELF']);
                     <?php if ($show_email_log): ?>
                         <li><a href="email_log.php" class="<?php echo ($current_page === 'email_log.php') ? 'active' : ''; ?>" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Email Log</a></li>
                         <li><a href="autorenew_log.php" class="<?php echo ($current_page === 'autorenew_log.php') ? 'active' : ''; ?>" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Autorenew Log</a></li>
+                    <?php endif; ?>
+                    <?php if ($show_audit_log): ?>
+                        <li><a href="audit_log.php" class="<?php echo ($current_page === 'audit_log.php') ? 'active' : ''; ?>" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Audit Log</a></li>
                     <?php endif; ?>
                 </ul>
             </li>

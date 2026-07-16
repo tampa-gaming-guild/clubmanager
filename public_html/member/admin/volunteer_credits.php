@@ -7,6 +7,7 @@
 require_once dirname(dirname(dirname(__DIR__))) . '/config/bootstrap.php';
 
 use App\Auth;
+use App\AuditLog;
 use App\Database;
 use App\EventSlot;
 use App\MailHelper;
@@ -150,8 +151,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $credits = $_POST['credits'] ?? [];
         try {
             $appDb = Database::getAppConnection();
+
+            // Before-snapshot so the audit event records only what actually changed.
+            $beforeStmt = $appDb->query("SELECT credit_key, credits FROM tgg_volunteer_credits");
+            $beforeValues = $beforeStmt->fetchAll(PDO::FETCH_KEY_PAIR);
+
             $stmt = $appDb->prepare("UPDATE tgg_volunteer_credits SET credits = :credits WHERE credit_key = :key");
-            
+
+            $changes = [];
             $appDb->beginTransaction();
             foreach ($credits as $key => $val) {
                 // Membership setting stored in this table; only editable on the Memberships page.
@@ -166,8 +173,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'credits' => $valFloat,
                     'key' => $key
                 ]);
+                if (array_key_exists($key, $beforeValues) && (float)$beforeValues[$key] !== $valFloat) {
+                    $changes[$key] = ['old' => (float)$beforeValues[$key], 'new' => $valFloat];
+                }
             }
             $appDb->commit();
+
+            if (!empty($changes)) {
+                AuditLog::log('volunteer_config', 'credit_settings_updated', ['changes' => $changes]);
+            }
             $successMsg = "Volunteer credit settings updated successfully.";
         } catch (Exception $e) {
             if (isset($appDb) && $appDb->inTransaction()) {
@@ -206,9 +220,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 // Insert transaction statement. shift keeps a label snapshot for
                 // display; slot_id is the precise processed-signup marker.
+                $actorCols = AuditLog::actorColumns();
                 $insertTrans = $appDb->prepare("
-                    INSERT INTO tgg_volunteer_credit_transactions (contact_id, event_id, slot_id, volunteer_date, shift, credits_earned, credits_applied)
-                    VALUES (:contact_id, :event_id, :slot_id, :volunteer_date, :shift, :credits_earned, 0.0)
+                    INSERT INTO tgg_volunteer_credit_transactions (contact_id, event_id, slot_id, volunteer_date, shift, credits_earned, credits_applied, created_by, impersonator_id, source)
+                    VALUES (:contact_id, :event_id, :slot_id, :volunteer_date, :shift, :credits_earned, 0.0, :created_by, :impersonator_id, :source)
                 ");
 
                 foreach ($selectedMembers as $cid) {
@@ -248,7 +263,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'slot_id' => (int)$shift['slot_id'],
                             'volunteer_date' => date('Y-m-d', strtotime($shift['start_time'])),
                             'shift' => $shift['role'],
-                            'credits_earned' => $earned
+                            'credits_earned' => $earned,
+                            'created_by' => $actorCols['created_by'],
+                            'impersonator_id' => $actorCols['impersonator_id'],
+                            'source' => $actorCols['source']
                         ]);
                     }
                     
@@ -262,13 +280,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         
                         // Log extension transaction
                         $insertExtension = $appDb->prepare("
-                            INSERT INTO tgg_volunteer_credit_transactions (contact_id, event_id, volunteer_date, shift, credits_earned, credits_applied)
-                            VALUES (:contact_id, NULL, :volunteer_date, 'Apply Extension', 0.0, :credits_applied)
+                            INSERT INTO tgg_volunteer_credit_transactions (contact_id, event_id, volunteer_date, shift, credits_earned, credits_applied, created_by, impersonator_id, source)
+                            VALUES (:contact_id, NULL, :volunteer_date, 'Apply Extension', 0.0, :credits_applied, :created_by, :impersonator_id, :source)
                         ");
                         $insertExtension->execute([
                             'contact_id' => $cid,
                             'volunteer_date' => $todayStr,
-                            'credits_applied' => $appliedDiff
+                            'credits_applied' => $appliedDiff,
+                            'created_by' => $actorCols['created_by'],
+                            'impersonator_id' => $actorCols['impersonator_id'],
+                            'source' => $actorCols['source']
                         ]);
                         
                         // Retrieve local subscription details

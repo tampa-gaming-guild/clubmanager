@@ -260,8 +260,8 @@ class BillingHelper {
         try {
             // A. Log transaction locally in tgg_billing_ledger
             $insertLedger = $appDb->prepare("
-                INSERT INTO tgg_billing_ledger (contact_id, plan_id, rate_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type)
-                VALUES (:contact_id, :plan_id, :rate_id, :stripe_session_id, :payment_intent_id, :amount, :currency, 'paid', :action_type)
+                INSERT INTO tgg_billing_ledger (contact_id, plan_id, rate_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type, created_by, impersonator_id, source)
+                VALUES (:contact_id, :plan_id, :rate_id, :stripe_session_id, :payment_intent_id, :amount, :currency, 'paid', :action_type, :created_by, :impersonator_id, :source)
             ");
             $insertLedger->execute([
                 'contact_id' => $contactId,
@@ -272,7 +272,12 @@ class BillingHelper {
                 'payment_intent_id' => $paymentIntentId,
                 'amount' => $amountTotal,
                 'currency' => $currency,
-                'action_type' => $action
+                'action_type' => $action,
+                // The payer is the member on the checkout session, whether this runs
+                // from the webhook (no session) or the post-redirect success page.
+                'created_by' => $contactId,
+                'impersonator_id' => AuditLog::impersonatorContactId(),
+                'source' => AuditLog::SOURCE_STRIPE
             ]);
 
             // Entrance fee charges are a one-off per-visit charge, not a membership
@@ -519,10 +524,12 @@ class BillingHelper {
      * for the lifetime one-trial-per-email check).
      * @param int $contactId
      * @param int $planId
+     * @param int|null $actorContactId Staff member performing an in-person activation;
+     *                                 null resolves from the session (self-service flows)
      * @return array Activation details (start_date, end_date, plan)
      * @throws Exception
      */
-    public static function activateTrial(int $contactId, int $planId): array {
+    public static function activateTrial(int $contactId, int $planId, ?int $actorContactId = null): array {
         $appDb = Database::getAppConnection();
 
         $planStmt = $appDb->prepare("SELECT * FROM tgg_subscription_plans WHERE id = :id LIMIT 1");
@@ -543,15 +550,21 @@ class BillingHelper {
 
             $uniqueId = uniqid('trial_', true);
             $insertLedger = $appDb->prepare("
-                INSERT INTO tgg_billing_ledger (contact_id, plan_id, rate_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type)
-                VALUES (:contact_id, :plan_id, :rate_id, :stripe_session_id, :payment_intent_id, 0.00, 'usd', 'paid', 'join')
+                INSERT INTO tgg_billing_ledger (contact_id, plan_id, rate_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type, created_by, impersonator_id, source)
+                VALUES (:contact_id, :plan_id, :rate_id, :stripe_session_id, :payment_intent_id, 0.00, 'usd', 'paid', 'join', :created_by, :impersonator_id, :source)
             ");
+            $actorCols = AuditLog::actorColumns($actorContactId);
             $insertLedger->execute([
                 'contact_id' => $contactId,
                 'plan_id' => $planId,
                 'rate_id' => $rateId,
                 'stripe_session_id' => $uniqueId,
-                'payment_intent_id' => $uniqueId
+                'payment_intent_id' => $uniqueId,
+                // Email-link verification has no session, so the member themself
+                // is the fallback actor for self-service activations.
+                'created_by' => $actorCols['created_by'] ?? $contactId,
+                'impersonator_id' => $actorCols['impersonator_id'],
+                'source' => $actorCols['source']
             ]);
 
             $insertSub = $appDb->prepare("
@@ -650,7 +663,7 @@ class BillingHelper {
         $displayName = $contact['display_name'] ?? 'Member';
         $email = $contact['email'] ?? '';
 
-        $activation = self::activateTrial($contactId, $planId);
+        $activation = self::activateTrial($contactId, $planId, $senderId);
 
         $deleteToken = $appDb->prepare("DELETE FROM tgg_trial_verifications WHERE contact_id = :contact_id");
         $deleteToken->execute(['contact_id' => $contactId]);
@@ -772,9 +785,9 @@ class BillingHelper {
         // any other plan goes through the existing offline-payment recording.
         if ($selectedPlan) {
             if ($isTrialActivation) {
-                self::activateTrial($newContactId, $planId);
+                self::activateTrial($newContactId, $planId, $senderId);
             } else {
-                self::processOfflineRenewal($newContactId, $planId, $paymentMethod, 'join');
+                self::processOfflineRenewal($newContactId, $planId, $paymentMethod, 'join', 'extend_current', 'standard', null, null, $senderId);
             }
 
             // Send a welcome email with a link to set up portal access, mirroring the welcome
@@ -957,7 +970,7 @@ class BillingHelper {
              }
 
             $appDb->commit();
-            return ['new_rate_created' => $newRateCreated, 'effective_date' => $effectiveDate];
+            return ['plan_id' => $id ? (int)$id : (int)$planId, 'new_rate_created' => $newRateCreated, 'effective_date' => $effectiveDate];
 
         } catch (Exception $e) {
             if ($appDb->inTransaction()) {
@@ -1083,7 +1096,8 @@ class BillingHelper {
         string $levelChangeMode = 'extend_current',
         string $durationMode = 'standard',
         string $customDate = null,
-        float $customAmount = null
+        float $customAmount = null,
+        ?int $actorContactId = null
     ): bool {
         $appDb = Database::getAppConnection();
 
@@ -1168,9 +1182,10 @@ class BillingHelper {
         try {
             // A. Log transaction locally in tgg_billing_ledger
             $insertLedger = $appDb->prepare("
-                INSERT INTO tgg_billing_ledger (contact_id, plan_id, rate_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type)
-                VALUES (:contact_id, :plan_id, :rate_id, :stripe_session_id, :payment_intent_id, :amount, :currency, 'paid', :action_type)
+                INSERT INTO tgg_billing_ledger (contact_id, plan_id, rate_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type, created_by, impersonator_id, source)
+                VALUES (:contact_id, :plan_id, :rate_id, :stripe_session_id, :payment_intent_id, :amount, :currency, 'paid', :action_type, :created_by, :impersonator_id, :source)
             ");
+            $actorCols = AuditLog::actorColumns($actorContactId);
             $insertLedger->execute([
                 'contact_id' => $contactId,
                 'plan_id' => $planId,
@@ -1179,7 +1194,10 @@ class BillingHelper {
                 'payment_intent_id' => $paymentIntentId,
                 'amount' => $amountTotal,
                 'currency' => $currency,
-                'action_type' => $action
+                'action_type' => $action,
+                'created_by' => $actorCols['created_by'],
+                'impersonator_id' => $actorCols['impersonator_id'],
+                'source' => $actorCols['source']
             ]);
 
             if ($durationMode === '1_month') {
@@ -1257,6 +1275,17 @@ class BillingHelper {
 
             // Commit transaction
             $appDb->commit();
+
+            AuditLog::log('membership', 'offline_renewal', [
+                'plan_id' => $finalPlanId,
+                'payment_method' => $paymentMethod,
+                'action' => $action,
+                'level_change_mode' => $resolvedChangeMode,
+                'duration_mode' => $durationMode,
+                'custom_date' => $customDate,
+                'amount' => $amountTotal,
+                'new_end_date' => $endDate
+            ], $contactId, $actorContactId);
 
             // Send confirmation email for offline renewal
             try {
@@ -1397,8 +1426,8 @@ class BillingHelper {
                 $appDb->beginTransaction();
                 try {
                     $insertLedger = $appDb->prepare("
-                        INSERT INTO tgg_billing_ledger (contact_id, plan_id, rate_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type)
-                        VALUES (:contact_id, :plan_id, :rate_id, :stripe_session_id, :payment_intent_id, :amount, 'usd', 'paid', 'auto_renew')
+                        INSERT INTO tgg_billing_ledger (contact_id, plan_id, rate_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type, source)
+                        VALUES (:contact_id, :plan_id, :rate_id, :stripe_session_id, :payment_intent_id, :amount, 'usd', 'paid', 'auto_renew', 'cron')
                     ");
                     $insertLedger->execute([
                         'contact_id' => $contactId,
@@ -1445,8 +1474,8 @@ class BillingHelper {
 
             // Declined (or requires_action, treated as a decline for v1 -- see StripeHelper::chargeOffSession()).
             $insertLedger = $appDb->prepare("
-                INSERT INTO tgg_billing_ledger (contact_id, plan_id, rate_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type)
-                VALUES (:contact_id, :plan_id, :rate_id, :stripe_session_id, :payment_intent_id, :amount, 'usd', 'failed', 'auto_renew')
+                INSERT INTO tgg_billing_ledger (contact_id, plan_id, rate_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type, source)
+                VALUES (:contact_id, :plan_id, :rate_id, :stripe_session_id, :payment_intent_id, :amount, 'usd', 'failed', 'auto_renew', 'cron')
             ");
             $insertLedger->execute([
                 'contact_id' => $contactId,
@@ -1462,6 +1491,11 @@ class BillingHelper {
             if ($attemptNumber >= 3) {
                 $appDb->prepare("UPDATE tgg_subscriptions SET status = 'expired', auto_renew_attempts = :attempts WHERE contact_id = :contact_id")
                     ->execute(['attempts' => $attemptNumber, 'contact_id' => $contactId]);
+
+                AuditLog::log('membership', 'membership_autorenew_expired', [
+                    'attempts' => $attemptNumber,
+                    'end_date' => $existingEndDate
+                ], $contactId, null, AuditLog::SOURCE_CRON);
 
                 if ($contact && !empty($contact['email'])) {
                     try {
@@ -1792,18 +1826,20 @@ class BillingHelper {
         if ($pending['type'] === 'entrance_fee') {
             $uniqueId = uniqid('offline_cash_entrance_', true);
             $insertLedger = $appDb->prepare("
-                INSERT INTO tgg_billing_ledger (contact_id, plan_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type)
-                VALUES (:contact_id, :plan_id, :stripe_session_id, :payment_intent_id, :amount, 'usd', 'paid', 'entrance_fee')
+                INSERT INTO tgg_billing_ledger (contact_id, plan_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type, created_by, impersonator_id, source)
+                VALUES (:contact_id, :plan_id, :stripe_session_id, :payment_intent_id, :amount, 'usd', 'paid', 'entrance_fee', :created_by, :impersonator_id, 'web')
             ");
             $insertLedger->execute([
                 'contact_id' => $contactId,
                 'plan_id' => $pending['plan_id'],
                 'stripe_session_id' => $uniqueId,
                 'payment_intent_id' => $uniqueId,
-                'amount' => $amount
+                'amount' => $amount,
+                'created_by' => $resolverContactId,
+                'impersonator_id' => AuditLog::impersonatorContactId()
             ]);
         } elseif ($pending['type'] === 'membership_renewal') {
-            self::processOfflineRenewal($contactId, (int)$pending['plan_id'], 'cash', 'renew', 'extend_current', 'standard', null, $amount);
+            self::processOfflineRenewal($contactId, (int)$pending['plan_id'], 'cash', 'renew', 'extend_current', 'standard', null, $amount, $resolverContactId);
         } else {
             throw new Exception("Unknown pending payment type: " . $pending['type']);
         }
@@ -1823,6 +1859,12 @@ class BillingHelper {
 
         $resolve = $appDb->prepare("UPDATE tgg_pending_payments SET status = 'approved', resolved_at = NOW(), resolved_by = :resolved_by WHERE id = :id");
         $resolve->execute(['resolved_by' => $resolverContactId, 'id' => $pendingId]);
+
+        AuditLog::log('membership', 'pending_payment_approved', [
+            'pending_id' => $pendingId,
+            'type' => $pending['type'],
+            'amount' => $amount
+        ], $contactId, $resolverContactId);
 
         $contactStmt = $appDb->prepare("SELECT display_name FROM tgg_contacts WHERE id = :id LIMIT 1");
         $contactStmt->execute(['id' => $contactId]);
@@ -1845,17 +1887,21 @@ class BillingHelper {
     public static function denyPendingPayment(int $pendingId, int $resolverContactId): void {
         $appDb = Database::getAppConnection();
 
-        $stmt = $appDb->prepare("SELECT status FROM tgg_pending_payments WHERE id = :id LIMIT 1");
+        $stmt = $appDb->prepare("SELECT status, contact_id FROM tgg_pending_payments WHERE id = :id LIMIT 1");
         $stmt->execute(['id' => $pendingId]);
-        $status = $stmt->fetchColumn();
-        if ($status === false) {
+        $pending = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$pending) {
             throw new Exception("Pending payment request not found.");
         }
-        if ($status !== 'pending') {
-            throw new Exception("This payment request has already been {$status}.");
+        if ($pending['status'] !== 'pending') {
+            throw new Exception("This payment request has already been {$pending['status']}.");
         }
 
         $update = $appDb->prepare("UPDATE tgg_pending_payments SET status = 'denied', resolved_at = NOW(), resolved_by = :resolved_by WHERE id = :id");
         $update->execute(['resolved_by' => $resolverContactId, 'id' => $pendingId]);
+
+        AuditLog::log('membership', 'pending_payment_denied', [
+            'pending_id' => $pendingId
+        ], (int)$pending['contact_id'], $resolverContactId);
     }
 }

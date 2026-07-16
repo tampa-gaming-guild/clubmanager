@@ -6,6 +6,7 @@
 require_once dirname(dirname(dirname(__DIR__))) . '/config/bootstrap.php';
 
 use App\Auth;
+use App\AuditLog;
 use App\CiviCRMImporter;
 
 Auth::requirePermission('all');
@@ -21,6 +22,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         try {
             $syncResult = CiviCRMImporter::runSync();
+            AuditLog::log('import', 'civicrm_import_run', [
+                'plans_synced' => $syncResult['plans_synced'] ?? 0,
+                'contacts_scanned' => $syncResult['contacts_scanned'] ?? 0,
+                'settings_created' => $syncResult['settings_created'] ?? 0,
+                'settings_updated' => $syncResult['settings_updated'] ?? 0,
+                'contributions_synced' => $syncResult['contributions_synced'] ?? 0,
+                'error_count' => count($syncResult['errors'] ?? [])
+            ]);
         } catch (Exception $e) {
             $errorMsg = safe_err("Import failed: ", $e);
         }

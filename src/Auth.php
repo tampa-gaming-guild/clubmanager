@@ -52,6 +52,10 @@ class Auth {
             $lockedUntil = strtotime($authRow['locked_until']);
             if (time() < $lockedUntil) {
                 $secondsLeft = $lockedUntil - time();
+                AuditLog::log('security', 'login_rejected_locked', [
+                    'email' => $email,
+                    'locked_until' => $authRow['locked_until']
+                ], $contactId);
                 throw new Exception("Account is temporarily locked due to too many failed login attempts. Please try again in " . ceil($secondsLeft / 60) . " minute(s).", 423);
             }
         }
@@ -74,7 +78,13 @@ class Auth {
                 'locked_until' => $lockedUntil,
                 'contact_id' => $contactId
             ]);
-            
+
+            AuditLog::log('security', 'login_failed', [
+                'email' => $email,
+                'attempts' => $attempts,
+                'locked_until' => $lockedUntil
+            ], $contactId);
+
             if ($lockedUntil) {
                 throw new Exception("Incorrect password. Too many failed attempts. Account is now locked for " . ($lockoutTime / 60) . " minutes.", 423);
             }
@@ -410,6 +420,10 @@ class Auth {
             'permissions' => $permissions
         ];
 
+        // Session is already swapped, so the default resolution records
+        // actor = target member, impersonator = the real admin.
+        AuditLog::log('security', 'impersonation_start', [], $targetContactId);
+
         return true;
     }
 
@@ -421,8 +435,12 @@ class Auth {
         if (!isset($_SESSION['impersonator'])) {
             return false;
         }
+        $wasImpersonating = (int)$_SESSION['user']['contact_id'];
         $_SESSION['user'] = $_SESSION['impersonator'];
         unset($_SESSION['impersonator']);
+
+        AuditLog::log('security', 'impersonation_stop', [], $wasImpersonating);
+
         return true;
     }
 }

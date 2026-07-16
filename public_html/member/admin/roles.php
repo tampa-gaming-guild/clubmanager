@@ -6,6 +6,7 @@
 require_once dirname(dirname(dirname(__DIR__))) . '/config/bootstrap.php';
 
 use App\Auth;
+use App\AuditLog;
 use App\Database;
 
 Auth::requireAuth();
@@ -29,7 +30,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else
             try {
                 $viewerIsSuperadmin = has_role('superadmin');
-                
+
+                // Full before-snapshot of the matrix for the audit event
+                $matrixSnapshot = function () use ($appDb): array {
+                    $rows = $appDb->query("
+                        SELECT r.name AS role_name, p.name AS perm_name
+                        FROM `tgg_role_permissions` rp
+                        JOIN `tgg_roles` r ON r.id = rp.role_id
+                        JOIN `tgg_permissions` p ON p.id = rp.permission_id
+                        ORDER BY r.name, p.name
+                    ")->fetchAll(PDO::FETCH_ASSOC) ?: [];
+                    $map = [];
+                    foreach ($rows as $row) {
+                        $map[$row['role_name']][] = $row['perm_name'];
+                    }
+                    return $map;
+                };
+                $matrixBefore = $matrixSnapshot();
+
                 // Fetch current 'all' mappings to preserve them if the user is a standard admin
                 $currentAllMappings = [];
                 if (!$viewerIsSuperadmin) {
@@ -84,7 +102,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 $appDb->commit();
-                
+
+                $matrixAfter = $matrixSnapshot();
+                if ($matrixBefore !== $matrixAfter) {
+                    AuditLog::log('roles', 'role_matrix_updated', [
+                        'before' => $matrixBefore,
+                        'after' => $matrixAfter
+                    ]);
+                }
+
                 // Refresh permissions of the current logged-in user dynamically
                 Auth::refreshPermissions();
 
@@ -182,6 +208,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $updateSettingsStmt->execute(['role' => $primaryRole, 'id' => $targetContactId]);
 
                 $appDb->commit();
+
+                AuditLog::log('roles', 'member_roles_updated', [
+                    'before' => array_values($targetCurrentRoles),
+                    'after' => array_values($newRoles)
+                ], $targetContactId);
 
                 // If updating themselves, refresh current session permissions immediately
                 if ($targetContactId === (int)$_SESSION['user']['contact_id']) {

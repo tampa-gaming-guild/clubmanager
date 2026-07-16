@@ -6,6 +6,7 @@
 require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
 use App\Auth;
+use App\AuditLog;
 use App\Database;
 use App\MailHelper;
 
@@ -48,6 +49,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ];
 
                     MailHelper::sendTemplate($email, 'password_reset_link', $placeholders, $contactId, null);
+
+                    AuditLog::log('security', 'password_reset_requested', [
+                        'email' => $email,
+                        'via' => 'self'
+                    ], $contactId);
                 }
 
                 // Prefill for enter-code.php. Set regardless of whether the email

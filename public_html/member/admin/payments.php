@@ -6,12 +6,16 @@
 require_once dirname(dirname(dirname(__DIR__))) . '/config/bootstrap.php';
 
 use App\Auth;
+use App\AuditLog;
 use App\Database;
 
 Auth::requirePermission('process payments');
 
 $errorMsg = null;
 $paymentsList = [];
+
+// Actor attribution is admin-panel-only information.
+$showActorCol = has_permission('admin panel');
 
 try {
     $appDb = Database::getAppConnection();
@@ -21,7 +25,7 @@ try {
     // admins have visibility into renewal charges that didn't go through.
     $payLogsRaw = $appDb->query("
         SELECT l.contact_id, l.created_at as receive_date, l.amount as total_amount, l.payment_intent_id as trxn_id,
-               l.payment_status, l.action_type, p.name as plan_name
+               l.payment_status, l.action_type, l.created_by, l.impersonator_id, l.source, p.name as plan_name
         FROM tgg_billing_ledger l
         LEFT JOIN tgg_subscription_plans p ON l.plan_id = p.id
         ORDER BY l.created_at DESC
@@ -29,7 +33,11 @@ try {
     ")->fetchAll();
 
     if (!empty($payLogsRaw)) {
-        $contactIds = array_unique(array_column($payLogsRaw, 'contact_id'));
+        $contactIds = array_unique(array_filter(array_merge(
+            array_column($payLogsRaw, 'contact_id'),
+            array_column($payLogsRaw, 'created_by'),
+            array_column($payLogsRaw, 'impersonator_id')
+        ), fn($id) => $id !== null));
         $placeholders = implode(',', array_fill(0, count($contactIds), '?'));
 
         $civiContactStmt = $appDb->prepare("SELECT id, display_name FROM tgg_contacts WHERE id IN ({$placeholders})");
@@ -45,7 +53,13 @@ try {
                 'trxn_id' => $row['trxn_id'],
                 'payment_status' => $row['payment_status'],
                 'action_type' => $row['action_type'],
-                'plan_name' => $row['plan_name'] ?? 'Unknown Plan'
+                'plan_name' => $row['plan_name'] ?? 'Unknown Plan',
+                'recorded_by' => AuditLog::describeActor(
+                    $row['created_by'] !== null ? (int)$row['created_by'] : null,
+                    $row['impersonator_id'] !== null ? (int)$row['impersonator_id'] : null,
+                    $row['source'],
+                    $contactsMap
+                )
             ];
         }
     }
@@ -119,12 +133,15 @@ try {
                                         <th class="sortable-header" onclick="sortTable('payments-report-table', 2, false)">Membership Tier</th>
                                         <th class="sortable-header" onclick="sortTable('payments-report-table', 3, false)">Method / Transaction ID</th>
                                         <th class="sortable-header" onclick="sortTable('payments-report-table', 4, true)">Amount Paid</th>
+                                        <?php if ($showActorCol): ?>
+                                            <th class="sortable-header" onclick="sortTable('payments-report-table', 5, false)">Recorded By</th>
+                                        <?php endif; ?>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <?php if (empty($paymentsList)): ?>
                                         <tr>
-                                            <td colspan="5" class="text-center">No payment history found.</td>
+                                            <td colspan="<?php echo $showActorCol ? 6 : 5; ?>" class="text-center">No payment history found.</td>
                                         </tr>
                                     <?php else: ?>
                                         <?php foreach ($paymentsList as $pay): ?>
@@ -163,6 +180,9 @@ try {
                                                     <code><?php echo e($trxnId); ?></code>
                                                 </td>
                                                 <td><strong>$<?php echo number_format($pay['total_amount'], 2); ?></strong></td>
+                                                <?php if ($showActorCol): ?>
+                                                    <td><?php echo e($pay['recorded_by']); ?></td>
+                                                <?php endif; ?>
                                             </tr>
                                         <?php endforeach; ?>
                                     <?php endif; ?>

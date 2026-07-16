@@ -9,6 +9,7 @@ use App\Database;
 use App\EventSlot;
 use App\MembershipService;
 use App\Auth;
+use App\AuditLog;
 use App\MailHelper;
 use App\BillingHelper;
 
@@ -127,14 +128,21 @@ if (!$settings['is_profile_public'] && !$hasPrivateAccess && !$canViewBilling) {
     $profileHidden = false;
 }
 
+// Actor attribution on history tables is admin-panel-only information.
+$showActorCol = has_permission('admin panel');
+
 // Fetch Billing Transactions if Viewer has Private Access
 $transactions = [];
 if ($canViewBilling && $appDb) {
     try {
         $transStmt = $appDb->prepare("
-            SELECT l.created_at, l.amount, l.currency, l.action_type, l.payment_status, l.payment_intent_id as trxn_id, p.name as plan_name
+            SELECT l.created_at, l.amount, l.currency, l.action_type, l.payment_status, l.payment_intent_id as trxn_id, p.name as plan_name,
+                   l.created_by, l.impersonator_id, l.source,
+                   cb.display_name AS created_by_name, ci.display_name AS impersonator_name
             FROM tgg_billing_ledger l
             INNER JOIN tgg_subscription_plans p ON l.plan_id = p.id
+            LEFT JOIN tgg_contacts cb ON cb.id = l.created_by
+            LEFT JOIN tgg_contacts ci ON ci.id = l.impersonator_id
             WHERE l.contact_id = :contact_id
             ORDER BY l.created_at DESC
         ");
@@ -165,11 +173,15 @@ if ($hasPrivateAccess && $appDb) {
 
         // 1. Fetch completed shifts from volunteer signups (past events)
         $stmtShifts = $appDb->prepare("
-            SELECT sl.slot_label AS role, sl.slot_type, e.title as event_title, e.start_time, t.id as processed_id
+            SELECT sl.slot_label AS role, sl.slot_type, e.title as event_title, e.start_time, t.id as processed_id,
+                   t.created_by, t.impersonator_id, t.source,
+                   cb.display_name AS created_by_name, ci.display_name AS impersonator_name
             FROM tgg_volunteer_signups s
             INNER JOIN tgg_event_slots sl ON sl.id = s.slot_id
             INNER JOIN tgg_events e ON sl.event_id = e.id
             LEFT JOIN tgg_volunteer_credit_transactions t ON t.slot_id = s.slot_id AND t.contact_id = s.contact_id
+            LEFT JOIN tgg_contacts cb ON cb.id = t.created_by
+            LEFT JOIN tgg_contacts ci ON ci.id = t.impersonator_id
             WHERE s.contact_id = :contact_id AND e.start_time < :now
             ORDER BY e.start_time DESC
         ");
@@ -187,12 +199,28 @@ if ($hasPrivateAccess && $appDb) {
                 $pendingCredits += $creditsVal;
             }
 
+            $shiftNames = [];
+            if ($shift['created_by'] !== null) {
+                $shiftNames[(int)$shift['created_by']] = $shift['created_by_name'] ?? "Member #{$shift['created_by']}";
+            }
+            if ($shift['impersonator_id'] !== null) {
+                $shiftNames[(int)$shift['impersonator_id']] = $shift['impersonator_name'] ?? "Member #{$shift['impersonator_id']}";
+            }
+
             $volunteerShifts[] = [
                 'date' => date('Y-m-d', strtotime($shift['start_time'])),
                 'event_title' => $shift['event_title'],
                 'shift' => $shift['role'],
                 'credits' => $creditsVal,
-                'status' => $shift['processed_id'] ? 'Processed' : 'Pending'
+                'status' => $shift['processed_id'] ? 'Processed' : 'Pending',
+                'processed_by' => $shift['processed_id']
+                    ? AuditLog::describeActor(
+                        $shift['created_by'] !== null ? (int)$shift['created_by'] : null,
+                        $shift['impersonator_id'] !== null ? (int)$shift['impersonator_id'] : null,
+                        $shift['source'],
+                        $shiftNames
+                    )
+                    : '—'
             ];
         }
 
@@ -401,6 +429,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($hasPrivateAccess || $canManageCon
                 $update = $appDb->prepare("UPDATE tgg_subscriptions SET auto_renew = :auto_renew WHERE contact_id = :id");
                 $update->execute(['auto_renew' => $newAutoRenew, 'id' => $profileId]);
                 $subBilling['auto_renew'] = $newAutoRenew;
+                AuditLog::log('membership', 'auto_renew_toggled', ['enabled' => (bool)$newAutoRenew], $profileId);
                 $successMsg = $newAutoRenew ? "Auto-renew enabled." : "Auto-renew disabled.";
             } catch (Exception $e) {
                 $errorMsg = safe_err("Failed to update auto-renew setting: ", $e);
@@ -523,6 +552,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($hasPrivateAccess || $canManageCon
                     error_log("Failed to send email-change alarm to old address for contact {$profileId}: " . $alarmEx->getMessage());
                 }
 
+                AuditLog::log('security', 'email_change_requested', [
+                    'old_email' => $oldEmail,
+                    'new_email' => $newEmail
+                ], $profileId);
+
                 $successMsg = "Verification link sent to {$newEmail}. Your email will not change until you click it (expires in 1 hour).";
             } catch (Exception $e) {
                 $errorMsg = safe_err("Failed to request email change: ", $e);
@@ -596,6 +630,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($hasPrivateAccess || $canManageCon
                     error_log("Failed to send staff email-change notice to new address for contact {$profileId}: " . $mailEx->getMessage());
                 }
 
+                AuditLog::log('security', 'email_change_staff', [
+                    'old_email' => $oldEmail,
+                    'new_email' => $newEmail
+                ], $profileId);
+
                 $successMsg = "Email address updated. Both the old and new addresses have been notified.";
             } catch (Exception $e) {
                 $errorMsg = safe_err("Failed to update email address: ", $e);
@@ -641,8 +680,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($hasPrivateAccess || $canManageCon
                 }
                 
                 // 4. Update the database
+                $rolesBefore = $memberRoles;
                 $appDb->beginTransaction();
-                
+
                 // Delete existing roles
                 $deleteStmt = $appDb->prepare("DELETE FROM tgg_member_roles WHERE contact_id = :id");
                 $deleteStmt->execute(['id' => $profileId]);
@@ -659,7 +699,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($hasPrivateAccess || $canManageCon
                 $updateSettingsStmt->execute(['role' => $primaryRole, 'id' => $profileId]);
                 
                 $appDb->commit();
-                
+
+                AuditLog::log('roles', 'member_roles_updated', [
+                    'before' => array_values($rolesBefore),
+                    'after' => array_values($newRoles)
+                ], $profileId);
+
                 $successMsg = "Member roles updated successfully.";
                 $memberRoles = $newRoles;
                 $settings['role'] = $primaryRole;
@@ -709,9 +754,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($hasPrivateAccess || $canManageCon
                     throw new Exception("Invalid, inactive, or expired rate selected.");
                 }
 
+                $oldRateStmt = $appDb->prepare("SELECT rate_id FROM tgg_subscriptions WHERE contact_id = :contact_id LIMIT 1");
+                $oldRateStmt->execute(['contact_id' => $profileId]);
+                $oldRateId = $oldRateStmt->fetchColumn();
+
                 $updateRateStmt = $appDb->prepare("UPDATE tgg_subscriptions SET rate_id = :rate_id WHERE contact_id = :contact_id");
                 $updateRateStmt->execute(['rate_id' => $rateId, 'contact_id' => $profileId]);
-                
+
+                AuditLog::log('rates', 'member_rate_overridden', [
+                    'old_rate_id' => $oldRateId !== false ? (int)$oldRateId : null,
+                    'new_rate_id' => $rateId
+                ], $profileId);
+
                 $successMsg = "Subscription rate adjusted successfully.";
                 // Refresh membership info
                 $membership = MembershipService::getMemberMembershipDetails($profileId);
@@ -745,6 +799,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($hasPrivateAccess || $canManageCon
                 ];
 
                 MailHelper::sendTemplate($email, 'password_reset_link', $placeholders, $profileId, $_SESSION['user']['contact_id'] ?? null);
+
+                AuditLog::log('security', 'password_reset_requested', [
+                    'email' => $email,
+                    'via' => $isOwner ? 'self' : 'profile'
+                ], $profileId);
 
                 // Redirect to code entry page
                 redirect('enter-code.php?sent=1');
@@ -1325,6 +1384,9 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                                 <th style="padding: 8px 10px;">Shift</th>
                                                 <th style="padding: 8px 10px; text-align: center;">Credits</th>
                                                 <th style="padding: 8px 10px; text-align: center;">Status</th>
+                                                <?php if ($showActorCol): ?>
+                                                    <th style="padding: 8px 10px;">Processed By</th>
+                                                <?php endif; ?>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -1341,6 +1403,9 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                                             <span class="badge badge-expired" style="font-size: 0.75rem; padding: 2px 6px; display: inline-block; background: rgba(234, 179, 8, 0.15); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3);">Pending</span>
                                                         <?php endif; ?>
                                                     </td>
+                                                    <?php if ($showActorCol): ?>
+                                                        <td style="padding: 8px 10px;"><?php echo e($tx['processed_by']); ?></td>
+                                                    <?php endif; ?>
                                                 </tr>
                                             <?php endforeach; ?>
                                         </tbody>
@@ -1415,6 +1480,9 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                                 <th style="padding: 8px 10px;">Plan</th>
                                                 <th style="padding: 8px 10px;">Amount</th>
                                                 <th style="padding: 8px 10px;">Status</th>
+                                                <?php if ($showActorCol): ?>
+                                                    <th style="padding: 8px 10px;">Recorded By</th>
+                                                <?php endif; ?>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -1457,6 +1525,25 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                                              <?php echo e($badgeLabel); ?>
                                                          </span>
                                                      </td>
+                                                     <?php if ($showActorCol): ?>
+                                                         <td style="padding: 8px 10px;">
+                                                             <?php
+                                                             $txNames = [];
+                                                             if ($tx['created_by'] !== null) {
+                                                                 $txNames[(int)$tx['created_by']] = $tx['created_by_name'] ?? "Member #{$tx['created_by']}";
+                                                             }
+                                                             if ($tx['impersonator_id'] !== null) {
+                                                                 $txNames[(int)$tx['impersonator_id']] = $tx['impersonator_name'] ?? "Member #{$tx['impersonator_id']}";
+                                                             }
+                                                             echo e(AuditLog::describeActor(
+                                                                 $tx['created_by'] !== null ? (int)$tx['created_by'] : null,
+                                                                 $tx['impersonator_id'] !== null ? (int)$tx['impersonator_id'] : null,
+                                                                 $tx['source'],
+                                                                 $txNames
+                                                             ));
+                                                             ?>
+                                                         </td>
+                                                     <?php endif; ?>
                                                  </tr>
                                              <?php endforeach; ?>
                                         </tbody>

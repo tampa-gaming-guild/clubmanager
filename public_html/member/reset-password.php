@@ -5,6 +5,7 @@
  */
 require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
+use App\AuditLog;
 use App\Database;
 use App\MailHelper;
 
@@ -117,6 +118,12 @@ if (empty($rawToken)) {
                         $stmtVoidChange->execute(['contact_id' => $contactId]);
 
                         $appDb->commit();
+
+                        // Token-link flow: no login session, so attribute the
+                        // reset explicitly to the account owner.
+                        AuditLog::log('security', 'password_reset_completed', [
+                            'email' => $email
+                        ], $contactId, $contactId);
 
                         // 4. Send Confirmation Email
                         $loginUrl = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/index.php';

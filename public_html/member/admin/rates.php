@@ -6,6 +6,7 @@
 require_once dirname(dirname(dirname(__DIR__))) . '/config/bootstrap.php';
 
 use App\Auth;
+use App\AuditLog;
 use App\BillingHelper;
 use App\Database;
 
@@ -70,12 +71,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_rate'])) {
                 // new rate and leaves this one alone for anyone grandfathered onto it). Warn
                 // before allowing that here, but don't hard-block it -- this screen is meant to
                 // stay usable as an admin power-tool/escape-hatch.
-                $existingStmt = $appDb->prepare("SELECT price FROM tgg_subscription_rates WHERE id = :id AND plan_id = :plan_id LIMIT 1");
+                $existingStmt = $appDb->prepare("SELECT name, price, billing_frequency, inactive, expiration_date FROM tgg_subscription_rates WHERE id = :id AND plan_id = :plan_id LIMIT 1");
                 $existingStmt->execute(['id' => $rateId, 'plan_id' => $planId]);
-                $existingPrice = $existingStmt->fetchColumn();
-                if ($existingPrice === false) {
+                $existingRate = $existingStmt->fetch(PDO::FETCH_ASSOC);
+                if (!$existingRate) {
                     throw new Exception("Rate not found.");
                 }
+                $existingPrice = $existingRate['price'];
 
                 $memberCountStmt = $appDb->prepare("SELECT COUNT(*) FROM tgg_subscriptions WHERE rate_id = :id");
                 $memberCountStmt->execute(['id' => $rateId]);
@@ -108,6 +110,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_rate'])) {
                         'id' => $rateId,
                         'plan_id' => $planId
                     ]);
+
+                    AuditLog::log('rates', 'rate_updated', [
+                        'rate_id' => $rateId,
+                        'plan_id' => $planId,
+                        'before' => $existingRate,
+                        'after' => [
+                            'name' => $name, 'price' => $price, 'billing_frequency' => $billingFrequency,
+                            'inactive' => $inactive, 'expiration_date' => $expirationDate
+                        ],
+                        'members_on_rate' => $memberCount
+                    ]);
+
                     $successMsg = "Payment rate updated successfully!";
                     header("Location: rates.php?plan_id=" . $planId . "&success=" . urlencode($successMsg));
                     exit;
@@ -126,6 +140,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_rate'])) {
                     'inactive' => $inactive,
                     'expiration_date' => $expirationDate
                 ]);
+
+                AuditLog::log('rates', 'rate_created', [
+                    'rate_id' => (int)$appDb->lastInsertId(),
+                    'plan_id' => $planId,
+                    'name' => $name,
+                    'price' => $price,
+                    'billing_frequency' => $billingFrequency,
+                    'inactive' => $inactive,
+                    'expiration_date' => $expirationDate
+                ]);
+
                 $successMsg = "New payment rate added successfully!";
                 header("Location: rates.php?plan_id=" . $planId . "&success=" . urlencode($successMsg));
                 exit;
@@ -146,6 +171,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['retire_rate'])) {
         $retireId = (int)($_POST['rate_id'] ?? 0);
         try {
             $result = BillingHelper::retireRate($retireId, $planId);
+
+            AuditLog::log('rates', 'rate_retired', [
+                'rate_id' => $retireId,
+                'plan_id' => $planId,
+                'moved' => $result['moved'],
+                'emailed' => $result['emailed']
+            ]);
+
             $successMsg = "Rate retired. {$result['moved']} member(s) moved to the plan's current rate, {$result['emailed']} notified by email.";
             header("Location: rates.php?plan_id=" . $planId . "&success=" . urlencode($successMsg));
             exit;
@@ -204,6 +237,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_rate'])) {
                 $delStmt->execute(['id' => $deleteId, 'plan_id' => $planId]);
                 $successMsg = "Rate deleted.";
             }
+
+            AuditLog::log('rates', 'rate_deleted', [
+                'rate_id' => $deleteId,
+                'plan_id' => $planId,
+                'was_default' => $isDefault
+            ]);
 
             header("Location: rates.php?plan_id=" . $planId . "&success=" . urlencode($successMsg));
             exit;

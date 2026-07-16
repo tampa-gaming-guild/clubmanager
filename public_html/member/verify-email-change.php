@@ -9,6 +9,7 @@ require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
 use App\Database;
 use App\Auth;
+use App\AuditLog;
 use App\MailHelper;
 use App\BillingHelper;
 
@@ -83,6 +84,13 @@ if (empty($rawToken)) {
                     if ($appDb->inTransaction()) $appDb->rollBack();
                     throw $txEx;
                 }
+
+                // Token-link flow: may be clicked with no session, so attribute
+                // the change explicitly to the account owner.
+                AuditLog::log('security', 'email_change_completed', [
+                    'old_email' => $oldEmail,
+                    'new_email' => $newEmail
+                ], $contactId, $contactId);
 
                 // Keep the viewer's session consistent if the owner clicked the
                 // link while logged in. Never log anyone in from this page.

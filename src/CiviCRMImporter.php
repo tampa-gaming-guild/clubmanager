@@ -496,9 +496,11 @@ class CiviCRMImporter {
             $contribQuery->execute();
             $contributions = $contribQuery->fetchAll();
 
+            // source is set only on INSERT and left out of the ON DUPLICATE KEY UPDATE
+            // list, so a re-import never clobbers actor data on an existing row.
             $insertLedger = $appDb->prepare("
-                INSERT INTO tgg_billing_ledger (contact_id, plan_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type, created_at)
-                VALUES (:contact_id, :plan_id, :stripe_session_id, :payment_intent_id, :amount, 'usd', 'paid', :action_type, :created_at)
+                INSERT INTO tgg_billing_ledger (contact_id, plan_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type, created_at, source)
+                VALUES (:contact_id, :plan_id, :stripe_session_id, :payment_intent_id, :amount, 'usd', 'paid', :action_type, :created_at, 'import')
                 ON DUPLICATE KEY UPDATE
                     plan_id = VALUES(plan_id),
                     amount = VALUES(amount),
