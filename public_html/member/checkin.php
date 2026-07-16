@@ -350,9 +350,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <div class="terminal-panel glass-panel">
                 <div class="terminal-header">
                     <h2>Club Entry Check-In</h2>
-                    <?php if ($isLoggedIn): ?>
-                        <p class="subtitle">Please verify your location to complete check-in.</p>
-                    <?php else: ?>
+                    <?php if (!$isLoggedIn): ?>
                         <p class="subtitle">Please scan your barcode, or enter your Email or Member ID to check in.</p>
                     <?php endif; ?>
                 </div>
@@ -720,11 +718,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     .replace(/'/g, '&#039;');
             }
 
+            function dismissFeedback(alertDiv) {
+                alertDiv.style.opacity = '0';
+                alertDiv.style.transform = 'translateY(-10px)';
+                alertDiv.style.transition = 'all 0.5s ease';
+                setTimeout(() => alertDiv.remove(), 500);
+            }
+
             function renderFeedback(success, message, details = null) {
                 feedbackArea.innerHTML = '';
                 const alertDiv = document.createElement('div');
                 alertDiv.className = `alert alert-${success ? 'success' : 'danger'} terminal-alert animate-pop`;
-                
+
                 let detailString = '';
                 if (details) {
                     detailString = `<span class="subtext">Membership Type: ${escapeHtml(details.membership)} | Expiration: ${escapeHtml(details.expires)}</span>`;
@@ -738,15 +743,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         ${detailString}
                     </div>
                 `;
+
+                const closeBtn = document.createElement('span');
+                closeBtn.innerHTML = '&times;';
+                closeBtn.className = 'toast-close-btn';
+                closeBtn.onclick = () => dismissFeedback(alertDiv);
+                alertDiv.prepend(closeBtn);
+
                 feedbackArea.appendChild(alertDiv);
 
-                // Auto clear check-in result after 5 seconds to reset terminal
-                setTimeout(() => {
-                    alertDiv.style.opacity = '0';
-                    alertDiv.style.transform = 'translateY(-10px)';
-                    alertDiv.style.transition = 'all 0.5s ease';
-                    setTimeout(() => alertDiv.remove(), 500);
-                }, 5000);
+                // Kiosk terminal needs to reset itself for the next walk-up person
+                // regardless of outcome; a logged-in member's own result has no
+                // "next person" coming, so it stays until they dismiss it or navigate away.
+                if (!isLoggedIn) {
+                    setTimeout(() => dismissFeedback(alertDiv), 5000);
+                }
             }
 
             // Web Audio API Synthesizer for checkin chimes (Green success beep / Red fail beep)
