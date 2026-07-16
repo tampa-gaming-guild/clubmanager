@@ -1293,21 +1293,6 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                 </div>
                                 <?php endif; ?>
                                 <?php endif; ?>
-
-                                <!-- Portal Roles Info Card -->
-                                <div class="management-card mt-20">
-                                    <h4>Available Portal Roles</h4>
-                                    <div style="font-size: 0.8rem; line-height: 1.4; color: rgba(255,255,255,0.75);">
-                                        <ul style="list-style-type: none; padding-left: 0; display: flex; flex-direction: column; gap: 8px; margin: 0;">
-                                            <?php foreach ($rolesList as $roleItem): ?>
-                                                <li>
-                                                    <strong style="color: var(--color-primary);"><?php echo e(ucfirst($roleItem['name'])); ?></strong>: 
-                                                    <span><?php echo e($roleItem['description']); ?></span>
-                                                </li>
-                                            <?php endforeach; ?>
-                                        </ul>
-                                    </div>
-                                </div>
                             </div>
                         <?php endif; ?>
                     </div>
