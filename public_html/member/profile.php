@@ -933,22 +933,36 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                         <!-- Left Panel: Profile Details -->
                         <div class="profile-details-column">
                             
-                            <!-- PUBLIC SECTION -->
+                            <!-- DETAILS SECTION -->
                             <div class="detail-section">
-                                <h3 class="section-title">Public Status</h3>
+                                <h3 class="section-title">Details</h3>
                                 <table class="profile-data-table">
                                     <tr>
                                         <td><strong>Name:</strong></td>
                                         <td><?php echo e($displayNameToPublic); ?></td>
                                     </tr>
-                                    
+                                    <tr>
+                                        <td><strong>Email:</strong></td>
+                                        <td>
+                                            <a href="mailto:<?php echo e($contact['email']); ?>"><?php echo e($contact['email']); ?></a>
+                                            <?php if ($pendingEmailChange): ?>
+                                                <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 4px;">
+                                                    Pending change to <strong><?php echo e($pendingEmailChange['new_email']); ?></strong> &mdash; confirm from that inbox (expires <?php echo date('g:i A, M j', strtotime($pendingEmailChange['expires_at'])); ?>)
+                                                </div>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Phone:</strong></td>
+                                        <td><?php echo e($contact['phone'] ? format_phone($contact['phone']) : 'None registered'); ?></td>
+                                    </tr>
+
                                     <?php if ($membership): ?>
-                                        <?php if ($hasPrivateAccess || $canViewBilling): ?>
                                         <tr>
                                             <td><strong>Membership Level:</strong></td>
                                             <td style="font-size: 0.85rem;">
-                                                <?php 
-                                                echo e($membership['membership_name']); 
+                                                <?php
+                                                echo e($membership['membership_name']);
                                                 $showRate = $isOwner || has_permission('admin panel');
                                                 if ($showRate && isset($membership['minimum_fee'])) {
                                                     $formattedPrice = '$' . number_format($membership['minimum_fee'], 2);
@@ -958,7 +972,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                                         if ($unit === 'year') $unit = 'annual';
                                                         elseif ($unit === 'month') $unit = 'monthly';
                                                         elseif ($unit === 'day') $unit = 'daily';
-                                                        
+
                                                         $intervalText = ' / ' . $unit;
                                                     }
                                                     echo ' <span style="color: var(--color-text-muted); font-size: 0.95em;">' . e("({$formattedPrice}{$intervalText})") . '</span>';
@@ -966,16 +980,13 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                                 ?>
                                             </td>
                                         </tr>
-                                        <?php endif; ?>
-
-                                        <?php if ($hasPrivateAccess || $canViewBilling): ?>
                                         <tr>
                                             <td><strong>Status:</strong></td>
                                             <td>
                                                 <span class="badge badge-status <?php echo $membership['is_active'] ? 'badge-active' : 'badge-expired'; ?>">
                                                     <?php echo e($membership['status_label']); ?>
                                                 </span>
-                                                <?php if (($hasPrivateAccess || $canViewBilling) && !empty($subBilling['auto_renew'])): ?>
+                                                <?php if (!empty($subBilling['auto_renew'])): ?>
                                                 <span class="badge badge-active" style="display: inline-flex; align-items: center; gap: 6px; margin-left: 6px;">
                                                     Auto-Renew
                                                     <form action="profile.php?id=<?php echo $profileId; ?>" method="POST" style="display: inline; margin: 0;" data-confirm="Turn off auto-renew for this membership? Future renewals will require manual payment.">
@@ -983,7 +994,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                                         <button type="submit" name="auto_renew_update" title="Remove auto-renew" style="background: none; border: none; color: inherit; cursor: pointer; padding: 0; font-weight: bold; line-height: 1; font-size: 1em;">&times;</button>
                                                     </form>
                                                 </span>
-                                                <?php elseif (($hasPrivateAccess || $canViewBilling) && !empty($subBilling['stripe_customer_id']) && !empty($subBilling['stripe_payment_method_id'])): ?>
+                                                <?php elseif (!empty($subBilling['stripe_customer_id']) && !empty($subBilling['stripe_payment_method_id'])): ?>
                                                 <span class="badge badge-status" style="display: inline-flex; align-items: center; margin-left: 6px; opacity: 0.85;">
                                                     <form action="profile.php?id=<?php echo $profileId; ?>" method="POST" style="display: inline; margin: 0;">
                                                         <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
@@ -994,72 +1005,48 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                                 <?php endif; ?>
                                             </td>
                                         </tr>
-                                        <?php endif; ?>
-
-                                        <?php if ($hasPrivateAccess || $canViewBilling): ?>
+                                        <tr>
+                                            <td><strong>Join Date:</strong></td>
+                                            <td><?php echo date('F j, Y', strtotime($membership['join_date'])); ?></td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Expiration Date:</strong></td>
+                                            <td><?php echo date('F j, Y', strtotime($membership['end_date'])); ?></td>
+                                        </tr>
                                         <tr>
                                             <td></td>
                                             <td>
                                                 <a href="renew.php?contact_id=<?php echo $profileId; ?>" class="btn btn-success btn-small" style="margin-top: 5px; display: inline-block;">Renew/Extend Membership</a>
                                             </td>
                                         </tr>
-                                        <?php endif; ?>
                                     <?php else: ?>
                                         <tr>
                                             <td><strong>Membership:</strong></td>
                                             <td>No active membership records.</td>
                                         </tr>
-                                        <?php if ($hasPrivateAccess || $canViewBilling): ?>
                                         <tr>
                                             <td></td>
                                             <td>
                                                 <a href="renew.php?contact_id=<?php echo $profileId; ?>" class="btn btn-primary btn-small" style="margin-top: 5px; display: inline-block;">Purchase Membership</a>
                                             </td>
                                         </tr>
-                                        <?php endif; ?>
                                     <?php endif; ?>
                                 </table>
                             </div>
 
-                            <!-- PRIVATE SECTION -->
-                            <div class="detail-section private-detail-section">
-                                <div class="section-header">
-                                    <h3 class="section-title">Private Details</h3>
-                                    <span class="private-badge">🔒 Owner & Staff Only</span>
-                                </div>
-
-                                <?php if ($hasPrivateAccess || $canViewBilling): ?>
-                                    <table class="profile-data-table">
-                                        <tr>
-                                            <td><strong>Email:</strong></td>
-                                            <td>
-                                                <a href="mailto:<?php echo e($contact['email']); ?>"><?php echo e($contact['email']); ?></a>
-                                                <?php if ($pendingEmailChange): ?>
-                                                    <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 4px;">
-                                                        Pending change to <strong><?php echo e($pendingEmailChange['new_email']); ?></strong> &mdash; confirm from that inbox (expires <?php echo date('g:i A, M j', strtotime($pendingEmailChange['expires_at'])); ?>)
-                                                    </div>
-                                                <?php endif; ?>
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <td><strong>Phone:</strong></td>
-                                            <td><?php echo e($contact['phone'] ? format_phone($contact['phone']) : 'None registered'); ?></td>
-                                        </tr>
-                                        <?php if ($membership): ?>
-                                            <tr>
-                                                <td><strong>Join Date:</strong></td>
-                                                <td><?php echo date('F j, Y', strtotime($membership['join_date'])); ?></td>
-                                            </tr>
-                                            <tr>
-                                                <td><strong>Expiration Date:</strong></td>
-                                                <td><?php echo date('F j, Y', strtotime($membership['end_date'])); ?></td>
-                                            </tr>
-                                        <?php endif; ?>
-                                    </table>
-                                <?php else: ?>
-                                    <p class="private-locked-msg">You do not have permission to view private details (Email, Phone, Dates).</p>
-                                <?php endif; ?>
+                            <?php if ($hasPrivateAccess): ?>
+                            <!-- Password Reset Panel -->
+                            <div class="management-card mt-20">
+                                <h4>Portal Password Reset</h4>
+                                <p style="font-size: 0.85rem; color: rgba(255, 255, 255, 0.75); margin-bottom: 15px; line-height: 1.4;">
+                                    To change your portal password, click the button below to receive a secure password reset link at your registered email address (<strong><?php echo e($contact['email']); ?></strong>).
+                                </p>
+                                <form action="profile.php?id=<?php echo $profileId; ?>" method="POST">
+                                    <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                    <button type="submit" name="trigger_password_reset" class="btn btn-warning btn-block">Send Password Reset Email</button>
+                                </form>
                             </div>
+                            <?php endif; ?>
                         </div>
 
                         <!-- Right Panel: Management (Owner, admin, or contact-managing staff) -->
@@ -1138,20 +1125,6 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                         </form>
                                     <?php endif; ?>
                                 </div>
-
-                                <?php if ($hasPrivateAccess): ?>
-                                <!-- Password Reset Panel -->
-                                <div class="management-card mt-20">
-                                    <h4>Portal Password Reset</h4>
-                                    <p style="font-size: 0.85rem; color: rgba(255, 255, 255, 0.75); margin-bottom: 15px; line-height: 1.4;">
-                                        To change your portal password, click the button below to receive a secure password reset link at your registered email address (<strong><?php echo e($contact['email']); ?></strong>).
-                                    </p>
-                                    <form action="profile.php?id=<?php echo $profileId; ?>" method="POST">
-                                        <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
-                                        <button type="submit" name="trigger_password_reset" class="btn btn-warning btn-block">Send Password Reset Email</button>
-                                    </form>
-                                </div>
-                                <?php endif; ?>
 
                                 <!-- Admin Role Assignment Card -->
                                 <?php if ($isAdmin): ?>
