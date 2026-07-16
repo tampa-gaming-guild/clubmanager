@@ -20,6 +20,9 @@ $successMsg = null;
 if (isset($_GET['success'])) $successMsg = trim($_GET['success']);
 if (isset($_GET['error']))   $errorMsg   = trim($_GET['error']);
 
+// 0. Auth Gate: this is a member-only page, never public.
+Auth::requireAuth();
+
 // 1. Get Target Profile ID
 $profileId = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 if ($profileId <= 0 && Auth::check()) {
@@ -58,7 +61,7 @@ try {
         $subBilling = $subBillingStmt->fetch() ?: ['auto_renew' => 0, 'stripe_customer_id' => null, 'stripe_payment_method_id' => null];
 
         // C. Fetch Local Settings / Privacy Info
-        $settingsStmt = $appDb->prepare("SELECT role, is_profile_public, public_fields, custom_display_name, is_founder FROM tgg_member_settings WHERE contact_id = :id LIMIT 1");
+        $settingsStmt = $appDb->prepare("SELECT role, custom_display_name, is_founder FROM tgg_member_settings WHERE contact_id = :id LIMIT 1");
         $settingsStmt->execute(['id' => $profileId]);
         $settings = $settingsStmt->fetch();
 
@@ -77,8 +80,6 @@ if (!$contact) {
 if (!$settings) {
     $settings = [
         'role' => 'member',
-        'is_profile_public' => 1,
-        'public_fields' => json_encode(['display_name', 'membership_name', 'status_label']),
         'custom_display_name' => $contact['display_name'],
         'is_founder' => 0
     ];
@@ -99,8 +100,6 @@ if (empty($memberRoles) && isset($settings['role'])) {
     $memberRoles = [$settings['role']];
 }
 
-$publicFields = json_decode($settings['public_fields'] ?? '[]', true) ?: [];
-
 // 2. Check Viewer Relationship
 $isOwner = Auth::check() && $_SESSION['user']['contact_id'] === $profileId;
 $isAdmin = has_permission('admin panel');
@@ -120,9 +119,9 @@ if ($canManageContact && $appDb) {
     }
 }
 
-// 3. Privacy Gate
-if (!$settings['is_profile_public'] && !$hasPrivateAccess && !$canViewBilling) {
-    // Hidden completely if profile is private and viewer is anonymous/different member
+// 3. Access Gate: only the owner, admin-panel staff, or payment-processing staff
+// may view this profile at all.
+if (!$canManageContact) {
     $profileHidden = true;
 } else {
     $profileHidden = false;
@@ -367,55 +366,78 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($hasPrivateAccess || $canManageCon
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
         $errorMsg = "Invalid security token. Please try again.";
     } else {
-        // A. Handle Privacy Toggles
-        if (isset($_POST['privacy_update']) && $hasPrivateAccess) {
-            $isPublic = isset($_POST['is_profile_public']) ? 1 : 0;
-            $allowedFields = $_POST['public_fields'] ?? [];
+        // A. Handle Profile Settings Update (display name, email opt-out, phone --
+        // owner, admin, or process-payments staff)
+        if (isset($_POST['profile_settings_update']) && $canManageContact) {
+            $anySuccess = false;
+
+            // A1. Display name (required)
             $customDisplayName = trim($_POST['custom_display_name'] ?? '');
-            
             try {
                 if (empty($customDisplayName)) {
                     throw new Exception("Display name is required and cannot be left blank.");
                 }
-                
-                // Keep allowed fields clean
-                $allowedFields = array_diff($allowedFields, ['display_name', 'display_name_initials']);
-                $allowedFieldsJSON = json_encode(array_values($allowedFields));
 
                 // Ensure row exists
                 $check = $appDb->prepare("SELECT contact_id FROM tgg_member_settings WHERE contact_id = :id");
                 $check->execute(['id' => $profileId]);
-                
+
                 if ($check->fetch()) {
-                    $update = $appDb->prepare("UPDATE tgg_member_settings SET is_profile_public = :is_public, public_fields = :fields, custom_display_name = :custom_name WHERE contact_id = :id");
-                    $update->execute(['is_public' => $isPublic, 'fields' => $allowedFieldsJSON, 'custom_name' => $customDisplayName, 'id' => $profileId]);
+                    $update = $appDb->prepare("UPDATE tgg_member_settings SET custom_display_name = :custom_name WHERE contact_id = :id");
+                    $update->execute(['custom_name' => $customDisplayName, 'id' => $profileId]);
                 } else {
-                    $insert = $appDb->prepare("INSERT INTO tgg_member_settings (contact_id, password_hash, role, is_profile_public, public_fields, custom_display_name) VALUES (:id, :hash, 'member', :is_public, :fields, :custom_name)");
-                    // Default temporary secure random password
                     $randomToken = bin2hex(random_bytes(32));
+                    $insert = $appDb->prepare("INSERT INTO tgg_member_settings (contact_id, password_hash, role, custom_display_name) VALUES (:id, :hash, 'member', :custom_name)");
                     $insert->execute([
                         'id' => $profileId,
                         'hash' => password_hash($randomToken, PASSWORD_DEFAULT),
-                        'is_public' => $isPublic,
-                        'fields' => $allowedFieldsJSON,
                         'custom_name' => $customDisplayName
                     ]);
                 }
 
-                $successMsg = "Privacy preferences saved successfully.";
-                // Refresh settings array
-                $settings['is_profile_public'] = $isPublic;
-                $settings['public_fields'] = $allowedFieldsJSON;
                 $settings['custom_display_name'] = $customDisplayName;
-                $publicFields = $allowedFields;
-
-                // Update session display name if the owner updated their settings
                 if ($isOwner) {
                     $_SESSION['user']['display_name'] = $customDisplayName;
                 }
-
+                $anySuccess = true;
             } catch (Exception $e) {
-                $errorMsg = safe_err("Failed to save settings: ", $e);
+                $errorMsg = safe_err(($errorMsg ? $errorMsg . " | " : "") . "Failed to save display name: ", $e);
+            }
+
+            // A2. Bulk email opt-out
+            $newOptOut = isset($_POST['is_opt_out']) ? 1 : 0;
+            try {
+                $update = $appDb->prepare("UPDATE tgg_contacts SET is_opt_out = :is_opt_out WHERE id = :id");
+                $update->execute(['is_opt_out' => $newOptOut, 'id' => $profileId]);
+                $contact['is_opt_out'] = $newOptOut;
+                $anySuccess = true;
+            } catch (Exception $e) {
+                $errorMsg = safe_err(($errorMsg ? $errorMsg . " | " : "") . "Failed to update email preference: ", $e);
+            }
+
+            // A3. Phone (blank clears)
+            $rawPhone = trim($_POST['phone'] ?? '');
+            try {
+                if ($rawPhone === '') {
+                    $update = $appDb->prepare("UPDATE tgg_contacts SET phone = NULL WHERE id = :id");
+                    $update->execute(['id' => $profileId]);
+                    $contact['phone'] = null;
+                } else {
+                    $digits = normalize_phone($rawPhone);
+                    if (strlen($digits) !== 10) {
+                        throw new Exception("Please enter a 10-digit US phone number.");
+                    }
+                    $update = $appDb->prepare("UPDATE tgg_contacts SET phone = :phone WHERE id = :id");
+                    $update->execute(['phone' => $digits, 'id' => $profileId]);
+                    $contact['phone'] = $digits;
+                }
+                $anySuccess = true;
+            } catch (Exception $e) {
+                $errorMsg = safe_err(($errorMsg ? $errorMsg . " | " : "") . "Failed to update phone number: ", $e);
+            }
+
+            if ($anySuccess && !$errorMsg) {
+                $successMsg = "Profile settings saved successfully.";
             }
         }
 
@@ -433,43 +455,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($hasPrivateAccess || $canManageCon
                 $successMsg = $newAutoRenew ? "Auto-renew enabled." : "Auto-renew disabled.";
             } catch (Exception $e) {
                 $errorMsg = safe_err("Failed to update auto-renew setting: ", $e);
-            }
-        }
-
-        // A0b. Handle Bulk Email Opt-Out Toggle
-        if (isset($_POST['opt_out_update']) && $hasPrivateAccess) {
-            $newOptOut = isset($_POST['is_opt_out']) ? 1 : 0;
-            try {
-                $update = $appDb->prepare("UPDATE tgg_contacts SET is_opt_out = :is_opt_out WHERE id = :id");
-                $update->execute(['is_opt_out' => $newOptOut, 'id' => $profileId]);
-                $contact['is_opt_out'] = $newOptOut;
-                $successMsg = $newOptOut ? "Opted out of bulk emails." : "Opted back in to bulk emails.";
-            } catch (Exception $e) {
-                $errorMsg = safe_err("Failed to update email preference: ", $e);
-            }
-        }
-
-        // A0c. Handle Phone Update (Owner or contact-managing staff)
-        if (isset($_POST['phone_update']) && $canManageContact) {
-            $rawPhone = trim($_POST['phone'] ?? '');
-            try {
-                if ($rawPhone === '') {
-                    $update = $appDb->prepare("UPDATE tgg_contacts SET phone = NULL WHERE id = :id");
-                    $update->execute(['id' => $profileId]);
-                    $contact['phone'] = null;
-                    $successMsg = "Phone number removed.";
-                } else {
-                    $digits = normalize_phone($rawPhone);
-                    if (strlen($digits) !== 10) {
-                        throw new Exception("Please enter a 10-digit US phone number.");
-                    }
-                    $update = $appDb->prepare("UPDATE tgg_contacts SET phone = :phone WHERE id = :id");
-                    $update->execute(['phone' => $digits, 'id' => $profileId]);
-                    $contact['phone'] = $digits;
-                    $successMsg = "Phone number updated.";
-                }
-            } catch (Exception $e) {
-                $errorMsg = safe_err("Failed to update phone number: ", $e);
             }
         }
 
@@ -895,8 +880,8 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
 
             <?php if ($profileHidden): ?>
                 <div class="auth-panel glass-panel">
-                    <h2>Private Profile</h2>
-                    <p class="description-text">The owner of this profile has marked it as private.</p>
+                    <h2>Access Denied</h2>
+                    <p class="description-text">You don't have permission to view this profile.</p>
                     <a href="index.php" class="btn btn-primary mt-10">Back to Dashboard</a>
                 </div>
             <?php else: ?>
@@ -958,7 +943,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                     </tr>
                                     
                                     <?php if ($membership): ?>
-                                        <?php if ($hasPrivateAccess || $canViewBilling || in_array('membership_name', $publicFields)): ?>
+                                        <?php if ($hasPrivateAccess || $canViewBilling): ?>
                                         <tr>
                                             <td><strong>Membership Level:</strong></td>
                                             <td style="font-size: 0.85rem;">
@@ -983,7 +968,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                         </tr>
                                         <?php endif; ?>
 
-                                        <?php if ($hasPrivateAccess || $canViewBilling || in_array('status_label', $publicFields)): ?>
+                                        <?php if ($hasPrivateAccess || $canViewBilling): ?>
                                         <tr>
                                             <td><strong>Status:</strong></td>
                                             <td>
@@ -1080,70 +1065,38 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                         <!-- Right Panel: Management (Owner, admin, or contact-managing staff) -->
                         <?php if ($hasPrivateAccess || $canManageContact): ?>
                             <div class="profile-actions-column">
-                                <?php if ($hasPrivateAccess): ?>
-                                <!-- Privacy Settings Panel -->
+                                <?php if ($canManageContact): ?>
+                                <!-- Profile Settings Panel (display name, email opt-out, phone) -->
                                 <div class="management-card">
-                                    <h4>Profile Privacy Preferences</h4>
-                                    <form action="profile.php?id=<?php echo $profileId; ?>" method="POST" class="settings-form">
+                                    <h4>Profile Settings</h4>
+                                    <form id="profileSettingsForm" action="profile.php?id=<?php echo $profileId; ?>" method="POST" class="settings-form">
                                         <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
-                                        
-                                        <div class="form-group checkbox-group">
-                                            <input type="checkbox" id="is_profile_public" name="is_profile_public" value="1" 
-                                                <?php echo $settings['is_profile_public'] ? 'checked' : ''; ?>>
-                                            <label for="is_profile_public">Allow public users to find my profile</label>
-                                        </div>
 
-                                        <div class="form-group" style="margin-top: 15px; margin-bottom: 15px;">
+                                        <div class="form-group" style="margin-bottom: 15px;">
                                             <label for="custom_display_name" style="display: block; font-size: 0.9rem; font-weight: 500; margin-bottom: 5px; color: #fff;">Preferred Display Name (Required)</label>
-                                            <input type="text" id="custom_display_name" name="custom_display_name" value="<?php echo e($settings['custom_display_name'] ?? $contact['display_name']); ?>" required>
+                                            <input type="text" id="custom_display_name" name="custom_display_name" value="<?php echo e($settings['custom_display_name'] ?? $contact['display_name']); ?>" required data-dirty-field>
                                         </div>
 
-                                        <p class="settings-instruction mt-15">Other public fields:</p>
-                                        <div class="form-group checkbox-group">
-                                            <input type="checkbox" id="field_tier" name="public_fields[]" value="membership_name" 
-                                                <?php echo in_array('membership_name', $publicFields) ? 'checked' : ''; ?>>
-                                            <label for="field_tier">Show Membership Tier</label>
-                                        </div>
-                                        <div class="form-group checkbox-group">
-                                            <input type="checkbox" id="field_status" name="public_fields[]" value="status_label" 
-                                                <?php echo in_array('status_label', $publicFields) ? 'checked' : ''; ?>>
-                                            <label for="field_status">Show Membership Status</label>
-                                        </div>
-
-                                        <button type="submit" name="privacy_update" class="btn btn-success btn-block mt-15">Save Privacy settings</button>
-                                    </form>
-                                </div>
-
-                                <!-- Email Preferences Panel -->
-                                <div class="management-card mt-20">
-                                    <h4>Email Preferences</h4>
-                                    <form action="profile.php?id=<?php echo $profileId; ?>" method="POST" class="settings-form">
-                                        <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
                                         <div class="form-group checkbox-group">
                                             <input type="checkbox" id="is_opt_out" name="is_opt_out" value="1"
-                                                <?php echo !empty($contact['is_opt_out']) ? 'checked' : ''; ?>>
+                                                <?php echo !empty($contact['is_opt_out']) ? 'checked' : ''; ?> data-dirty-field>
                                             <label for="is_opt_out">Opt out of bulk emails (newsletters, announcements)</label>
                                         </div>
-                                        <button type="submit" name="opt_out_update" class="btn btn-success btn-block mt-15">Save Email Preferences</button>
+
+                                        <div class="form-group" style="margin-top: 15px;">
+                                            <label for="phone" style="display: block; font-size: 0.85rem; margin-bottom: 5px; color: rgba(255,255,255,0.85);">Phone Number</label>
+                                            <input type="tel" id="phone" name="phone" value="<?php echo e($contact['phone'] ? format_phone($contact['phone']) : ''); ?>" placeholder="(813) 555-0123" data-dirty-field>
+                                            <p style="font-size: 0.75rem; color: rgba(255,255,255,0.6); margin-top: 5px;">US 10-digit number; leave blank to remove.</p>
+                                        </div>
+
+                                        <button type="submit" name="profile_settings_update" id="profileSettingsSaveBtn" class="btn btn-success btn-block mt-15">Save Changes</button>
                                     </form>
                                 </div>
                                 <?php endif; ?>
 
                                 <!-- Contact Details Panel (Owner, admin, or contact-managing staff) -->
-                                <div class="management-card <?php echo $hasPrivateAccess ? 'mt-20' : ''; ?>">
-                                    <h4>Contact Details</h4>
-
-                                    <form action="profile.php?id=<?php echo $profileId; ?>" method="POST" class="settings-form">
-                                        <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
-                                        <div class="form-group">
-                                            <label for="phone" style="display: block; font-size: 0.85rem; margin-bottom: 5px; color: rgba(255,255,255,0.85);">Phone Number</label>
-                                            <input type="tel" id="phone" name="phone" value="<?php echo e($contact['phone'] ? format_phone($contact['phone']) : ''); ?>" placeholder="(813) 555-0123">
-                                            <p style="font-size: 0.75rem; color: rgba(255,255,255,0.6); margin-top: 5px;">US 10-digit number; leave blank to remove.</p>
-                                        </div>
-                                        <button type="submit" name="phone_update" class="btn btn-success btn-block">Save Phone Number</button>
-                                    </form>
-
-                                    <hr style="border-color: rgba(255,255,255,0.1); margin: 20px 0;">
+                                <div class="management-card mt-20">
+                                    <h4>Email Address</h4>
 
                                     <?php if ($pendingEmailChange): ?>
                                         <div class="alert alert-warning" style="font-size: 0.85rem;">
@@ -1555,6 +1508,33 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
         const btn = document.querySelector(`.tab-button[onclick*="'${tabId}'"]`);
         if (btn) btn.classList.add('active');
     }
+
+    (function() {
+        var form = document.getElementById('profileSettingsForm');
+        var saveBtn = document.getElementById('profileSettingsSaveBtn');
+        if (!form || !saveBtn) return;
+
+        var fields = form.querySelectorAll('[data-dirty-field]');
+        var initial = {};
+        fields.forEach(function(el) {
+            initial[el.name] = (el.type === 'checkbox') ? el.checked : el.value;
+        });
+
+        function checkDirty() {
+            var dirty = false;
+            fields.forEach(function(el) {
+                var current = (el.type === 'checkbox') ? el.checked : el.value;
+                if (current !== initial[el.name]) dirty = true;
+            });
+            saveBtn.disabled = !dirty;
+        }
+
+        saveBtn.disabled = true;
+        fields.forEach(function(el) {
+            el.addEventListener('input', checkDirty);
+            el.addEventListener('change', checkDirty);
+        });
+    })();
 
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {

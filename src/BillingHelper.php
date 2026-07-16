@@ -762,13 +762,11 @@ class BillingHelper {
             // B. Create Local Member Settings with a random, discarded password hash --
             // they get a "set up your password" link by email if a membership is activated.
             $randomPasswordHash = password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT);
-            $defaultPublicFields = json_encode(['display_name', 'membership_name', 'status_label']);
-            $insertSettings = $appDb->prepare("INSERT INTO tgg_member_settings (contact_id, password_hash, role, is_profile_public, public_fields)
-                                               VALUES (:contact_id, :password_hash, 'member', 1, :public_fields)");
+            $insertSettings = $appDb->prepare("INSERT INTO tgg_member_settings (contact_id, password_hash, role)
+                                               VALUES (:contact_id, :password_hash, 'member')");
             $insertSettings->execute([
                 'contact_id' => $newContactId,
-                'password_hash' => $randomPasswordHash,
-                'public_fields' => $defaultPublicFields
+                'password_hash' => $randomPasswordHash
             ]);
 
             $appDb->commit();

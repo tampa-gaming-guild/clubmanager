@@ -38,7 +38,7 @@ class Auth {
         $contactId = (int)$emailRow['id'];
 
         // 2. Fetch the credentials from local tgg_member_settings
-        $authQuery = "SELECT password_hash, role, is_profile_public, failed_login_attempts, locked_until FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1";
+        $authQuery = "SELECT password_hash, role, failed_login_attempts, locked_until FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1";
         $stmt = $appDb->prepare($authQuery);
         $stmt->execute(['contact_id' => $contactId]);
         $authRow = $stmt->fetch();
@@ -130,7 +130,6 @@ class Auth {
             'display_name' => $displayName,
             'roles' => $roles,
             'role' => $roles[0] ?? $authRow['role'], // for legacy string compatibility
-            'is_profile_public' => (int)$authRow['is_profile_public'],
             'permissions' => $permissions
         ];
 
@@ -174,14 +173,13 @@ class Auth {
                 'contact_id' => $contactId
             ]);
         } else {
-            $insertQuery = "INSERT INTO tgg_member_settings (contact_id, password_hash, role, is_profile_public, public_fields) 
-                            VALUES (:contact_id, :password_hash, :role, 1, :public_fields)";
+            $insertQuery = "INSERT INTO tgg_member_settings (contact_id, password_hash, role)
+                            VALUES (:contact_id, :password_hash, :role)";
             $stmt = $appDb->prepare($insertQuery);
             return $stmt->execute([
                 'contact_id' => $contactId,
                 'password_hash' => $passwordHash,
-                'role' => $role,
-                'public_fields' => json_encode(['display_name', 'membership_type', 'membership_status'])
+                'role' => $role
             ]);
         }
     }
@@ -307,7 +305,7 @@ class Auth {
         $contactId = (int)$_SESSION['user']['contact_id'];
         $appDb = Database::getAppConnection();
         
-        $stmt = $appDb->prepare("SELECT role, is_profile_public FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1");
+        $stmt = $appDb->prepare("SELECT role FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1");
         $stmt->execute(['contact_id' => $contactId]);
         $row = $stmt->fetch();
         if ($row) {
@@ -321,8 +319,7 @@ class Auth {
 
             $_SESSION['user']['roles'] = $roles;
             $_SESSION['user']['role'] = $roles[0] ?? $row['role']; // for legacy string compatibility
-            $_SESSION['user']['is_profile_public'] = (int)$row['is_profile_public'];
-            
+
             $permissions = [];
             if (!empty($roles)) {
                 $placeholders = implode(',', array_fill(0, count($roles), '?'));
@@ -373,13 +370,12 @@ class Auth {
             throw new Exception("Target contact not found.");
         }
 
-        $authQuery = "SELECT role, is_profile_public FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1";
+        $authQuery = "SELECT role FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1";
         $stmt = $appDb->prepare($authQuery);
         $stmt->execute(['contact_id' => $targetContactId]);
         $authRow = $stmt->fetch();
 
         $roleName = $authRow ? $authRow['role'] : 'member';
-        $isProfilePublic = $authRow ? (int)$authRow['is_profile_public'] : 1;
 
         // 2. Fetch target user's roles
         $rolesStmt = $appDb->prepare("SELECT role_name FROM tgg_member_roles WHERE contact_id = :contact_id");
@@ -416,7 +412,6 @@ class Auth {
             'display_name' => MembershipService::getFormattedName($targetContactId),
             'roles' => $roles,
             'role' => $roles[0] ?? $roleName,
-            'is_profile_public' => $isProfilePublic,
             'permissions' => $permissions
         ];
 

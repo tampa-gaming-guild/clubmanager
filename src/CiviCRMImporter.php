@@ -196,11 +196,8 @@ class CiviCRMImporter {
 
         // Prepare statements for local checking and insertion
         $checkStmt = $appDb->prepare("SELECT contact_id, role FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1");
-        $insertStmt = $appDb->prepare("INSERT INTO tgg_member_settings (contact_id, password_hash, role, is_profile_public, public_fields) 
-                                       VALUES (:contact_id, :password_hash, :role, 1, :public_fields)");
-
-        // Users must use the forgot password flow to reset their password on first login
-        $defaultPublicFields = json_encode(['display_name', 'membership_type', 'membership_status']);
+        $insertStmt = $appDb->prepare("INSERT INTO tgg_member_settings (contact_id, password_hash, role)
+                                       VALUES (:contact_id, :password_hash, :role)");
 
         foreach ($contacts as $contact) {
             $contactId = (int)$contact['id'];
@@ -233,8 +230,7 @@ class CiviCRMImporter {
                     $insertStmt->execute([
                         'contact_id' => $contactId,
                         'password_hash' => $securePasswordHash,
-                        'role' => $role,
-                        'public_fields' => $defaultPublicFields
+                        'role' => $role
                     ]);
                     $stats['settings_created']++;
                 } else {

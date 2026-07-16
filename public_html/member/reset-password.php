@@ -96,13 +96,12 @@ if (empty($rawToken)) {
                             ]);
                         } else {
                             $stmtInsert = $appDb->prepare("
-                                INSERT INTO tgg_member_settings (contact_id, password_hash, role, is_profile_public, public_fields, failed_login_attempts, locked_until)
-                                VALUES (:contact_id, :hash, 'member', 1, :public_fields, 0, NULL)
+                                INSERT INTO tgg_member_settings (contact_id, password_hash, role, failed_login_attempts, locked_until)
+                                VALUES (:contact_id, :hash, 'member', 0, NULL)
                             ");
                             $stmtInsert->execute([
                                 'contact_id' => $contactId,
-                                'hash' => $passwordHash,
-                                'public_fields' => json_encode(['display_name', 'membership_name', 'status_label'])
+                                'hash' => $passwordHash
                             ]);
                         }
 
