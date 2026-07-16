@@ -164,7 +164,7 @@ if (empty($rawToken)) {
         <main class="main-content centered-content">
             <div class="auth-panel glass-panel">
                 <h2>Choose New Password</h2>
-                <p class="subtitle">Please choose a secure password of at least 8 characters.</p>
+                <p class="subtitle">Please choose a password of at least 8 characters. For stronger security, we recommend a longer passphrase (15+ characters).</p>
 
                 <?php if ($errorMsg): ?>
                     <div class="alert alert-danger"><?php echo e($errorMsg); ?></div>

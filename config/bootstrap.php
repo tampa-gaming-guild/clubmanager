@@ -236,30 +236,16 @@ function json_response($data, $statusCode = 200) {
 }
 
 /**
- * Validate password complexity based on modern security standards (length >= 10, uppercase, lowercase, digit, special char).
+ * Validate password strength per NIST SP 800-63B: a length floor plus screening
+ * against known-compromised and common/guessable passwords, rather than forced
+ * character-composition rules (which push users toward predictable patterns).
  */
 function is_password_complex(string $password, &$error): bool {
-    if (strlen($password) < 10) {
-        $error = "Password must be at least 10 characters long.";
+    if (strlen($password) < 8) {
+        $error = "Password must be at least 8 characters long.";
         return false;
     }
-    if (!preg_match('/[A-Z]/', $password)) {
-        $error = "Password must contain at least one uppercase letter.";
-        return false;
-    }
-    if (!preg_match('/[a-z]/', $password)) {
-        $error = "Password must contain at least one lowercase letter.";
-        return false;
-    }
-    if (!preg_match('/[0-9]/', $password)) {
-        $error = "Password must contain at least one number.";
-        return false;
-    }
-    if (!preg_match('/[^A-Za-z0-9]/', $password)) {
-        $error = "Password must contain at least one special character (e.g., !@#$%^&*).";
-        return false;
-    }
-    
+
     // Check against common dictionary words or patterns
     $lowercasePassword = strtolower($password);
     $commonPasswords = [
@@ -272,8 +258,55 @@ function is_password_complex(string $password, &$error): bool {
             return false;
         }
     }
-    
+
+    // Screen against known-breached passwords (NIST SP 800-63B 5.1.1.2) via the
+    // HIBP Pwned Passwords k-anonymity API. Only a 5-character SHA-1 prefix is
+    // ever sent -- the password itself never leaves the server. Fails open (does
+    // not block the user) if the API is unreachable, since availability of
+    // account creation/recovery must not depend on a third-party service.
+    if (is_password_pwned($password)) {
+        $error = "This password has appeared in a known data breach. Please choose a different password.";
+        return false;
+    }
+
     return true;
+}
+
+/**
+ * Check a password against the HIBP Pwned Passwords range API using k-anonymity:
+ * only the first 5 hex characters of the password's SHA-1 hash are transmitted.
+ * Returns false (does not block) on any network/API failure -- fail open.
+ */
+function is_password_pwned(string $password): bool {
+    // SHA-1 here is not a storage/security hash -- it's the identifier format the
+    // HIBP Pwned Passwords protocol requires for its k-anonymity range lookup.
+    $sha1 = strtoupper(sha1($password));
+    $prefix = substr($sha1, 0, 5);
+    $suffix = substr($sha1, 5);
+
+    $ch = curl_init("https://api.pwnedpasswords.com/range/" . $prefix);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 3);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Add-Padding: true']);
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlErr = curl_error($ch);
+    curl_close($ch);
+
+    if ($response === false || $httpCode !== 200) {
+        error_log("HIBP password check unavailable, failing open: " . ($curlErr ?: "HTTP $httpCode"));
+        return false;
+    }
+
+    foreach (explode("\n", $response) as $line) {
+        [$hashSuffix, $count] = array_pad(explode(':', trim($line), 2), 2, '0');
+        if (strcasecmp($hashSuffix, $suffix) === 0 && (int)$count > 0) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 /**
