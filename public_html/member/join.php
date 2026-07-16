@@ -56,7 +56,8 @@ function lookup_member_by_email(\PDO $appDb, string $email, array $tiers): array
         'display_name' => null,
         'current_plan_id' => null,
         'current_plan_name' => null,
-        'is_trial' => false
+        'is_trial' => false,
+        'has_stored_card' => false
     ];
 
     $stmt = $appDb->prepare("SELECT id, display_name FROM tgg_contacts WHERE email = :email AND is_deleted = 0 LIMIT 1");
@@ -70,6 +71,14 @@ function lookup_member_by_email(\PDO $appDb, string $email, array $tiers): array
     $result['exists'] = true;
     $result['contact_id'] = $contactId;
     $result['display_name'] = $row['display_name'];
+
+    // Auto-renew is switched on the moment a card is first captured for this
+    // contact (see BillingHelper::processCheckoutSession), so a renewing member
+    // with no card on file yet is about to hit that same first-capture moment.
+    $cardStmt = $appDb->prepare("SELECT stripe_payment_method_id FROM tgg_subscriptions WHERE contact_id = :contact_id LIMIT 1");
+    $cardStmt->execute(['contact_id' => $contactId]);
+    $cardRow = $cardStmt->fetch();
+    $result['has_stored_card'] = !empty($cardRow['stripe_payment_method_id'] ?? null);
 
     $membership = BillingHelper::getMemberSubscriptionDetails($contactId);
     if (!$membership) {
@@ -323,6 +332,7 @@ $displayTiers = $isRenewMode
                     <form action="join.php" method="POST" class="auth-form" id="join_form">
                         <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
                         <input type="hidden" name="existing_contact_id" id="existing_contact_id" value="<?php echo $isRenewMode ? (int)$prefillExisting['contact_id'] : ''; ?>">
+                        <input type="hidden" id="has_stored_card" value="<?php echo ($isRenewMode && !empty($prefillExisting['has_stored_card'])) ? '1' : ''; ?>">
 
                         <div class="form-group">
                             <label for="email">Email Address</label>
@@ -356,12 +366,14 @@ $displayTiers = $isRenewMode
                                             ? ((int)$tier['id'] === (int)($prefillExisting['current_plan_id'] ?? 0))
                                             : (isset($_POST['tier_id']) && $_POST['tier_id'] == $tier['id']);
                                     ?>
-                                    <option value="<?php echo (int)$tier['id']; ?>" data-trial="<?php echo BillingHelper::isTrialPlan($tier) ? '1' : '0'; ?>" <?php echo $optionSelected ? 'selected' : ''; ?>>
+                                    <option value="<?php echo (int)$tier['id']; ?>" data-trial="<?php echo BillingHelper::isTrialPlan($tier) ? '1' : '0'; ?>" data-duration-interval="<?php echo (int)$tier['duration_interval']; ?>" data-duration-unit="<?php echo e(strtolower($tier['duration_unit'])); ?>" <?php echo $optionSelected ? 'selected' : ''; ?>>
                                         <?php echo e($tier['name']); ?> - $<?php echo number_format($tier['minimum_fee'], 2); ?> / <?php echo e($tier['duration_interval']); ?> <?php echo e($tier['duration_unit']); ?>(s)
                                     </option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
+
+                        <div class="info-block" id="join_legal_info" style="display:none;"></div>
 
                         <div class="info-block payment-warning" id="join_cta_info">
                             <p><strong>Secure Checkout:</strong> Clicking the button below will redirect you to Stripe to pay your membership dues securely.</p>
@@ -373,6 +385,7 @@ $displayTiers = $isRenewMode
                     <script>
                         const tierSelect = document.getElementById('tier_id');
                         const existingContactInput = document.getElementById('existing_contact_id');
+                        const hasStoredCardInput = document.getElementById('has_stored_card');
                         const emailInput = document.getElementById('email');
                         const headingEl = document.getElementById('join_heading');
                         const subtitleEl = document.getElementById('join_subtitle');
@@ -382,12 +395,31 @@ $displayTiers = $isRenewMode
                         const lastNameInput = document.getElementById('last_name');
                         const lookupStatusEl = document.getElementById('email_lookup_status');
 
+                        function formatBillingPeriod(selectedOpt) {
+                            const interval = parseInt(selectedOpt.getAttribute('data-duration-interval') || '1', 10);
+                            const unit = selectedOpt.getAttribute('data-duration-unit') || 'year';
+                            return interval > 1 ? `${interval} ${unit}s` : unit;
+                        }
+
                         function updateJoinCallToAction() {
                             const infoBlock = document.getElementById('join_cta_info');
+                            const legalBlock = document.getElementById('join_legal_info');
                             const button = document.getElementById('join_cta_button');
                             const selectedOpt = tierSelect.options[tierSelect.selectedIndex];
                             const isTrial = selectedOpt && selectedOpt.getAttribute('data-trial') === '1';
                             const isRenew = !!existingContactInput.value;
+                            const hasStoredCard = hasStoredCardInput.value === '1';
+
+                            let legalHtml = '';
+                            if (!isRenew) {
+                                legalHtml += '<p>By becoming a member of the Tampa Gaming Guild, Inc social club you agree to follow the rules, regulations and code of conduct as published on <a href="https://tampagamingguild.org" target="_blank" rel="noopener">tampagamingguild.org</a>.</p>';
+                            }
+                            if (!isTrial && !hasStoredCard && selectedOpt && selectedOpt.value) {
+                                const period = formatBillingPeriod(selectedOpt);
+                                legalHtml += `<p>By providing your card, you authorize Tampa Gaming Guild, Inc. to automatically charge it each ${period} to renew your membership. You can cancel this auto-renewal at any time from your profile.</p>`;
+                            }
+                            legalBlock.innerHTML = legalHtml;
+                            legalBlock.style.display = legalHtml ? '' : 'none';
 
                             if (isTrial) {
                                 infoBlock.innerHTML = '<p><strong>Verify Your Email:</strong> No payment is required. After you register, we\'ll email you a verification link &mdash; click it to activate your one-time 30-day Trial membership.</p>';
@@ -404,6 +436,7 @@ $displayTiers = $isRenewMode
                         function applyLookupResult(result) {
                             const isRenew = !!(result && result.exists);
                             existingContactInput.value = isRenew ? result.contact_id : '';
+                            hasStoredCardInput.value = (isRenew && result.has_stored_card) ? '1' : '';
 
                             headingEl.textContent = isRenew ? 'Renew Your Membership' : 'Become a Member';
                             subtitleEl.textContent = isRenew
