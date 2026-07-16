@@ -1095,8 +1095,8 @@ class BillingHelper {
         string $action = 'renew',
         string $levelChangeMode = 'extend_current',
         string $durationMode = 'standard',
-        string $customDate = null,
-        float $customAmount = null,
+        ?string $customDate = null,
+        ?float $customAmount = null,
         ?int $actorContactId = null
     ): bool {
         $appDb = Database::getAppConnection();

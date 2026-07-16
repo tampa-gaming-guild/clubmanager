@@ -50,7 +50,7 @@ The fastest way to run the app locally is `docker-compose.yml`, which starts thr
 
 * **db** – MariaDB, auto-seeded on first start from `sql/civicrm_mock.sql` (mock CiviCRM tables for testing). The app's own `tgg_members` schema and reference data are built by Phinx, not by this auto-seeding.
 * **mailpit** – catches outgoing emails instead of sending them. Web UI at `http://localhost:8025`.
-* **app** – PHP 8.2 + Apache, document root locked to `public_html/` (same separation as production). On every container start, its entrypoint runs `vendor/bin/phinx migrate` and `vendor/bin/phinx seed:run` against the local database -- no manual schema setup needed, and pulling a new schema change just means restarting the `app` container.
+* **app** – PHP 8.4 + Apache, document root locked to `public_html/` (same separation as production). On every container start, its entrypoint runs `vendor/bin/phinx migrate` and `vendor/bin/phinx seed:run` against the local database -- no manual schema setup needed, and pulling a new schema change just means restarting the `app` container.
 
 ### 1. Start the stack
 ```bash

@@ -140,7 +140,7 @@ class Event {
     /**
      * Fetch scheduled events in a range
      */
-    public static function getEvents(string $start = null, string $end = null): array {
+    public static function getEvents(?string $start = null, ?string $end = null): array {
         $appDb = Database::getAppConnection();
 
         $sql = "SELECT id, title, description, start_time, end_time FROM tgg_events";
