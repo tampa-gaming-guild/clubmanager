@@ -315,7 +315,7 @@ $displayTiers = $isRenewMode
                 <p class="subtitle" id="join_subtitle">
                     <?php echo $isRenewMode
                         ? 'Welcome back! Pick a level below to renew your membership.'
-                        : 'Complete the form below to register and pay your membership dues securely.'; ?>
+                        : 'Complete the form below to register for a 30 day trial or pay your membership dues securely.'; ?>
                 </p>
 
                 <?php if ($errorMsg): ?>
@@ -373,7 +373,7 @@ $displayTiers = $isRenewMode
                             </select>
                         </div>
 
-                        <div class="info-block" id="join_legal_info" style="display:none;"></div>
+                        <div id="join_legal_info" style="display:none;"></div>
 
                         <div class="info-block payment-warning" id="join_cta_info">
                             <p><strong>Secure Checkout:</strong> Clicking the button below will redirect you to Stripe to pay your membership dues securely.</p>
@@ -412,11 +412,11 @@ $displayTiers = $isRenewMode
 
                             let legalHtml = '';
                             if (!isRenew) {
-                                legalHtml += '<p>By becoming a member of the Tampa Gaming Guild, Inc social club you agree to follow the rules, regulations and code of conduct as published on <a href="https://tampagamingguild.org" target="_blank" rel="noopener">tampagamingguild.org</a>.</p>';
+                                legalHtml += '<div class="info-block">By becoming a member of the Tampa Gaming Guild, Inc social club you agree to follow the rules, regulations and code of conduct as published on <a href="https://tampagamingguild.org" target="_blank" rel="noopener">tampagamingguild.org</a>.</div>';
                             }
                             if (!isTrial && !hasStoredCard && selectedOpt && selectedOpt.value) {
                                 const period = formatBillingPeriod(selectedOpt);
-                                legalHtml += `<p>By providing your card, you authorize Tampa Gaming Guild, Inc. to automatically charge it each ${period} to renew your membership. You can cancel this auto-renewal at any time from your profile.</p>`;
+                                legalHtml += `<div class="info-block">By providing your card, you authorize Tampa Gaming Guild, Inc. to automatically charge it each ${period} to renew your membership. You can cancel this auto-renewal at any time from your profile.</div>`;
                             }
                             legalBlock.innerHTML = legalHtml;
                             legalBlock.style.display = legalHtml ? '' : 'none';
@@ -441,7 +441,7 @@ $displayTiers = $isRenewMode
                             headingEl.textContent = isRenew ? 'Renew Your Membership' : 'Become a Member';
                             subtitleEl.textContent = isRenew
                                 ? 'Welcome back! Pick a level below to renew your membership.'
-                                : 'Complete the form below to register and pay your membership dues securely.';
+                                : 'Complete the form below to register for a 30 day trial or pay your membership dues securely.';
 
                             nameRow.style.display = isRenew ? 'none' : '';
                             phoneGroup.style.display = isRenew ? 'none' : '';
