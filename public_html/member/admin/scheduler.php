@@ -22,6 +22,19 @@ $successMsg = null;
 if (isset($_GET['success'])) $successMsg = trim($_GET['success']);
 if (isset($_GET['error']))   $errorMsg   = trim($_GET['error']);
 
+// List view/pagination state. Read up front (not just where the list is rendered)
+// so create/update/delete redirects below can carry it back to the same tab/page
+// -- important for editing a past event, which would otherwise vanish from view
+// when the redirect lands back on the "upcoming" default.
+$validViews = ['upcoming', 'past', 'all'];
+$view = in_array($_GET['view'] ?? '', $validViews, true) ? $_GET['view'] : 'upcoming';
+$page = max(1, (int)($_GET['page'] ?? 1));
+$eventsPerPage = 25;
+$listStateQuery = http_build_query(array_filter([
+    'view' => $view !== 'upcoming' ? $view : null,
+    'page' => $page > 1 ? $page : null,
+]));
+
 // Helper to determine if a date matches monthly occurrence rules (e.g. 1st, 3rd, last)
 function matches_monthly_rule($date, $selectedWeeks, $dayOfWeekIndex) {
     $w = (int)date('w', $date);
@@ -96,7 +109,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_delete'])) {
                 if ($isAjax) {
                     json_response(['success' => true]);
                 }
-                redirect('admin/scheduler.php?' . http_build_query(['success' => 'Event deleted successfully.']));
+                redirect('admin/scheduler.php?' . http_build_query(array_filter([
+                    'success' => 'Event deleted successfully.',
+                    'view' => $view !== 'upcoming' ? $view : null,
+                    'page' => $page > 1 ? $page : null,
+                ])));
             } catch (Exception $e) {
                 if ($isAjax) {
                     json_response(['success' => false, 'error' => safe_err('Failed to delete event: ', $e)], 400);
@@ -205,7 +222,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_update'])) {
                 [$mysqlStart, $mysqlEnd] = build_event_times($eventDate, $startTime, $endTime);
 
                 Event::updateEvent($eventId, $title, $description, $mysqlStart, $mysqlEnd, parse_slots_input());
-                redirect('admin/scheduler.php?' . http_build_query(['success' => 'Event updated successfully!']));
+                redirect('admin/scheduler.php?' . http_build_query(array_filter([
+                    'success' => 'Event updated successfully!',
+                    'view' => $view !== 'upcoming' ? $view : null,
+                    'page' => $page > 1 ? $page : null,
+                ])));
             } catch (Exception $e) {
                 $errorMsg = safe_err("Update failed: ", $e);
                 // Re-open the edit card so the admin can correct and retry
@@ -232,12 +253,45 @@ if (isset($_GET['edit'])) {
     }
 }
 
-// Fetch all events for display, with filled/total slot counts batched up front
+// Fetch events for the current view/page, with filled/total slot counts batched up front.
+// Upcoming shows soonest-first; Past and All show most-recent-first.
 $slotTotals = [];
 $slotFilled = [];
+$totalEvents = 0;
+$totalPages = 0;
 try {
-    $events = Event::getEvents();
     $appDb = Database::getAppConnection();
+    $today = date('Y-m-d 00:00:00');
+
+    if ($view === 'upcoming') {
+        $where = 'WHERE start_time >= :today';
+        $order = 'start_time ASC';
+        $params = ['today' => $today];
+    } elseif ($view === 'past') {
+        $where = 'WHERE start_time < :today';
+        $order = 'start_time DESC';
+        $params = ['today' => $today];
+    } else {
+        $where = '';
+        $order = 'start_time DESC';
+        $params = [];
+    }
+
+    $countStmt = $appDb->prepare("SELECT COUNT(*) FROM tgg_events $where");
+    $countStmt->execute($params);
+    $totalEvents = (int)$countStmt->fetchColumn();
+    $totalPages = (int)ceil($totalEvents / $eventsPerPage);
+    $offset = ($page - 1) * $eventsPerPage;
+
+    $eventsStmt = $appDb->prepare("
+        SELECT id, title, description, start_time, end_time FROM tgg_events
+        $where
+        ORDER BY $order
+        LIMIT $eventsPerPage OFFSET $offset
+    ");
+    $eventsStmt->execute($params);
+    $events = $eventsStmt->fetchAll();
+
     $slotTotals = $appDb->query("
         SELECT event_id, COUNT(*) FROM tgg_event_slots GROUP BY event_id
     ")->fetchAll(PDO::FETCH_KEY_PAIR);
@@ -362,7 +416,7 @@ if (empty($createFormSlots)) {
                         <!-- Edit Event Card -->
                         <div class="scheduler-form-card" style="margin-bottom: 25px; border: 1px solid var(--color-primary, #6366f1);">
                             <h3>Edit Event — <?php echo e($editEvent['title']); ?></h3>
-                            <form action="scheduler.php" method="POST" class="standard-form">
+                            <form action="scheduler.php<?php echo $listStateQuery !== '' ? '?' . e($listStateQuery) : ''; ?>" method="POST" class="standard-form">
                                 <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
                                 <input type="hidden" name="event_id" value="<?php echo (int)$editEvent['id']; ?>">
 
@@ -406,7 +460,7 @@ if (empty($createFormSlots)) {
 
                                 <div style="display: flex; gap: 10px;">
                                     <button type="submit" name="action_update" class="btn btn-primary" style="flex: 1;">Save Changes</button>
-                                    <a href="scheduler.php" class="btn btn-secondary" style="flex-shrink: 0;">Cancel</a>
+                                    <a href="scheduler.php<?php echo $listStateQuery !== '' ? '?' . e($listStateQuery) : ''; ?>" class="btn btn-secondary" style="flex-shrink: 0;">Cancel</a>
                                 </div>
                             </form>
                         </div>
@@ -672,17 +726,24 @@ if (empty($createFormSlots)) {
 
                         <!-- Table: Existing Scheduled Events -->
                         <div class="scheduler-list-card">
-                            <h3>Upcoming Events</h3>
+                            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 12px;">
+                                <h3 style="margin: 0;"><?php echo $view === 'past' ? 'Past Events' : ($view === 'all' ? 'All Events' : 'Upcoming Events'); ?></h3>
+                                <div style="display: flex; gap: 6px;">
+                                    <a href="scheduler.php?view=upcoming" class="btn btn-small <?php echo $view === 'upcoming' ? 'btn-primary' : 'btn-secondary'; ?>">Upcoming</a>
+                                    <a href="scheduler.php?view=past" class="btn btn-small <?php echo $view === 'past' ? 'btn-primary' : 'btn-secondary'; ?>">Past</a>
+                                    <a href="scheduler.php?view=all" class="btn btn-small <?php echo $view === 'all' ? 'btn-primary' : 'btn-secondary'; ?>">All</a>
+                                </div>
+                            </div>
 
                             <?php if (empty($events)): ?>
-                                <p class="empty-text">No events scheduled yet. Add one using the form.</p>
+                                <p class="empty-text"><?php echo $view === 'upcoming' ? 'No events scheduled yet. Add one using the form.' : 'No events found.'; ?></p>
                             <?php else: ?>
                                 <div class="admin-table-container">
                                     <table class="admin-table" id="events-table">
                                         <thead>
                                             <tr>
                                                 <th class="sortable">Title</th>
-                                                <th class="sortable asc">Date & Time</th>
+                                                <th class="sortable <?php echo $view === 'upcoming' ? 'asc' : 'desc'; ?>">Date & Time</th>
                                                 <th>Vols</th>
                                                 <th>Actions</th>
                                             </tr>
@@ -703,8 +764,8 @@ if (empty($createFormSlots)) {
                                                     </td>
                                                     <td>
                                                         <div style="display: flex; gap: 6px;">
-                                                            <a href="scheduler.php?edit=<?php echo $eid; ?>" class="btn btn-secondary btn-small">Edit</a>
-                                                            <form action="scheduler.php" method="POST" class="inline-form delete-event-form">
+                                                            <a href="scheduler.php?edit=<?php echo $eid; ?><?php echo $listStateQuery !== '' ? '&' . e($listStateQuery) : ''; ?>" class="btn btn-secondary btn-small">Edit</a>
+                                                            <form action="scheduler.php<?php echo $listStateQuery !== '' ? '?' . e($listStateQuery) : ''; ?>" method="POST" class="inline-form delete-event-form">
                                                                 <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
                                                                 <input type="hidden" name="event_id" value="<?php echo $eid; ?>">
                                                                 <button type="submit" name="action_delete" class="btn btn-danger btn-small">Delete</button>
@@ -716,6 +777,19 @@ if (empty($createFormSlots)) {
                                         </tbody>
                                     </table>
                                 </div>
+
+                                <?php if ($totalPages > 1): ?>
+                                    <div class="pagination" style="display: flex; gap: 10px; justify-content: center; align-items: center; margin-top: 16px;">
+                                        <?php $pageBase = 'scheduler.php?' . ($view !== 'upcoming' ? 'view=' . urlencode($view) . '&' : ''); ?>
+                                        <?php if ($page > 1): ?>
+                                            <a href="<?php echo e($pageBase . 'page=' . ($page - 1)); ?>" class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem;">&laquo; Previous</a>
+                                        <?php endif; ?>
+                                        <span style="font-size: 0.85rem; color: var(--color-text-secondary);">Page <?php echo $page; ?> of <?php echo $totalPages; ?> (<?php echo $totalEvents; ?> events)</span>
+                                        <?php if ($page < $totalPages): ?>
+                                            <a href="<?php echo e($pageBase . 'page=' . ($page + 1)); ?>" class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem;">Next &raquo;</a>
+                                        <?php endif; ?>
+                                    </div>
+                                <?php endif; ?>
                             <?php endif; ?>
                         </div>
                     </div>
