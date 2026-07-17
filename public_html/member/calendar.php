@@ -2,11 +2,13 @@
 /**
  * Interactive Club Calendar
  * Renders month-grid navigation with each event's volunteer slots and their fill
- * status; day cells link to the volunteers page for signups.
+ * status; clicking a day with events opens a same-page panel (below the grid) with
+ * the full signup UI for that day, via partials/volunteer_signup_table.php.
  */
 require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
 use App\Event;
+use App\Auth;
 
 $errorMsg = null;
 $successMsg = null;
@@ -15,6 +17,21 @@ $successMsg = null;
 if (isset($_GET['success'])) $successMsg = trim($_GET['success']);
 if (isset($_GET['error']))   $errorMsg   = trim($_GET['error']);
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && Auth::check()) {
+    $result = \App\VolunteerSignupRequest::handle($_POST);
+
+    // PRG: redirect so a page refresh doesn't resubmit the form.
+    // The form action already embeds ?month=&year=&selected= so they're in $_GET here.
+    $qp = [
+        'month' => $_GET['month'] ?? (int)date('m'),
+        'year'  => $_GET['year']  ?? (int)date('Y'),
+    ];
+    if (!empty($_GET['selected'])) $qp['selected'] = $_GET['selected'];
+    if ($result['success']) $qp['success'] = $result['success'];
+    if ($result['error'])   $qp['error']   = $result['error'];
+    redirect('calendar.php?' . http_build_query($qp));
+}
+
 // Determine Selected Month & Year (for Grid Calendar)
 $month = isset($_GET['month']) ? (int)$_GET['month'] : (int)date('m');
 $year = isset($_GET['year']) ? (int)$_GET['year'] : (int)date('Y');
@@ -22,6 +39,16 @@ $year = isset($_GET['year']) ? (int)$_GET['year'] : (int)date('Y');
 // Adjust underflow/overflow of months
 if ($month < 1) { $month = 12; $year--; }
 if ($month > 12) { $month = 1; $year++; }
+
+// Selected day panel -- must match the visible month/year, so a stale ?selected=
+// from a different month (e.g. after Prev/Next) never matches a same-day-number event.
+$selectedDay = null;
+if (isset($_GET['selected']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['selected'])) {
+    $candidate = $_GET['selected'];
+    if ((int)date('n', strtotime($candidate)) === $month && (int)date('Y', strtotime($candidate)) === $year) {
+        $selectedDay = $candidate;
+    }
+}
 
 $monthStart = "{$year}-" . str_pad($month, 2, '0', STR_PAD_LEFT) . "-01 00:00:00";
 $monthEnd = date('Y-m-t 23:59:59', strtotime($monthStart));
@@ -33,6 +60,10 @@ try {
     $events = [];
     $errorMsg = safe_err("Unable to load events: ", $e);
 }
+
+$selectedEvents = $selectedDay
+    ? array_values(array_filter($events, fn($e) => date('Y-m-d', strtotime($e['start_time'])) === $selectedDay))
+    : [];
 
 // Map events to days for quick grid rendering
 $eventsByDay = [];
@@ -85,6 +116,16 @@ if ($prevMonth < 1) { $prevMonth = 12; $prevYear--; }
 $nextMonth = $month + 1; $nextYear = $year;
 if ($nextMonth > 12) { $nextMonth = 1; $nextYear++; }
 
+// Needed by the day panel's shared signup partial (admin "Other Member" search)
+$allActiveMembers = [];
+if (has_permission('manage hosting')) {
+    try {
+        $allActiveMembers = \App\MembershipService::getMembersList();
+    } catch (Exception $e) {
+        // Fallback to empty
+    }
+}
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -126,7 +167,7 @@ if ($nextMonth > 12) { $nextMonth = 1; $nextYear++; }
         }
     </style>
 </head>
-<body>
+<body data-my-contact-id="<?php echo (int)($_SESSION['user']['contact_id'] ?? 0); ?>">
     <div class="app-container">
         <?php $navActive = 'calendar'; include __DIR__ . '/partials/navbar.php'; ?>
 
@@ -179,7 +220,7 @@ if ($nextMonth > 12) { $nextMonth = 1; $nextYear++; }
                                     
                                     $hasEvents = isset($eventsByDay[$day]);
                                     $dayClass = $hasEvents ? 'has-events-day' : '';
-                                    
+
                                     // Highlight today
                                     if ($day == (int)date('d') && $month == (int)date('m') && $year == (int)date('Y')) {
                                         $dayClass .= ' today-day';
@@ -188,8 +229,22 @@ if ($nextMonth > 12) { $nextMonth = 1; $nextYear++; }
                                     $padMonth = str_pad($month, 2, '0', STR_PAD_LEFT);
                                     $padDay = str_pad($day, 2, '0', STR_PAD_LEFT);
                                     $dateStr = "{$year}-{$padMonth}-{$padDay}";
-                                    
-                                    echo "<td class='calendar-day {$dayClass}' onclick=\"window.location.href='volunteers.php?highlight={$dateStr}'\" style='cursor: pointer;'>";
+
+                                    $isSelected = ($dateStr === $selectedDay);
+                                    if ($isSelected) {
+                                        $dayClass .= ' selected-day';
+                                    }
+
+                                    if ($hasEvents) {
+                                        // Clicking the already-selected day closes the panel; clicking
+                                        // a different day switches to it. Stays on calendar.php.
+                                        $dayQp = ['month' => $month, 'year' => $year];
+                                        if (!$isSelected) $dayQp['selected'] = $dateStr;
+                                        $dayHref = 'calendar.php?' . http_build_query($dayQp);
+                                        echo "<td class='calendar-day {$dayClass}' onclick=\"window.location.href='" . e($dayHref) . "'\" style='cursor: pointer;'>";
+                                    } else {
+                                        echo "<td class='calendar-day {$dayClass}'>";
+                                    }
                                     echo "<span class='day-num'>{$day}</span>";
                                     
                                     if ($hasEvents) {
@@ -247,10 +302,44 @@ if ($nextMonth > 12) { $nextMonth = 1; $nextYear++; }
                     </div>
                 </section>
 
+                <?php if ($selectedDay): ?>
+                <section class="glass-panel calendar-day-panel">
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px;">
+                        <h3 style="margin: 0;"><?php echo e(date('F d, Y (l)', strtotime($selectedDay))); ?></h3>
+                        <a href="calendar.php?month=<?php echo $month; ?>&year=<?php echo $year; ?>" class="btn btn-secondary btn-small">&times; Close</a>
+                    </div>
+                    <?php
+                        $vsEvents = $selectedEvents;
+                        $vsSlotsByEvent = $slotsByEvent;
+                        $vsFormAction = function(string $evtDateStr) use ($month, $year, $selectedDay) {
+                            return 'calendar.php?' . http_build_query(['month' => $month, 'year' => $year, 'selected' => $selectedDay]);
+                        };
+                        $vsHighlightDate = null;
+                        $vsEmptyMessage = 'No volunteer slots scheduled for this day.';
+                        include __DIR__ . '/partials/volunteer_signup_table.php';
+                    ?>
+                </section>
+                <?php endif; ?>
 
             </div>
         </main>
 
         <?php include __DIR__ . '/partials/footer.php'; ?>
+
+    <?php if (has_permission('manage hosting')): ?>
+        <datalist id="members-list">
+            <?php foreach ($allActiveMembers as $member): ?>
+                <?php
+                    $displayText = $member['display_name'] . ' (ID: ' . $member['id'] . ')';
+                    if (!empty($member['email'])) {
+                        $displayText .= ' - ' . $member['email'];
+                    }
+                ?>
+                <option value="<?php echo e($displayText); ?>"></option>
+            <?php endforeach; ?>
+        </datalist>
+    <?php endif; ?>
+
+    <script src="assets/js/volunteer-signup.js<?php echo asset_version('assets/js/volunteer-signup.js'); ?>"></script>
 </body>
 </html>

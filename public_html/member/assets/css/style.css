@@ -1005,6 +1005,63 @@ select option {
     font-weight: 700;
 }
 
+.calendar-day.selected-day {
+    background: rgba(34, 197, 94, 0.12);
+    box-shadow: inset 0 0 0 2px var(--color-success, #22c55e);
+}
+.calendar-day.selected-day .day-num {
+    color: var(--color-success, #22c55e);
+    font-weight: 700;
+}
+
+/* --- Volunteer signup table (shared by volunteers.php and calendar.php's day panel) --- */
+.event-group-header td {
+    background: rgba(255, 255, 255, 0.05) !important;
+    font-family: var(--font-heading);
+    font-size: 1rem;
+    font-weight: 600;
+    color: #fff !important;
+    border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+    padding: 14px 16px !important;
+}
+.event-group-header.highlighted {
+    scroll-margin-top: 100px;
+}
+.event-group-header.highlighted td {
+    background: rgba(34, 197, 94, 0.15) !important;
+    border-left: 5px solid var(--color-success, #22c55e) !important;
+    border-bottom: 1px solid rgba(34, 197, 94, 0.3) !important;
+}
+.role-subrow td {
+    padding: 12px 16px 12px 30px !important;
+    font-size: 0.9rem;
+}
+.role-subrow:hover {
+    background: rgba(255, 255, 255, 0.01) !important;
+}
+.volunteer-status-needed {
+    color: hsl(38, 92%, 55%);
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.role-bullet {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 10px;
+    border: 1.5px solid;
+    background-color: transparent;
+}
+.bullet-open { border-color: var(--color-success); }
+.bullet-close { border-color: var(--color-danger); }
+.bullet-greeter { border-color: var(--color-primary); }
+.role-bullet.filled.bullet-open { background-color: var(--color-success); }
+.role-bullet.filled.bullet-close { background-color: var(--color-danger); }
+.role-bullet.filled.bullet-greeter { background-color: var(--color-primary); }
+
 .has-events-day {
     background: rgba(255, 255, 255, 0.02);
 }
