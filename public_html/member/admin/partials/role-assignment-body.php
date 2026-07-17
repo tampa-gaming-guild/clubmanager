@@ -80,10 +80,16 @@
                                     $viewerIsSuperadmin     = has_role('superadmin');
                                     $viewerCanManageRoles   = has_permission('manage roles');
                                     $viewerCanManageHosting = has_permission('manage hosting');
+                                    $targetHasSuperadmin = in_array('superadmin', $memberRoles, true);
+                                    $isLastSuperadmin = $targetHasSuperadmin && $totalSuperadmins <= 1;
                                     foreach ($rolesList as $roleOption):
                                         $isSuperadminRole = ($roleOption['name'] === 'superadmin');
-                                        $targetHasSuperadmin = in_array('superadmin', $memberRoles, true);
 
+                                        // Never disable a checked superadmin checkbox purely because this is
+                                        // the last superadmin: a disabled+checked checkbox is omitted from the
+                                        // POST, which would look like an attempt to remove the role. The
+                                        // warning label plus the server-side guard (2b in update_user_role
+                                        // above) are the actual enforcement.
                                         $disabled = '';
                                         if ($isSuperadminRole && !$viewerIsSuperadmin) {
                                             $disabled = 'disabled';
@@ -100,9 +106,9 @@
 
                                         $checked = in_array($roleOption['name'], $memberRoles, true) ? 'checked' : '';
                                     ?>
-                                        <label style="display: inline-flex; align-items: center; gap: 4px; color: #fff; margin-right: 10px; cursor: <?php echo $disabled ? 'not-allowed' : 'pointer'; ?>; opacity: <?php echo $disabled ? '0.5' : '1'; ?>;">
+                                        <label title="<?php echo ($isSuperadminRole && $isLastSuperadmin) ? 'Only superadmin -- role cannot be removed until another user is granted it' : ''; ?>" style="display: inline-flex; align-items: center; gap: 4px; color: #fff; margin-right: 10px; cursor: <?php echo $disabled ? 'not-allowed' : 'pointer'; ?>; opacity: <?php echo $disabled ? '0.5' : '1'; ?>;">
                                             <input type="checkbox" form="<?php echo $rowFormId; ?>" name="roles[]" value="<?php echo e($roleOption['name']); ?>" <?php echo $checked; ?> <?php echo $disabled; ?> style="width: auto; transform: scale(1.0); margin: 0;">
-                                            <?php echo e(ucfirst($roleOption['name'])); ?>
+                                            <?php echo e(ucfirst($roleOption['name'])); ?><?php echo ($isSuperadminRole && $isLastSuperadmin) ? ' &#9888;' : ''; ?>
                                         </label>
                                     <?php endforeach; ?>
                                 </div>

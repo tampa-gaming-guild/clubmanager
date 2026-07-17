@@ -338,6 +338,37 @@ class Auth {
     }
 
     /**
+     * Count how many non-deleted contacts currently hold the superadmin role,
+     * optionally excluding one contact. Accounts for the same fallback used
+     * elsewhere: a contact with no tgg_member_roles rows falls back to its
+     * legacy tgg_member_settings.role column. Used to enforce that the system
+     * always retains at least one superadmin.
+     */
+    public static function countSuperadmins(PDO $appDb, ?int $excludeContactId = null): int {
+        $sql = "
+            SELECT COUNT(*)
+            FROM tgg_contacts c
+            JOIN tgg_member_settings s ON s.contact_id = c.id
+            WHERE c.is_deleted = 0
+            AND (
+                EXISTS (SELECT 1 FROM tgg_member_roles mr WHERE mr.contact_id = c.id AND mr.role_name = 'superadmin')
+                OR (
+                    NOT EXISTS (SELECT 1 FROM tgg_member_roles mr2 WHERE mr2.contact_id = c.id)
+                    AND s.role = 'superadmin'
+                )
+            )
+        ";
+        $params = [];
+        if ($excludeContactId !== null) {
+            $sql .= " AND c.id != :exclude_id";
+            $params['exclude_id'] = $excludeContactId;
+        }
+        $stmt = $appDb->prepare($sql);
+        $stmt->execute($params);
+        return (int)$stmt->fetchColumn();
+    }
+
+    /**
      * Impersonate a user by their contact ID.
      * @param int $targetContactId
      * @return bool

@@ -160,6 +160,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     throw new Exception("Only superadmins can add or delete the superadmin role.");
                 }
 
+                // 2b. The system must always retain at least one superadmin
+                if ($targetHasSuperadmin && !$newHasSuperadmin) {
+                    if (Auth::countSuperadmins($appDb, $targetContactId) < 1) {
+                        throw new Exception("Cannot remove the superadmin role: at least one superadmin must remain. Grant another user the superadmin role first.");
+                    }
+                }
+
                 // 3. Permission-based role assignment guards
                 if (!$viewerIsSuperadmin) {
                     $canManageRoles   = has_permission('manage roles');
@@ -244,6 +251,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 if (isset($_GET['success']) && $_GET['success'] === 'impersonation_stopped') {
     $successMsg = "Returned to admin session successfully.";
 }
+
+// Total superadmin count, computed once: any row whose member currently holds
+// superadmin is "the last one" precisely when this total is 1.
+$totalSuperadmins = Auth::countSuperadmins($appDb);
 
 // Fetch all roles & permissions
 $rolesList = $appDb->query("SELECT * FROM `tgg_roles` ORDER BY sort_order ASC, id ASC")->fetchAll();

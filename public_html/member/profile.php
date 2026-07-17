@@ -559,17 +559,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($hasPrivateAccess || $canManageCon
             }
         }
 
-        // A0f. Handle Staff Direct Email Update (contact-managing staff on
-        // someone else's profile -- immediate, no verification; both the old
-        // and new addresses are notified)
-        if (isset($_POST['staff_contact_update']) && $canManageContact && !$isOwner) {
+        // A0f. Handle Staff Direct Email Update (superadmin only, on someone
+        // else's profile -- immediate, no verification; both the old and new
+        // addresses are notified). Email is the login identifier, so changing
+        // it for someone else is account takeover of that login -- deliberately
+        // gated to the superadmin role rather than 'process payments'/'admin
+        // panel' permissions.
+        if (isset($_POST['staff_contact_update']) && has_role('superadmin') && !$isOwner) {
             $newEmail = trim(strtolower($_POST['new_email'] ?? ''));
             try {
-                // Email is the login identifier: changing a superadmin's email is
-                // account takeover of that login, so mirror the role_update rule
-                if (in_array('superadmin', $memberRoles, true) && !has_role('superadmin')) {
-                    throw new Exception("Only superadmins can change a superadmin's email address.");
-                }
                 if (!filter_var($newEmail, FILTER_VALIDATE_EMAIL) || strlen($newEmail) > 254) {
                     throw new Exception("Please enter a valid email address.");
                 }
@@ -649,7 +647,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($hasPrivateAccess || $canManageCon
                 if ($newHasSuperadmin !== $targetHasSuperadmin && !$viewerIsSuperadmin) {
                     throw new Exception("Only superadmins can add or delete the superadmin role.");
                 }
-                
+
+                // 2b. The system must always retain at least one superadmin
+                if ($targetHasSuperadmin && !$newHasSuperadmin) {
+                    if (Auth::countSuperadmins($appDb, $profileId) < 1) {
+                        throw new Exception("Cannot remove the superadmin role: at least one superadmin must remain. Grant another user the superadmin role first.");
+                    }
+                }
+
                 // 3. Verify all selected roles exist in tgg_roles
                 if (!empty($newRoles)) {
                     $placeholders = implode(',', array_fill(0, count($newRoles), '?'));
@@ -1111,9 +1116,9 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                             </div>
                                             <button type="submit" name="request_email_change" class="btn btn-warning btn-block mt-15">Send Verification Link</button>
                                         </form>
-                                    <?php else: ?>
+                                    <?php elseif (has_role('superadmin')): ?>
                                         <p style="font-size: 0.85rem; color: rgba(255, 255, 255, 0.75); margin-bottom: 15px; line-height: 1.4;">
-                                            <strong>Staff:</strong> this changes the member's login email immediately; both the old and new addresses will be notified.
+                                            <strong>Superadmin:</strong> this changes the member's login email immediately; both the old and new addresses will be notified.
                                         </p>
                                         <form action="profile.php?id=<?php echo $profileId; ?>" method="POST" class="settings-form" data-confirm="Change this member's login email immediately? Both addresses will be notified.">
                                             <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
@@ -1123,6 +1128,10 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                             </div>
                                             <button type="submit" name="staff_contact_update" class="btn btn-warning btn-block mt-15">Update Email Address</button>
                                         </form>
+                                    <?php else: ?>
+                                        <p style="font-size: 0.85rem; color: rgba(255, 255, 255, 0.75); line-height: 1.4;">
+                                            Only the member and superadmins can change this email address. Members can update it themselves from this page; ask a superadmin if direct assistance is needed.
+                                        </p>
                                     <?php endif; ?>
                                 </div>
 
@@ -1132,21 +1141,32 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                     <h4>Portal Role Assignment</h4>
                                     <form action="profile.php?id=<?php echo $profileId; ?>" method="POST" class="settings-form">
                                         <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                        <?php
+                                            $targetHasSuperadmin = in_array('superadmin', $memberRoles, true);
+                                            $viewerIsSuperadmin = has_role('superadmin');
+                                            $isLastSuperadmin = $targetHasSuperadmin && Auth::countSuperadmins($appDb, $profileId) < 1;
+                                        ?>
                                         <div class="form-group">
                                             <label style="display: block; font-size: 0.85rem; margin-bottom: 8px; color: rgba(255,255,255,0.85);">Assign Roles</label>
+                                            <?php if ($isLastSuperadmin): ?>
+                                                <p style="font-size: 0.75rem; color: rgba(255,255,255,0.6); margin-bottom: 8px;">This is the only superadmin account -- the superadmin role can't be removed until another user is granted it.</p>
+                                            <?php endif; ?>
                                             <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 5px;">
-                                                <?php foreach ($rolesList as $roleOption): 
+                                                <?php foreach ($rolesList as $roleOption):
                                                     $isSuperadminRole = ($roleOption['name'] === 'superadmin');
-                                                    $targetHasSuperadmin = in_array('superadmin', $memberRoles, true);
-                                                    $viewerIsSuperadmin = has_role('superadmin');
-                                                    
+
                                                     $disabled = '';
                                                     if ($isSuperadminRole && !$viewerIsSuperadmin) {
                                                         $disabled = 'disabled';
                                                     } elseif ($targetHasSuperadmin && !$viewerIsSuperadmin) {
                                                         $disabled = 'disabled';
                                                     }
-                                                    
+
+                                                    // Not disabled even when this is the last superadmin: a
+                                                    // disabled+checked checkbox is omitted from the POST entirely,
+                                                    // which would look like an attempt to remove the role. The
+                                                    // informational message above plus the server-side guard (see
+                                                    // 2b in the role_update handler) are the actual enforcement.
                                                     $checked = in_array($roleOption['name'], $memberRoles, true) ? 'checked' : '';
                                                 ?>
                                                     <label style="display: inline-flex; align-items: center; gap: 8px; color: #fff; cursor: <?php echo $disabled ? 'not-allowed' : 'pointer'; ?>; opacity: <?php echo $disabled ? '0.5' : '1'; ?>;">
