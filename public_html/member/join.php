@@ -100,6 +100,7 @@ function lookup_member_by_email(\PDO $appDb, string $email, array $tiers): array
 $tiers = [];
 $errorMsg = null;
 $successMsg = null;
+$confirmation = null;
 
 try {
     $tiers = BillingHelper::getSubscriptionPlans(true);
@@ -123,33 +124,66 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $isAjax) {
     }
 }
 
-// 1. Handle Successful Redirect from Stripe
+// 1. Handle Successful Redirect from Stripe -- shown in-page below rather than redirected
+//    away, so the confirmation can't be missed as a banner on another page (see $confirmation
+//    rendering further down).
 if (isset($_GET['status']) && $_GET['status'] === 'success' && isset($_GET['session_id'])) {
     $sessionId = $_GET['session_id'];
     try {
         $session = StripeHelper::retrieveCheckoutSession($sessionId);
         if ($session['payment_status'] === 'paid') {
             BillingHelper::processCheckoutSession($session);
-            $successMsg = "Thank you! Your payment was successful and your membership is active. Check your email for a confirmation receipt.";
-            header("Location: index.php?success=" . urlencode($successMsg));
-            exit;
+
+            $action = $session['metadata']['action'] ?? 'join';
+            $contactId = (int)($session['metadata']['contact_id'] ?? 0);
+            $planId = (int)($session['metadata']['plan_id'] ?? 0);
+
+            $appDb = Database::getAppConnection();
+            $displayName = 'Member';
+            if ($contactId) {
+                $stmt = $appDb->prepare("SELECT display_name FROM tgg_contacts WHERE id = :id LIMIT 1");
+                $stmt->execute(['id' => $contactId]);
+                $displayName = $stmt->fetchColumn() ?: $displayName;
+            }
+            $planName = 'Membership';
+            if ($planId) {
+                $stmt = $appDb->prepare("SELECT name FROM tgg_subscription_plans WHERE id = :id LIMIT 1");
+                $stmt->execute(['id' => $planId]);
+                $planName = $stmt->fetchColumn() ?: $planName;
+            }
+
+            $confirmation = [
+                'type' => 'success',
+                'heading' => $action === 'renew' ? 'Renewal Confirmation' : 'Signup Confirmation',
+                'action' => $action,
+                'name' => $displayName,
+                'plan' => $planName,
+                'amount' => (float)(($session['amount_total'] ?? 0) / 100),
+            ];
         } else {
-            $errorMsg = "Your payment is pending. Once completed, your membership will be active.";
-            header("Location: index.php?success=" . urlencode($errorMsg));
-            exit;
+            $confirmation = [
+                'type' => 'pending',
+                'heading' => 'Payment Pending',
+                'message' => "Your payment is still processing. Once it completes, your membership will be active -- check your email for confirmation.",
+            ];
         }
     } catch (Exception $e) {
-        $errorMsg = safe_err("Could not verify payment status: ", $e);
-        header("Location: index.php?error=" . urlencode($errorMsg));
-        exit;
+        $confirmation = [
+            'type' => 'error',
+            'heading' => 'Payment Verification Issue',
+            'message' => safe_err("Could not verify payment status: ", $e),
+        ];
     }
 }
 
-// 2. Handle Cancelled Redirect from Stripe
+// 2. Handle Cancelled Redirect from Stripe -- also shown in-page (see note above). No
+//    session_id is available for the cancel URL, so join-vs-renew can't be distinguished here.
 if (isset($_GET['status']) && $_GET['status'] === 'cancelled') {
-    $errorMsg = "Payment was cancelled. You have not been charged and your membership registration was not completed.";
-    header("Location: index.php?error=" . urlencode($errorMsg));
-    exit;
+    $confirmation = [
+        'type' => 'cancelled',
+        'heading' => 'Payment Cancelled',
+        'message' => "Payment was cancelled. You have not been charged and your membership registration was not completed.",
+    ];
 }
 
 // 3. Handle Form Submission (Join or Renew)
@@ -311,18 +345,41 @@ $displayTiers = $isRenewMode
 
         <main class="main-content centered-content">
             <div class="auth-panel glass-panel">
-                <h2 id="join_heading"><?php echo $isRenewMode ? 'Renew Your Membership' : 'Become a Member'; ?></h2>
-                <p class="subtitle" id="join_subtitle">
-                    <?php echo $isRenewMode
-                        ? 'Welcome back! Pick a level below to renew your membership.'
-                        : 'Complete the form below to register for a 30 day trial or pay your membership dues securely.'; ?>
-                </p>
+                <?php if ($confirmation): ?>
+                    <h2 id="join_heading"><?php echo e($confirmation['heading']); ?></h2>
+                <?php else: ?>
+                    <h2 id="join_heading"><?php echo $isRenewMode ? 'Renew Your Membership' : 'Become a Member'; ?></h2>
+                    <p class="subtitle" id="join_subtitle">
+                        <?php echo $isRenewMode
+                            ? 'Welcome back! Pick a level below to renew your membership.'
+                            : 'Complete the form below to register for a 30 day trial or pay your membership dues securely.'; ?>
+                    </p>
+                <?php endif; ?>
 
                 <?php if ($errorMsg): ?>
                     <div class="alert alert-danger"><?php echo e($errorMsg); ?></div>
                 <?php endif; ?>
 
-                <?php if ($successMsg): ?>
+                <?php if ($confirmation && $confirmation['type'] === 'success'): ?>
+                    <!-- terminal-alert opts this block out of main.js's auto-toast/auto-dismiss
+                         behavior (see main.js "Alert Auto-Disposal") -- a confirmation this
+                         important shouldn't fade away and take its CTA button with it. -->
+                    <div class="alert alert-success terminal-alert">
+                        <p>
+                            Thank you, <?php echo e($confirmation['name']); ?>! Your <?php echo $confirmation['action'] === 'renew' ? 'renewal' : 'signup'; ?> payment of
+                            $<?php echo number_format($confirmation['amount'], 2); ?> for <strong><?php echo e($confirmation['plan']); ?></strong>
+                            was successful and your membership is active. Check your email for a receipt<?php echo $confirmation['action'] === 'join' ? ' and a link to set up your portal login' : ''; ?>.
+                        </p>
+                        <br>
+                        <a href="index.php?action=login" class="btn btn-primary">Go to Login</a>
+                    </div>
+                <?php elseif ($confirmation): ?>
+                    <div class="alert <?php echo $confirmation['type'] === 'pending' ? 'alert-warning' : 'alert-danger'; ?> terminal-alert">
+                        <p><?php echo e($confirmation['message']); ?></p>
+                        <br>
+                        <a href="join.php" class="btn btn-primary">Back to Join / Renew</a>
+                    </div>
+                <?php elseif ($successMsg): ?>
                     <div class="alert alert-success">
                         <p><?php echo e($successMsg); ?></p>
                         <br>
