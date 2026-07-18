@@ -211,6 +211,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status']) && !$isAjax
                 $tierName = $tier['name'];
                 $civicrmTypeId = (int)$tier['civicrm_membership_type_id'];
                 $isTrial = BillingHelper::isTrialPlan($tier);
+                $isSessionPlan = BillingHelper::isSessionPlan($tier);
 
                 // Re-derive Join vs Renew server-side -- the client-side detection is only a UI hint.
                 $existing = lookup_member_by_email($appDb, $email, $tiers);
@@ -224,10 +225,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status']) && !$isAjax
                     $contactId = $existing['contact_id'];
                     $displayName = $existing['display_name'] ?? 'Member';
 
-                    $session = StripeHelper::createCheckoutSession($contactId, $tierId, $civicrmTypeId, $tierName, $fee, 'renew', $email, $displayName);
-                    header("Location: " . $session['url']);
-                    exit;
-                }
+                    if ($isSessionPlan) {
+                        // Session plans are never charged at join/renewal -- the charge only
+                        // happens at check-in -- so this extends the membership immediately
+                        // instead of redirecting to Stripe.
+                        $activation = BillingHelper::activateSessionMembership($contactId, $tierId, 'renew');
+                        $successMsg = "Thanks, {$displayName}! Your {$tierName} membership has been renewed through " . date('F j, Y', strtotime($activation['end_date'])) . ".";
+                    } else {
+                        $session = StripeHelper::createCheckoutSession($contactId, $tierId, $civicrmTypeId, $tierName, $fee, 'renew', $email, $displayName);
+                        header("Location: " . $session['url']);
+                        exit;
+                    }
+                    // Falls through to the redisplay at the bottom of this block with $successMsg set.
+                } else {
 
                 // JOIN: brand-new contact.
                 $firstName = trim($_POST['first_name'] ?? '');
@@ -240,6 +250,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status']) && !$isAjax
 
                 if ($isTrial && BillingHelper::hasUsedOrPendingTrial($email)) {
                     throw new Exception("This email address has already used its one-time Trial membership and is not eligible for another.");
+                }
+
+                if ($isSessionPlan) {
+                    // Defense in depth: the tier dropdown already excludes Session plans for a
+                    // brand-new signup (see $displayTiers below) -- this guards against a
+                    // hand-crafted/tampered POST picking one directly.
+                    throw new Exception("This membership level is only available as a renewal.");
                 }
 
                 $appDb->beginTransaction();
@@ -289,6 +306,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status']) && !$isAjax
                     if ($appDb->inTransaction()) $appDb->rollBack();
                     throw $txException;
                 }
+                }
             } catch (Exception $e) {
                 $errorMsg = safe_err("Registration failed: ", $e);
             }
@@ -323,9 +341,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['email']) && !isset($
     }
 }
 $isRenewMode = $prefillExisting && $prefillExisting['exists'];
+// Renew mode: everything except Trial (a one-time offer, never a renewal choice).
+// Join mode (the common case -- no prefill yet): everything except Session plans, which are
+// never a brand-new self-service signup, only ever a renewal or a staff-mediated activation.
 $displayTiers = $isRenewMode
     ? array_values(array_filter($tiers, function ($tier) { return !BillingHelper::isTrialPlan($tier); }))
-    : $tiers;
+    : array_values(array_filter($tiers, function ($tier) { return !BillingHelper::isSessionPlan($tier); }));
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -423,8 +444,12 @@ $displayTiers = $isRenewMode
                                             ? ((int)$tier['id'] === (int)($prefillExisting['current_plan_id'] ?? 0))
                                             : (isset($_POST['tier_id']) && $_POST['tier_id'] == $tier['id']);
                                     ?>
-                                    <option value="<?php echo (int)$tier['id']; ?>" data-trial="<?php echo BillingHelper::isTrialPlan($tier) ? '1' : '0'; ?>" data-duration-interval="<?php echo (int)$tier['duration_interval']; ?>" data-duration-unit="<?php echo e(strtolower($tier['duration_unit'])); ?>" <?php echo $optionSelected ? 'selected' : ''; ?>>
-                                        <?php echo e($tier['name']); ?> - $<?php echo number_format($tier['minimum_fee'], 2); ?> / <?php echo e($tier['duration_interval']); ?> <?php echo e($tier['duration_unit']); ?>(s)
+                                    <option value="<?php echo (int)$tier['id']; ?>" data-trial="<?php echo BillingHelper::isTrialPlan($tier) ? '1' : '0'; ?>" data-session="<?php echo BillingHelper::isSessionPlan($tier) ? '1' : '0'; ?>" data-duration-interval="<?php echo (int)$tier['duration_interval']; ?>" data-duration-unit="<?php echo e(strtolower($tier['duration_unit'])); ?>" <?php echo $optionSelected ? 'selected' : ''; ?>>
+                                        <?php if (BillingHelper::isSessionPlan($tier)): ?>
+                                            <?php echo e($tier['name']); ?> - $<?php echo number_format($tier['minimum_fee'], 2); ?> per visit at check-in
+                                        <?php else: ?>
+                                            <?php echo e($tier['name']); ?> - $<?php echo number_format($tier['minimum_fee'], 2); ?> / <?php echo e($tier['duration_interval']); ?> <?php echo e($tier['duration_unit']); ?>(s)
+                                        <?php endif; ?>
                                     </option>
                                 <?php endforeach; ?>
                             </select>
@@ -464,6 +489,7 @@ $displayTiers = $isRenewMode
                             const button = document.getElementById('join_cta_button');
                             const selectedOpt = tierSelect.options[tierSelect.selectedIndex];
                             const isTrial = selectedOpt && selectedOpt.getAttribute('data-trial') === '1';
+                            const isSession = selectedOpt && selectedOpt.getAttribute('data-session') === '1';
                             const isRenew = !!existingContactInput.value;
                             const hasStoredCard = hasStoredCardInput.value === '1';
 
@@ -471,7 +497,7 @@ $displayTiers = $isRenewMode
                             if (!isRenew) {
                                 legalHtml += '<div class="info-block">By becoming a member of the Tampa Gaming Guild, Inc social club you agree to follow the rules, regulations and code of conduct as published on <a href="https://tampagamingguild.org" target="_blank" rel="noopener">tampagamingguild.org</a>.</div>';
                             }
-                            if (!isTrial && !hasStoredCard && selectedOpt && selectedOpt.value) {
+                            if (!isTrial && !isSession && !hasStoredCard && selectedOpt && selectedOpt.value) {
                                 const period = formatBillingPeriod(selectedOpt);
                                 legalHtml += `<div class="info-block">By providing your card, you authorize Tampa Gaming Guild, Inc. to automatically charge it each ${period} to renew your membership. You can cancel this auto-renewal at any time from your profile.</div>`;
                             }
@@ -481,6 +507,9 @@ $displayTiers = $isRenewMode
                             if (isTrial) {
                                 infoBlock.innerHTML = '<p><strong>Verify Your Email:</strong> No payment is required. After you register, we\'ll email you a verification link &mdash; click it to activate your one-time 30-day Trial membership.</p>';
                                 button.textContent = 'Send Verification Email';
+                            } else if (isSession) {
+                                infoBlock.innerHTML = '<p><strong>No Payment Required:</strong> This membership isn\'t charged at renewal &mdash; it renews immediately for one year, and you\'ll pay the per-visit fee at check-in.</p>';
+                                button.textContent = 'Renew Membership';
                             } else if (isRenew) {
                                 infoBlock.innerHTML = '<p><strong>Secure Checkout:</strong> Clicking the button below will redirect you to Stripe to pay your renewal dues securely.</p>';
                                 button.textContent = 'Pay Renewal Dues';

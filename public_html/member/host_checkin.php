@@ -185,8 +185,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             } elseif (!$membership || !$membership['is_active']) {
                                 // Expired/inactive membership: send to renew (Card or Cash) instead of a flat denial.
                                 $redirectUrl = 'pay-entrance.php?contact_id=' . $contactId . '&reason=renewal&return=host_checkin.php';
-                            } elseif (BillingHelper::entranceFeeOwed($contactId, $membership)) {
-                                // Associate member's 2nd+ check-in since their last dues payment: pay the entrance fee first.
+                            } elseif (BillingHelper::entranceFeeOwed($membership)) {
+                                // Session-plan member's 2nd+ check-in since their last dues payment: pay the entrance fee first.
                                 $redirectUrl = 'pay-entrance.php?contact_id=' . $contactId . '&reason=entrance_fee&return=host_checkin.php';
                             } else {
                                 // Enforce the monthly guest pass allowance before logging anything

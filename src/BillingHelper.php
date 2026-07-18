@@ -105,6 +105,37 @@ class BillingHelper {
     }
 
     /**
+     * Compute the start/end dates for any Session-plan payment (free join/renew, or a paid
+     * entrance fee) -- shared by activateSessionMembership(), the entrance-fee branches of
+     * processCheckoutSession()/approvePendingPayment(), and processOfflineRenewal()'s Session
+     * case, so this date math only needs to be correct in one place.
+     *
+     * end_date is always exactly one year from today (the date of this payment/check-in) --
+     * Session billing never stacks a period on top of an existing, possibly far-future,
+     * end_date; every payment simply means "active through one year from today." start_date,
+     * though, only resets to today if the member was actually expired (past end_date + the
+     * renewal grace period) -- otherwise their existing start_date is left untouched, since
+     * they're continuing the same unbroken membership stint, just extending how long it runs.
+     * @param array|null $existingSub Row with at least 'start_date' and 'end_date', or null
+     * @return array{start_date: string, end_date: string}
+     */
+    private static function sessionExtensionDates(?array $existingSub): array {
+        $today = date('Y-m-d');
+
+        $isExpired = true;
+        if ($existingSub && !empty($existingSub['end_date'])) {
+            $daysSinceExpiry = (strtotime($today) - strtotime($existingSub['end_date'])) / 86400;
+            $isExpired = $daysSinceExpiry > self::getRenewalGraceDays();
+        }
+
+        $startDate = (!$isExpired && $existingSub && !empty($existingSub['start_date']))
+            ? $existingSub['start_date']
+            : $today;
+
+        return ['start_date' => $startDate, 'end_date' => self::addPeriodMinusOneDay($today, 1, 'year')];
+    }
+
+    /**
      * Get local subscription plans
      * @param bool $onlyActive If true, only retrieves active plans
      * @return array
@@ -228,7 +259,7 @@ class BillingHelper {
 
         // Query existing local subscription up front so both the ledger entry and the
         // subscription row below record the same resolved rate.
-        $subStmt = $appDb->prepare("SELECT plan_id, join_date, end_date, rate_id, stripe_payment_method_id FROM tgg_subscriptions WHERE contact_id = :contact_id LIMIT 1");
+        $subStmt = $appDb->prepare("SELECT plan_id, join_date, start_date, end_date, rate_id, stripe_payment_method_id FROM tgg_subscriptions WHERE contact_id = :contact_id LIMIT 1");
         $subStmt->execute(['contact_id' => $contactId]);
         $existingSub = $subStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -280,10 +311,27 @@ class BillingHelper {
                 'source' => AuditLog::SOURCE_STRIPE
             ]);
 
-            // Entrance fee charges are a one-off per-visit charge, not a membership
-            // renewal -- the ledger entry above is all that's needed, so skip the
-            // subscription extension and dues emails below entirely.
+            // Entrance fee charges are a one-off per-visit charge, not a membership renewal,
+            // so no dues emails are sent for them. For a Session plan, though, this per-visit
+            // payment is what keeps the membership alive -- extend it by exactly one year, the
+            // same way any other Session join/renewal does (see activateSessionMembership()).
+            // For any other plan (shouldn't normally happen -- entranceFeeOwed() only ever
+            // routes Session plans here), the ledger entry above is all that's needed.
             if ($action === 'entrance_fee') {
+                if (self::isSessionPlan($plan)) {
+                    $feeDates = self::sessionExtensionDates($existingSub ?: null);
+
+                    $updateSub = $appDb->prepare("
+                        UPDATE tgg_subscriptions
+                        SET status = 'active', start_date = :start_date, end_date = :end_date
+                        WHERE contact_id = :contact_id
+                    ");
+                    $updateSub->execute([
+                        'start_date' => $feeDates['start_date'],
+                        'end_date' => $feeDates['end_date'],
+                        'contact_id' => $contactId
+                    ]);
+                }
                 $appDb->commit();
                 return true;
             }
@@ -318,7 +366,15 @@ class BillingHelper {
                 }
             }
 
-            if ($durationUnit === 'day') {
+            if ($durationUnit === 'session') {
+                // A Session plan's join/renew (as opposed to its per-visit entrance fee,
+                // handled above) uses the same date rule as activateSessionMembership() -- this
+                // branch shouldn't normally be reachable for a Session plan once join.php stops
+                // offering it as a Stripe checkout, but is kept correct as defense in depth.
+                $sessionDates = self::sessionExtensionDates($existingSub ?: null);
+                $startDate = $sessionDates['start_date'];
+                $endDate = $sessionDates['end_date'];
+            } elseif ($durationUnit === 'day') {
                 // Daily payment should never change the expiration date
                 $endDate = $existingEndDate ? $existingEndDate : $today;
             } else {
@@ -472,17 +528,23 @@ class BillingHelper {
     }
 
     /**
-     * Check whether a plan is the Associate membership tier, which charges a per-visit
-     * entrance fee on every check-in except the one immediately after a dues payment.
-     * Matches any plan name containing "associate".
-     * @param array $plan Plan row (must include 'name')
+     * Check whether a plan is billed per-Session: no charge at join/renewal, a per-visit
+     * entrance fee on every check-in except the one immediately after a dues payment, always
+     * a one-year extension on payment, and no auto-renewal. Driven by
+     * tgg_subscription_plans.duration_unit = 'session' -- a stable property of the Plan
+     * itself, deliberately NOT read from a grandfathered rate's billing_frequency (unlike
+     * duration/frequency resolution elsewhere, which intentionally lets a carried-forward
+     * rate override the plan's current duration_unit -- Session-ness must never vary per rate).
+     * Accepts either a raw tgg_subscription_plans row ('duration_unit') or a
+     * MembershipService::getMemberMembershipDetails() row, which additionally provides
+     * 'plan_duration_unit' (the raw, un-coalesced plan column) precisely so this check isn't
+     * fooled by that row's plain 'duration_unit' key, which IS coalesced from the rate.
+     * @param array $plan Plan or membership-details row
      * @return bool
      */
-    public static function isAssociatePlan(array $plan): bool {
-        // Accepts either a tgg_subscription_plans row ('name') or a
-        // MembershipService::getMemberMembershipDetails() row ('membership_name').
-        $name = $plan['name'] ?? $plan['membership_name'] ?? '';
-        return stripos(trim($name), 'associate') !== false;
+    public static function isSessionPlan(array $plan): bool {
+        $unit = $plan['plan_duration_unit'] ?? $plan['duration_unit'] ?? '';
+        return strtolower(trim($unit)) === 'session';
     }
 
     /**
@@ -584,6 +646,139 @@ class BillingHelper {
             $appDb->commit();
 
             return ['start_date' => $today, 'end_date' => $endDate, 'plan' => $plan];
+        } catch (Exception $e) {
+            if ($appDb->inTransaction()) {
+                $appDb->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * Free join or renewal of a Session-billed plan: no charge, always extends exactly one
+     * year, and never enables auto-renew. Only ever reached from a staff-mediated flow --
+     * pay-entrance.php's tier picker (first-time activation of a walk-in) or join.php's renew
+     * branch (an existing member choosing this plan again) -- never a brand-new self-service
+     * signup, so there's no email-verification step to worry about here.
+     * @param int $contactId
+     * @param int $planId
+     * @param string $action 'join' or 'renew' (ledger action_type)
+     * @param int|null $actorContactId Staff member performing the activation; null resolves
+     *                                 from the session (self-service renew via join.php)
+     * @return array Activation details (start_date, end_date, plan)
+     * @throws Exception
+     */
+    public static function activateSessionMembership(int $contactId, int $planId, string $action, ?int $actorContactId = null): array {
+        $appDb = Database::getAppConnection();
+
+        $planStmt = $appDb->prepare("SELECT * FROM tgg_subscription_plans WHERE id = :id LIMIT 1");
+        $planStmt->execute(['id' => $planId]);
+        $plan = $planStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$plan || !self::isSessionPlan($plan)) {
+            throw new Exception("Session plan not found.");
+        }
+
+        $subStmt = $appDb->prepare("SELECT plan_id, join_date, start_date, end_date, rate_id FROM tgg_subscriptions WHERE contact_id = :contact_id LIMIT 1");
+        $subStmt->execute(['contact_id' => $contactId]);
+        $existingSub = $subStmt->fetch(PDO::FETCH_ASSOC);
+
+        $today = date('Y-m-d');
+        $dates = self::sessionExtensionDates($existingSub ?: null);
+        $startDate = $dates['start_date'];
+        $endDate = $dates['end_date'];
+
+        $planIsChanging = $existingSub && (int)$existingSub['plan_id'] !== $planId;
+        $targetRateId = ($existingSub && !empty($existingSub['rate_id']) && !$planIsChanging)
+            ? (int)$existingSub['rate_id']
+            : ($plan['default_rate_id'] ?? null);
+
+        $appDb->beginTransaction();
+
+        try {
+            $uniqueId = uniqid('session_', true);
+            $insertLedger = $appDb->prepare("
+                INSERT INTO tgg_billing_ledger (contact_id, plan_id, rate_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type, created_by, impersonator_id, source)
+                VALUES (:contact_id, :plan_id, :rate_id, :stripe_session_id, :payment_intent_id, 0.00, 'usd', 'paid', :action_type, :created_by, :impersonator_id, :source)
+            ");
+            $actorCols = AuditLog::actorColumns($actorContactId);
+            $insertLedger->execute([
+                'contact_id' => $contactId,
+                'plan_id' => $planId,
+                'rate_id' => $targetRateId,
+                'stripe_session_id' => $uniqueId,
+                'payment_intent_id' => $uniqueId,
+                'action_type' => $action,
+                'created_by' => $actorCols['created_by'] ?? $contactId,
+                'impersonator_id' => $actorCols['impersonator_id'],
+                'source' => $actorCols['source']
+            ]);
+
+            if ($existingSub) {
+                $updateSub = $appDb->prepare("
+                    UPDATE tgg_subscriptions
+                    SET plan_id = :plan_id, status = 'active', start_date = :start_date, end_date = :end_date,
+                        rate_id = :rate_id, auto_renew = 0, auto_renew_attempts = 0
+                    WHERE contact_id = :contact_id
+                ");
+                $updateSub->execute([
+                    'plan_id' => $planId,
+                    'start_date' => $startDate,
+                    'end_date' => $endDate,
+                    'rate_id' => $targetRateId,
+                    'contact_id' => $contactId
+                ]);
+            } else {
+                $insertSub = $appDb->prepare("
+                    INSERT INTO tgg_subscriptions (contact_id, plan_id, rate_id, status, join_date, start_date, end_date, auto_renew)
+                    VALUES (:contact_id, :plan_id, :rate_id, 'active', :join_date, :start_date, :end_date, 0)
+                ");
+                $insertSub->execute([
+                    'contact_id' => $contactId,
+                    'plan_id' => $planId,
+                    'rate_id' => $targetRateId,
+                    'join_date' => $today,
+                    'start_date' => $startDate,
+                    'end_date' => $endDate
+                ]);
+            }
+
+            $appDb->commit();
+
+            // Best-effort confirmation email -- must never block an already-activated
+            // membership, mirroring processCheckoutSession's mail handling.
+            try {
+                $contactQuery = $appDb->prepare("SELECT display_name, email FROM tgg_contacts WHERE id = :contact_id LIMIT 1");
+                $contactQuery->execute(['contact_id' => $contactId]);
+                $contact = $contactQuery->fetch(PDO::FETCH_ASSOC);
+
+                if ($contact && !empty($contact['email'])) {
+                    $loginUrl = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/index.php';
+                    MailHelper::sendTemplate($contact['email'], 'payment_received', [
+                        'display_name' => $contact['display_name'] ?? 'Member',
+                        'tier_name' => $plan['name'] ?? 'Membership Tier',
+                        'amount' => number_format(0, 2),
+                        'start_date' => $startDate,
+                        'end_date' => $endDate,
+                        'login_url' => $loginUrl
+                    ], $contactId, null);
+
+                    if ($action === 'join') {
+                        $rawToken = Auth::createPasswordSetupToken($contact['email'], '+7 days')['token'];
+                        $setPasswordLink = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/reset-password.php?token=' . $rawToken;
+                        MailHelper::sendTemplate($contact['email'], 'signup', [
+                            'display_name' => $contact['display_name'] ?? 'Member',
+                            'tier_name' => $plan['name'] ?? 'Membership Tier',
+                            'start_date' => $startDate,
+                            'end_date' => $endDate,
+                            'set_password_link' => $setPasswordLink
+                        ], $contactId, null);
+                    }
+                }
+            } catch (Exception $mailEx) {
+                error_log("Failed to send Session membership activation email: " . $mailEx->getMessage());
+            }
+
+            return ['start_date' => $startDate, 'end_date' => $endDate, 'plan' => $plan];
         } catch (Exception $e) {
             if ($appDb->inTransaction()) {
                 $appDb->rollBack();
@@ -857,8 +1052,8 @@ class BillingHelper {
         if ($durationInterval <= 0) {
             throw new Exception("Duration interval must be greater than zero.");
         }
-        if (!in_array($durationUnit, ['day', 'month', 'year'])) {
-            throw new Exception("Invalid duration unit. Allowed units are 'day', 'month', or 'year'.");
+        if (!in_array($durationUnit, ['day', 'month', 'year', 'session'])) {
+            throw new Exception("Invalid duration unit. Allowed units are 'day', 'month', 'year', or 'session'.");
         }
 
         $freq = 'monthly';
@@ -866,6 +1061,8 @@ class BillingHelper {
             $freq = 'annual';
         } elseif ($durationUnit === 'day') {
             $freq = 'daily';
+        } elseif ($durationUnit === 'session') {
+            $freq = 'session';
         }
 
         $newRateCreated = false;
@@ -1121,7 +1318,7 @@ class BillingHelper {
         // Query existing local subscription up front (a plain read, no need to wait for the
         // transaction) so grace-period and plan-change status can be determined before deciding
         // whether the member's existing rate (if any) still applies.
-        $subStmt = $appDb->prepare("SELECT plan_id, join_date, end_date, rate_id FROM tgg_subscriptions WHERE contact_id = :contact_id LIMIT 1");
+        $subStmt = $appDb->prepare("SELECT plan_id, join_date, start_date, end_date, rate_id FROM tgg_subscriptions WHERE contact_id = :contact_id LIMIT 1");
         $subStmt->execute(['contact_id' => $contactId]);
         $existingSub = $subStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -1144,8 +1341,11 @@ class BillingHelper {
         // rate_id is reset below to the plan's current default rate so they're billed its price
         // going forward -- a stale historical rate should never persist through a plan change or
         // a real gap in membership, and it should never be left NULL.
+        // Session plans never stack a payment on top of an existing (possibly far-future)
+        // end_date -- there's no grace-period/contiguous-period concept for per-visit billing.
+        // $startDate stays "today" for them; only standard dues plans carry forward here.
         $pastGracePeriod = false;
-        if ($existingSub) {
+        if ($existingSub && !self::isSessionPlan($plan)) {
             $existingEndDate = $existingSub['end_date'];
             // Extend from the day after the old expiry if still active, or lapsed by the configured grace period
             // days or less. Beyond that, start a fresh period from today instead. join_date
@@ -1173,6 +1373,12 @@ class BillingHelper {
         }
 
         $amountTotal = ($customAmount !== null) ? $customAmount : (($durationMode === 'standard') ? $planPrice : 0.00);
+        // Session plans are never charged at join/renewal -- the charge only ever happens at
+        // check-in (entrance fee). Force this regardless of any custom amount an admin might
+        // otherwise enter, so it can't be billed by mistake through the offline "Add Member" flow.
+        if ($action !== 'entrance_fee' && self::isSessionPlan($plan)) {
+            $amountTotal = 0.00;
+        }
         $currency = 'usd';
 
         $appDb->beginTransaction();
@@ -1223,7 +1429,13 @@ class BillingHelper {
                         }
                     }
                 }
-                if ($durationUnit === 'day') {
+                if ($durationUnit === 'session') {
+                    // Same date rule as activateSessionMembership(), regardless of
+                    // duration_interval or a carried-forward rate's billing_frequency.
+                    $sessionDates = self::sessionExtensionDates($existingSub ?: null);
+                    $startDate = $sessionDates['start_date'];
+                    $endDate = $sessionDates['end_date'];
+                } elseif ($durationUnit === 'day') {
                     // Daily payment should never change the expiration date
                     $existingEndDate = null;
                     if ($existingSub) {
@@ -1356,6 +1568,12 @@ class BillingHelper {
             $plan = ['name' => $sub['plan_name'], 'duration_interval' => $sub['duration_interval'], 'duration_unit' => $sub['duration_unit']];
             if (self::isTrialPlan($plan)) {
                 return ['result' => 'skipped', 'message' => 'Trial plans are never auto-renewed', 'end_date' => null];
+            }
+            if (self::isSessionPlan($plan)) {
+                // Defense in depth: Session plans should never have auto_renew = 1 in the
+                // first place (activateSessionMembership() always forces it to 0), but skip
+                // here too in case it was ever set some other way.
+                return ['result' => 'skipped', 'message' => 'Session plans are never auto-renewed', 'end_date' => null];
             }
             if (empty($sub['stripe_customer_id']) || empty($sub['stripe_payment_method_id'])) {
                 return ['result' => 'skipped', 'message' => 'No card on file', 'end_date' => null];
@@ -1695,48 +1913,14 @@ class BillingHelper {
     }
 
     /**
-     * Check whether an Associate member owes a per-visit entrance fee on this check-in.
-     * Associates get exactly one free check-in after each dues payment; every check-in
-     * after that, until their next payment, requires the fee. Computed by counting
-     * check-ins since their most recent paid join/renew ledger entry for this plan --
-     * entrance fee payments themselves don't reset the count, since paying one doesn't
-     * grant a new free visit.
-     * @param int $contactId
+     * Check whether a Session-plan member owes a per-visit entrance fee on this check-in.
+     * There's no free visit: join/renewal is always free (no dues charge), so every check-in
+     * owes the fee, with no exception -- that's the entire point of per-Session billing.
      * @param array $membership Row from MembershipService::getMemberMembershipDetails()
      * @return bool
      */
-    public static function entranceFeeOwed(int $contactId, array $membership): bool {
-        if (!self::isAssociatePlan($membership)) {
-            return false;
-        }
-
-        $planId = (int)($membership['membership_id'] ?? 0);
-        if ($planId <= 0) {
-            return false;
-        }
-
-        $appDb = Database::getAppConnection();
-
-        $stmt = $appDb->prepare("
-            SELECT created_at FROM tgg_billing_ledger
-            WHERE contact_id = :contact_id AND plan_id = :plan_id
-              AND payment_status = 'paid' AND action_type IN ('join', 'renew', 'auto_renew')
-            ORDER BY created_at DESC LIMIT 1
-        ");
-        $stmt->execute(['contact_id' => $contactId, 'plan_id' => $planId]);
-        $lastPaymentAt = $stmt->fetchColumn();
-
-        if (!$lastPaymentAt) {
-            // No recorded dues payment to anchor a free visit to -- charge to be safe.
-            return true;
-        }
-
-        $checkinStmt = $appDb->prepare("
-            SELECT COUNT(*) FROM tgg_checkins
-            WHERE contact_id = :contact_id AND checked_in_at >= :since
-        ");
-        $checkinStmt->execute(['contact_id' => $contactId, 'since' => $lastPaymentAt]);
-        return (int)$checkinStmt->fetchColumn() > 0;
+    public static function entranceFeeOwed(array $membership): bool {
+        return self::isSessionPlan($membership);
     }
 
     /**
@@ -1836,6 +2020,29 @@ class BillingHelper {
                 'created_by' => $resolverContactId,
                 'impersonator_id' => AuditLog::impersonatorContactId()
             ]);
+
+            // Same as the card-paid entrance fee (processCheckoutSession): for a Session plan,
+            // this per-visit cash payment is what keeps the membership alive.
+            $planStmt = $appDb->prepare("SELECT * FROM tgg_subscription_plans WHERE id = :id LIMIT 1");
+            $planStmt->execute(['id' => $pending['plan_id']]);
+            $plan = $planStmt->fetch(PDO::FETCH_ASSOC);
+            if ($plan && self::isSessionPlan($plan)) {
+                $subStmt = $appDb->prepare("SELECT start_date, end_date FROM tgg_subscriptions WHERE contact_id = :contact_id LIMIT 1");
+                $subStmt->execute(['contact_id' => $contactId]);
+                $existingSub = $subStmt->fetch(PDO::FETCH_ASSOC);
+                $feeDates = self::sessionExtensionDates($existingSub ?: null);
+
+                $updateSub = $appDb->prepare("
+                    UPDATE tgg_subscriptions
+                    SET status = 'active', start_date = :start_date, end_date = :end_date
+                    WHERE contact_id = :contact_id
+                ");
+                $updateSub->execute([
+                    'start_date' => $feeDates['start_date'],
+                    'end_date' => $feeDates['end_date'],
+                    'contact_id' => $contactId
+                ]);
+            }
         } elseif ($pending['type'] === 'membership_renewal') {
             self::processOfflineRenewal($contactId, (int)$pending['plan_id'], 'cash', 'renew', 'extend_current', 'standard', null, $amount, $resolverContactId);
         } else {

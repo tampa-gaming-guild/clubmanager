@@ -2,9 +2,13 @@
 /**
  * Entrance Payment Page
  * Reached from checkin.php / host_checkin.php when a member owes a payment before their
- * check-in can complete: an Associate's per-visit entrance fee, or an expired member's
- * renewal. Offers Card (Stripe) or Cash; cash never checks the member in immediately --
- * that only happens once a host approves the pending request in person.
+ * check-in can complete: a per-session plan's per-visit entrance fee, or an expired (or
+ * brand-new walk-in) member's renewal. Offers Card (Stripe) or Cash; cash never checks the
+ * member in immediately -- that only happens once a host approves the pending request in
+ * person. Choosing a Session-billed plan in the renewal tier picker activates that membership
+ * for free (no Card/Cash needed for the dues themselves) but then redirects right back into
+ * this same page with reason=entrance_fee, since the per-visit fee for THIS check-in is still
+ * owed -- see the POST handler below.
  */
 require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
@@ -76,7 +80,7 @@ function load_tier_payment_context(int $contactId, int $tierId): ?array {
     }
 
     $planStmt = $appDb->prepare("
-        SELECT p.id, p.name, dr.price, p.civicrm_membership_type_id
+        SELECT p.id, p.name, dr.price, p.civicrm_membership_type_id, p.duration_unit
         FROM tgg_subscription_plans p
         LEFT JOIN tgg_subscription_rates dr ON p.default_rate_id = dr.id
         WHERE p.id = :id AND p.active = 'active'
@@ -94,6 +98,7 @@ function load_tier_payment_context(int $contactId, int $tierId): ?array {
         'civicrm_type_id' => (int)$plan['civicrm_membership_type_id'],
         'amount' => (float)$plan['price'],
         'membership_name' => $plan['name'],
+        'is_session' => BillingHelper::isSessionPlan($plan),
     ];
 }
 
@@ -180,7 +185,29 @@ if ($contactId <= 0) {
         }
     }
 
-    if ($context) {
+    if ($context && $reason === 'renewal' && !empty($context['is_session'])) {
+        // Session plans are never charged at join/renewal, so there's no Card/Cash choice to
+        // make for the membership itself -- this is the only path that can activate a
+        // brand-new walk-in (no subscription at all yet) onto a Session plan, and it's always
+        // host-mediated, so no verification step is needed either. But activating the
+        // membership for free does NOT cover this visit's entrance fee -- that's still owed,
+        // exactly like any other Session-plan check-in -- so after activating, redirect into
+        // the normal entrance-fee Card/Cash flow to actually collect it before the check-in
+        // completes.
+        try {
+            $appDb = Database::getAppConnection();
+            $subCheck = $appDb->prepare("SELECT COUNT(*) FROM tgg_subscriptions WHERE contact_id = :contact_id");
+            $subCheck->execute(['contact_id' => $contactId]);
+            $sessionAction = ((int)$subCheck->fetchColumn() > 0) ? 'renew' : 'join';
+
+            BillingHelper::activateSessionMembership($contactId, $context['plan_id'], $sessionAction);
+
+            header("Location: pay-entrance.php?contact_id=" . $contactId . "&reason=entrance_fee&return=" . urlencode($returnPage));
+            exit;
+        } catch (Exception $e) {
+            $errorMsg = safe_err("Failed to activate membership: ", $e);
+        }
+    } elseif ($context) {
         $action = $_POST['action'] ?? '';
         if ($action === 'card') {
             try {
@@ -235,6 +262,7 @@ $needsTierSelection = false;
 $tiers = [];
 $currentTierId = 0;
 $priorPlanWasTrial = false;
+$isBrandNewMember = false;
 if (!$errorMsg && !$cashPendingMsg && !$successDetails && $status === null) {
     $appDb = Database::getAppConnection();
     $dupStmt = $appDb->prepare("SELECT COUNT(*) FROM tgg_pending_payments WHERE contact_id = :contact_id AND status = 'pending'");
@@ -259,6 +287,10 @@ if (!$errorMsg && !$cashPendingMsg && !$successDetails && $status === null) {
                 } else {
                     $currentTierId = (int)$currentMembership['membership_id'];
                 }
+            } else {
+                // No subscription row at all -- this is a first-time walk-in, not a lapsed
+                // member, so the "your membership has expired" wording below doesn't apply.
+                $isBrandNewMember = true;
             }
         }
     } else {
@@ -269,7 +301,9 @@ if (!$errorMsg && !$cashPendingMsg && !$successDetails && $status === null) {
     }
 }
 
-$reasonLabel = ($reason === 'entrance_fee') ? 'Entrance Fee' : 'Membership Renewal';
+$reasonLabel = ($reason === 'entrance_fee')
+    ? 'Entrance Fee'
+    : ($isBrandNewMember ? 'New Membership' : 'Membership Renewal');
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -332,7 +366,9 @@ $reasonLabel = ($reason === 'entrance_fee') ? 'Entrance Fee' : 'Membership Renew
                     <div style="text-align: center; margin-bottom: 25px;">
                         <p style="font-size: 1.15rem; color: var(--color-text-secondary); margin-bottom: 5px;"><?php echo e($context['contact']['display_name']); ?></p>
                         <p style="color: var(--color-text-secondary); margin-top: 5px;">
-                            <?php if ($priorPlanWasTrial): ?>
+                            <?php if ($isBrandNewMember): ?>
+                                Welcome! Please choose a membership level to join.
+                            <?php elseif ($priorPlanWasTrial): ?>
                                 Your Trial membership has ended. The Trial is a one-time offer and can't be renewed &mdash; please choose a membership level to continue.
                             <?php else: ?>
                                 Your membership has expired. Select a level to renew &mdash; defaults to your current plan, or choose a different one to switch.
@@ -381,7 +417,7 @@ $reasonLabel = ($reason === 'entrance_fee') ? 'Entrance Fee' : 'Membership Renew
                         <p style="font-size: 2rem; font-weight: 700; color: #fff; margin: 0; font-family: var(--font-heading);">$<?php echo number_format($context['amount'], 2); ?></p>
                         <p style="color: var(--color-text-secondary); margin-top: 5px;">
                             <?php echo $reason === 'entrance_fee'
-                                ? 'Associate members pay an entrance fee on every visit after their first following a dues payment.'
+                                ? 'Members on a per-session membership pay an entrance fee on every visit.'
                                 : 'Your membership has expired. Renew now to check in.'; ?>
                         </p>
                     </div>

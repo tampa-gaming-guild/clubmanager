@@ -215,7 +215,9 @@ $autoOpenPlanModal = $editPlan || $planFormError;
                                                 </td>
                                                 <td style="font-size: 0.85rem;">$<?php echo (float)$plan['price'] == (int)$plan['price'] ? number_format($plan['price'], 0) : number_format($plan['price'], 2); ?></td>
                                                 <td style="font-size: 0.85rem;">
-                                                    <?php if (strtolower($plan['duration_unit']) !== 'day'): ?>
+                                                    <?php if (strtolower($plan['duration_unit']) === 'session'): ?>
+                                                        Per Session (extends 1 year)
+                                                    <?php elseif (strtolower($plan['duration_unit']) !== 'day'): ?>
                                                         Every <?php echo (int)$plan['duration_interval']; ?> <?php echo e(ucfirst($plan['duration_unit'])); ?>(s)
                                                     <?php endif; ?>
                                                 </td>
@@ -304,7 +306,9 @@ $autoOpenPlanModal = $editPlan || $planFormError;
                                 <option value="day" <?php echo ($editPlan && $editPlan['duration_unit'] === 'day') ? 'selected' : ''; ?>>Day(s)</option>
                                 <option value="month" <?php echo ($editPlan && $editPlan['duration_unit'] === 'month') ? 'selected' : ''; ?>>Month(s)</option>
                                 <option value="year" <?php echo (!$editPlan || ($editPlan && $editPlan['duration_unit'] === 'year')) ? 'selected' : ''; ?>>Year(s)</option>
+                                <option value="session" <?php echo ($editPlan && $editPlan['duration_unit'] === 'session') ? 'selected' : ''; ?>>Session</option>
                             </select>
+                            <small class="field-hint">"Session" ignores Billing Every: members are never charged at join/renewal, pay this plan's rate at check-in instead, and each paid check-in extends them exactly one year. Not offered as a brand-new self-service signup -- renewal or staff-added only.</small>
                         </div>
                     </div>
 

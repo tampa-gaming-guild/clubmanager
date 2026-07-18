@@ -154,17 +154,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                         throw new Exception("Invalid membership tier selected.");
                     }
                     $tier = $tiers[$tierIndex];
-                    $fee = (float)$tier['price'];
-                    if ($membership && (int)$membership['membership_id'] === (int)$tier['id']) {
-                        $fee = (float)$membership['minimum_fee'];
-                    }
-                    $tierName = $tier['name'];
-                    $civicrmTypeId = (int)$tier['civicrm_membership_type_id'];
 
-                    // Create Checkout Session
-                    $session = StripeHelper::createCheckoutSession($contactId, $tierId, $civicrmTypeId, $tierName, $fee, 'renew', $contactEmail, $contactDisplayName, 'renew.php');
-                    header("Location: " . $session['url']);
-                    exit;
+                    if (BillingHelper::isSessionPlan($tier)) {
+                        // Session plans are never charged at join/renewal -- the charge only
+                        // happens at check-in -- so this extends the membership immediately
+                        // instead of redirecting to Stripe.
+                        $activation = BillingHelper::activateSessionMembership($contactId, $tierId, 'renew');
+                        $successMsg = "Your " . htmlspecialchars($tier['name']) . " membership has been renewed through " . date('F j, Y', strtotime($activation['end_date'])) . ".";
+                        $membership = BillingHelper::getMemberSubscriptionDetails($contactId);
+                        if (!$membership) {
+                            $membership = MembershipService::getMemberMembershipDetails($contactId);
+                        }
+                    } else {
+                        $fee = (float)$tier['price'];
+                        if ($membership && (int)$membership['membership_id'] === (int)$tier['id']) {
+                            $fee = (float)$membership['minimum_fee'];
+                        }
+                        $tierName = $tier['name'];
+                        $civicrmTypeId = (int)$tier['civicrm_membership_type_id'];
+
+                        // Create Checkout Session
+                        $session = StripeHelper::createCheckoutSession($contactId, $tierId, $civicrmTypeId, $tierName, $fee, 'renew', $contactEmail, $contactDisplayName, 'renew.php');
+                        header("Location: " . $session['url']);
+                        exit;
+                    }
                 } catch (Exception $e) {
                     $errorMsg = safe_err("Failed to process renewal: ", $e);
                 }

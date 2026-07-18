@@ -37,6 +37,7 @@ class MembershipService {
         $query = "SELECT s.plan_id as membership_id, s.join_date, s.start_date, s.end_date, s.rate_id,
                          p.name as membership_name, COALESCE(r.price, dr.price) as minimum_fee,
                          COALESCE(r.price, dr.price) as price,
+                         p.duration_unit as plan_duration_unit,
                          COALESCE(r.billing_frequency, p.duration_unit) as duration_unit,
                          COALESCE(CASE WHEN r.billing_frequency IS NOT NULL THEN 1 ELSE p.duration_interval END, p.duration_interval) as duration_interval,
                          p.guests_per_month,

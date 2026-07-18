@@ -61,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_rate'])) {
             if ($price < 0) {
                 throw new Exception("Price cannot be negative.");
             }
-            if (!in_array($billingFrequency, ['annual', 'monthly', 'daily'])) {
+            if (!in_array($billingFrequency, ['annual', 'monthly', 'daily', 'session'])) {
                 throw new Exception("Invalid billing frequency.");
             }
 
@@ -487,6 +487,7 @@ $autoOpenRateModal = $isEditing || $rateFormError;
                             <option value="daily" <?php echo ($formValues && $formValues['billing_frequency'] === 'daily') ? 'selected' : ''; ?>>Daily</option>
                             <option value="monthly" <?php echo (!$formValues || $formValues['billing_frequency'] === 'monthly') ? 'selected' : ''; ?>>Monthly</option>
                             <option value="annual" <?php echo ($formValues && $formValues['billing_frequency'] === 'annual') ? 'selected' : ''; ?>>Annual</option>
+                            <option value="session" <?php echo ($formValues && $formValues['billing_frequency'] === 'session') ? 'selected' : ''; ?>>Session</option>
                         </select>
                     </div>
 

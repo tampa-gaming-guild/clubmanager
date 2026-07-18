@@ -253,11 +253,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     // Expired/inactive membership: send them to renew (Card or Cash) instead of a flat denial.
                                     $redirectUrl = 'pay-entrance.php?contact_id=' . $contactId . '&reason=renewal&return=checkin.php';
                                 }
-                            } elseif (BillingHelper::entranceFeeOwed($contactId, $membership)) {
+                            } elseif (BillingHelper::entranceFeeOwed($membership)) {
                                 if ($hasPendingPayment) {
                                     $errorMsg = "You already have a pending payment with the host. Please see the host to complete your check-in.";
                                 } else {
-                                    // Associate member's 2nd+ check-in since their last dues payment: pay the entrance fee first.
+                                    // Session-plan member's 2nd+ check-in since their last dues payment: pay the entrance fee first.
                                     $redirectUrl = 'pay-entrance.php?contact_id=' . $contactId . '&reason=entrance_fee&return=checkin.php';
                                 }
                             } else {
