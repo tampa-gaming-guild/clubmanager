@@ -11,6 +11,9 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 });
 
+// The day-cell AJAX click handler (Combo view's list panel) lives in
+// assets/js/calendar-day-ajax.js, shared with calendar.php's day panel.
+
 function myContactId() {
     return document.body.dataset.myContactId || '0';
 }

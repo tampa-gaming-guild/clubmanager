@@ -1083,6 +1083,43 @@ select option {
     background: var(--color-primary);
 }
 
+/* --- Public calendar day-cell event names (calendar.php) --- */
+.day-event-names {
+    margin-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+}
+.day-event-name-row {
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--color-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: 100%;
+    text-align: left;
+}
+.day-event-more {
+    font-size: 0.7rem;
+    color: var(--color-text-secondary);
+    text-align: left;
+}
+
+/* --- Public calendar day panel event cards (calendar_day_details.php) --- */
+.calendar-day-event-card {
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border-glass);
+}
+.calendar-day-event-card:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+.calendar-day-event-card.is-past-event {
+    opacity: 0.5;
+}
+
 /* Events Lists & Cards */
 .events-list {
     display: flex;

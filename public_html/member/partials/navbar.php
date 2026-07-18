@@ -130,7 +130,6 @@ $navAuthed = $navAdminArea || \App\Auth::check();
                 <a href="join.php" class="<?php echo $navActive === 'join' ? 'active' : ''; ?>">Join / Renew</a>
             <?php endif; ?>
             <a href="calendar.php" class="<?php echo $navActive === 'calendar' ? 'active' : ''; ?>">Calendar</a>
-            <a href="volunteers.php" class="<?php echo $navActive === 'volunteers' ? 'active' : ''; ?>">Volunteers</a>
             <a href="checkin.php" class="<?php echo $navActive === 'checkin' ? 'active' : ''; ?>">Check-In</a>
         <?php elseif ($navAuthed): ?>
             <a href="<?php echo $navPrefix; ?>index.php" class="<?php echo $navActive === 'dashboard' ? 'active' : ''; ?>">Dashboard</a>
@@ -145,7 +144,6 @@ $navAuthed = $navAdminArea || \App\Auth::check();
             <a href="index.php" class="<?php echo $navActive === 'login' ? 'active' : ''; ?>">Login</a>
             <a href="join.php" class="<?php echo $navActive === 'join' ? 'active' : ''; ?>">Join / Renew</a>
             <a href="calendar.php" class="<?php echo $navActive === 'calendar' ? 'active' : ''; ?>">Calendar</a>
-            <a href="volunteers.php" class="<?php echo $navActive === 'volunteers' ? 'active' : ''; ?>">Volunteers</a>
             <?php if ($navGuestCheckin): ?>
                 <a href="checkin.php">Check-In</a>
             <?php endif; ?>
