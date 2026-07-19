@@ -369,6 +369,32 @@ class Auth {
     }
 
     /**
+     * All non-deleted contacts currently holding a given role, accounting for
+     * the same tgg_member_roles / legacy tgg_member_settings.role fallback used
+     * by countSuperadmins(). Used to find who to notify for role-based alerts
+     * (e.g. majordomo volunteer-confirmation emails).
+     * @return array<int, array{id: int, display_name: string, email: string}>
+     */
+    public static function getContactsWithRole(string $roleName): array {
+        $appDb = Database::getAppConnection();
+        $stmt = $appDb->prepare("
+            SELECT c.id, c.display_name, c.email
+            FROM tgg_contacts c
+            JOIN tgg_member_settings s ON s.contact_id = c.id
+            WHERE c.is_deleted = 0
+            AND (
+                EXISTS (SELECT 1 FROM tgg_member_roles mr WHERE mr.contact_id = c.id AND mr.role_name = :role_name)
+                OR (
+                    NOT EXISTS (SELECT 1 FROM tgg_member_roles mr2 WHERE mr2.contact_id = c.id)
+                    AND s.role = :role_name2
+                )
+            )
+        ");
+        $stmt->execute(['role_name' => $roleName, 'role_name2' => $roleName]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
      * Impersonate a user by their contact ID.
      * @param int $targetContactId
      * @return bool

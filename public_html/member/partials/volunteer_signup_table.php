@@ -75,7 +75,7 @@ $vsSlotTypeColors = [
                                         (⏰ <?php echo $eventTime; ?>)
                                     </span>
                                 </div>
-                                <?php if (has_permission('volunteer') && $openSlotCount > 0): ?>
+                                <?php if (\App\Auth::check() && $openSlotCount > 0): ?>
                                     <div style="font-weight: normal; font-family: var(--font-body); flex-shrink: 0;">
                                         <div id="btn-container-<?php echo $evtId; ?>-ALL">
                                             <button class="btn btn-success btn-small" onclick="showSignupConfirm(<?php echo $evtId; ?>, 'ALL')" style="padding: 6px 12px; font-size: 0.8rem; white-space: nowrap;">
@@ -102,7 +102,11 @@ $vsSlotTypeColors = [
                                                 <input type="hidden" name="contact_id" id="contact-id-<?php echo $evtId; ?>-ALL" value="<?php echo $_SESSION['user']['contact_id']; ?>">
 
                                                 <?php if (!has_permission('manage hosting')): ?>
-                                                    <span style="font-size: 0.8rem; color: var(--color-text-secondary); display: block; margin-bottom: 8px;">Sign up for all open slots?</span>
+                                                    <span style="font-size: 0.8rem; color: var(--color-text-secondary); display: block; margin-bottom: 8px;">
+                                                        <?php echo has_permission('volunteer')
+                                                            ? 'Sign up for all open slots?'
+                                                            : 'Sign up for all open slots? A Hosting Manager will need to confirm you before the day.'; ?>
+                                                    </span>
                                                 <?php endif; ?>
 
                                                 <div style="display: flex; gap: 6px;">
@@ -124,6 +128,7 @@ $vsSlotTypeColors = [
                             $hasVol = isset($slotVolunteers[$slotId]);
                             $volName = $hasVol ? $slotVolunteers[$slotId]['display_name'] : null;
                             $volContactId = $hasVol ? (int)$slotVolunteers[$slotId]['contact_id'] : null;
+                            $isPending = $hasVol && ($slotVolunteers[$slotId]['status'] ?? 'confirmed') === 'pending';
 
                             // Slot type drives the bullet + accent color; hollow until filled
                             $bulletClass = 'bullet-' . $slot['slot_type'] . ($hasVol ? ' filled' : '');
@@ -138,7 +143,14 @@ $vsSlotTypeColors = [
                                 <strong><?php echo e($role); ?></strong>
                             </td>
                             <td>
-                                <?php if ($hasVol): ?>
+                                <?php if ($hasVol && $isPending): ?>
+                                    <span class="badge" style="display: inline-flex; align-items: center; gap: 8px;
+                                        color: var(--color-warning, #f59e0b);
+                                        background: rgba(245, 158, 11, 0.15);
+                                        border: 1px dashed var(--color-warning, #f59e0b);">
+                                        ⏳ <?php echo e($volName); ?> (Pending Confirmation)
+                                    </span>
+                                <?php elseif ($hasVol): ?>
                                     <span class="badge" style="display: inline-flex; align-items: center; gap: 8px;
                                         color: var(<?php echo $roleColorVar; ?>);
                                         background: rgba(<?php echo $roleRgb; ?>, <?php echo $isMe ? '0.35' : '0.2'; ?>);
@@ -164,23 +176,34 @@ $vsSlotTypeColors = [
                                         );
                                     ?>
                                     <?php if ($canDelete): ?>
-                                        <form action="<?php echo e($vsAction); ?>" method="POST" style="display: inline;" data-confirm="Are you sure you want to delete this volunteer signup?">
-                                            <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
-                                            <input type="hidden" name="slot_id" value="<?php echo $slotId; ?>">
-                                            <input type="hidden" name="contact_id" value="<?php echo $volContactId; ?>">
-                                            <button type="submit" name="action_delete" class="btn btn-danger btn-small" style="padding: 6px 12px; font-size: 0.8rem;">
-                                                Cancel Signup
-                                            </button>
-                                        </form>
+                                        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                                            <?php if ($isPending && has_permission('manage hosting')): ?>
+                                                <form action="<?php echo e($vsAction); ?>" method="POST" style="display: inline;">
+                                                    <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                                    <input type="hidden" name="slot_id" value="<?php echo $slotId; ?>">
+                                                    <button type="submit" name="action_approve" class="btn btn-success btn-small" style="padding: 6px 12px; font-size: 0.8rem;">
+                                                        Confirm
+                                                    </button>
+                                                </form>
+                                            <?php endif; ?>
+                                            <form action="<?php echo e($vsAction); ?>" method="POST" style="display: inline;" data-confirm="Are you sure you want to delete this volunteer signup?">
+                                                <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                                <input type="hidden" name="slot_id" value="<?php echo $slotId; ?>">
+                                                <input type="hidden" name="contact_id" value="<?php echo $volContactId; ?>">
+                                                <button type="submit" name="action_delete" class="btn btn-danger btn-small" style="padding: 6px 12px; font-size: 0.8rem;">
+                                                    Cancel Signup
+                                                </button>
+                                            </form>
+                                        </div>
                                     <?php else: ?>
-                                        <span style="color: var(--color-text-muted); font-size: 0.85rem;">Filled</span>
+                                        <span style="color: var(--color-text-muted); font-size: 0.85rem;"><?php echo $isPending ? 'Pending Confirmation' : 'Filled'; ?></span>
                                     <?php endif; ?>
                                 <?php else: ?>
                                     <?php if (!\App\Auth::check()): ?>
                                         <a href="index.php?action=login" class="btn btn-success btn-small" style="padding: 6px 12px; font-size: 0.8rem;">
                                             Log In to Sign Up &rarr;
                                         </a>
-                                    <?php elseif (has_permission('volunteer')): ?>
+                                    <?php else: ?>
                                         <div id="btn-container-<?php echo $evtId; ?>-<?php echo $slotId; ?>">
                                             <button class="btn btn-success btn-small" onclick="showSignupConfirm(<?php echo $evtId; ?>, <?php echo $slotId; ?>)" style="padding: 6px 12px; font-size: 0.8rem;">
                                                 Sign Up &rarr;
@@ -206,7 +229,11 @@ $vsSlotTypeColors = [
                                                 <input type="hidden" name="contact_id" id="contact-id-<?php echo $evtId; ?>-<?php echo $slotId; ?>" value="<?php echo $_SESSION['user']['contact_id']; ?>">
 
                                                 <?php if (!has_permission('manage hosting')): ?>
-                                                    <span style="font-size: 0.8rem; color: var(--color-text-secondary); display: block; margin-bottom: 8px;">Confirm volunteering?</span>
+                                                    <span style="font-size: 0.8rem; color: var(--color-text-secondary); display: block; margin-bottom: 8px;">
+                                                        <?php echo has_permission('volunteer')
+                                                            ? 'Confirm volunteering?'
+                                                            : 'Confirm volunteering? A Hosting Manager will need to confirm you before the day.'; ?>
+                                                    </span>
                                                 <?php endif; ?>
 
                                                 <div style="display: flex; gap: 6px;">

@@ -145,7 +145,7 @@ if ($view !== 'list') {
             $placeholders = implode(',', array_fill(0, count($eventIds), '?'));
 
             $stmt = $appDb->prepare("
-                SELECT s.slot_id, s.contact_id
+                SELECT s.slot_id, s.contact_id, s.status
                 FROM tgg_volunteer_signups s
                 JOIN tgg_event_slots sl ON sl.id = s.slot_id
                 WHERE sl.event_id IN ($placeholders)
@@ -158,7 +158,11 @@ if ($view !== 'list') {
                 $formattedNames = MembershipService::getFormattedNames($contactIds);
                 foreach ($signupsRaw as $row) {
                     $cid = (int)$row['contact_id'];
-                    $volunteerBySlot[(int)$row['slot_id']] = $formattedNames[$cid] ?? "Member #{$cid}";
+                    $name = $formattedNames[$cid] ?? "Member #{$cid}";
+                    $volunteerBySlot[(int)$row['slot_id']] = [
+                        'name' => $name,
+                        'status' => $row['status']
+                    ];
                 }
             }
         } catch (Exception $e) {
@@ -227,15 +231,17 @@ $cgDayContent = function (int $day, array $eventsForDay) use ($slotsByEvent, $vo
     foreach ($eventsForDay as $evt) {
         foreach ($slotsByEvent[(int)$evt['id']] ?? [] as $slot) {
             $slotColor = $typeColors[$slot['slot_type']] ?? $typeColors['open'];
-            $volName = $volunteerBySlot[(int)$slot['id']] ?? '';
+            $volunteer = $volunteerBySlot[(int)$slot['id']] ?? null;
+            $volName = $volunteer['name'] ?? '';
+            $isPending = ($volunteer['status'] ?? null) === 'pending';
             $filled = ($volName !== '');
             $labelInitial = mb_strtoupper(mb_substr($slot['slot_label'], 0, 1));
 
             echo "<div class='day-slot-row' style='white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; text-align: left;'>";
-            echo "<span class='role-dot-mobile" . ($filled ? ' filled' : '') . "' style='border-color: {$slotColor}; background-color: " . ($filled ? $slotColor : 'transparent') . ";'></span>";
+            echo "<span class='role-dot-mobile" . ($filled ? ' filled' : '') . "' style='border-color: {$slotColor}; background-color: " . ($filled ? ($isPending ? 'transparent' : $slotColor) : 'transparent') . ";'></span>";
             echo "<span class='day-slot-label' style='color: {$slotColor}; font-weight: 700;' title='" . e($slot['slot_label']) . "'>" . e($labelInitial) . ":</span> ";
             if ($filled) {
-                echo "<span class='day-slot-name' style='color: var(--color-text-primary);' title='" . e($volName) . "'>" . e($volName) . "</span>";
+                echo "<span class='day-slot-name' style='color: var(--color-text-primary);' title='" . e($volName) . "'>" . ($isPending ? '⏳ ' : '') . e($volName) . "</span>";
             }
             echo "</div>";
         }

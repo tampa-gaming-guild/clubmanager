@@ -123,6 +123,42 @@ final class EmailTemplatesSeeder extends AbstractSeed
                 'body' => '<h2>Hello, {display_name}!</h2><p>The <strong>${old_price}/{billing_frequency}</strong> rate on your <strong>{tier_name}</strong> membership is being retired.</p><p>Starting <strong>{effective_date}</strong> (the start of your next billing period), your rate will be <strong>${new_price}/{billing_frequency}</strong>.</p><p>Your current membership period, through <strong>{end_date}</strong>, is not affected.</p><p>Best regards,<br>TGG Club Team</p>',
                 'description' => 'Sent to active members when an admin explicitly retires the rate they were on, moving them to the plan\'s current rate effective their next billing period. Not sent to members who are past their grace period.',
             ],
+            [
+                'template_key' => 'volunteer_signup_pending',
+                'subject' => 'Volunteer Signup Received — Confirmation Needed',
+                'body' => '<h2>Hello, {display_name}!</h2><p>Thanks for signing up as <strong>{slot_label}</strong> for <strong>{event_title}</strong> on <strong>{event_date}</strong>.</p><p>Since you haven\'t volunteered with us before, a Hosting Manager will need to reach out to go over training with you and confirm your spot. We\'ve saved your slot in the meantime — no need to sign up again.</p><p>Best regards,<br>TGG Club Team</p>',
+                'description' => 'Sent to a member when their self-signup for a volunteer slot lands as pending because they do not yet hold the volunteer permission.',
+            ],
+            [
+                'template_key' => 'volunteer_signup_needs_confirmation',
+                'subject' => 'Volunteer Signup Needs Your Confirmation: {event_title}',
+                'body' => '<h2>Hello, {display_name}!</h2><p><strong>{volunteer_name}</strong> signed up as <strong>{slot_label}</strong> for <strong>{event_title}</strong> on <strong>{event_date}</strong>, but hasn\'t been trained/confirmed as a volunteer yet.</p><p>Please reach out to them to arrange training, then confirm their signup from the Volunteer Schedule: <a href="{event_link}">{event_link}</a></p><p>Contact info — Email: <strong>{volunteer_email}</strong> | Phone: <strong>{volunteer_phone}</strong></p><p>Best regards,<br>TGG Club Team</p>',
+                'description' => 'Sent to each majordomo when a member without the volunteer permission signs up for a slot and needs training/confirmation.',
+            ],
+            [
+                'template_key' => 'volunteer_signup_confirmed',
+                'subject' => 'You\'re Confirmed: {event_title}',
+                'body' => '<h2>Hello, {display_name}!</h2><p>Great news — your volunteer signup as <strong>{slot_label}</strong> for <strong>{event_title}</strong> on <strong>{event_date}</strong> has been confirmed by <strong>{resolver_name}</strong>.</p><p>You\'ve also been granted volunteer host access, so future signups won\'t need approval.</p><p>Best regards,<br>TGG Club Team</p>',
+                'description' => 'Sent to a member when a majordomo confirms their pending volunteer signup.',
+            ],
+            [
+                'template_key' => 'volunteer_signup_not_confirmed',
+                'subject' => 'Volunteer Signup Removed: {event_title}',
+                'body' => '<h2>Hello, {display_name},</h2><p>Your pending volunteer signup as <strong>{slot_label}</strong> for <strong>{event_title}</strong> on <strong>{event_date}</strong> was removed by <strong>{actor_name}</strong> before being confirmed.</p><p>If you have questions about volunteering or would like to reschedule, please reach out to a Hosting Manager.</p><p>Best regards,<br>TGG Club Team</p>',
+                'description' => 'Sent to a member when a manage-hosting user removes their still-pending volunteer signup.',
+            ],
+            [
+                'template_key' => 'volunteer_slot_assigned',
+                'subject' => 'You\'ve Been Signed Up: {event_title}',
+                'body' => '<h2>Hello, {display_name}!</h2><p><strong>{actor_name}</strong> signed you up as <strong>{slot_label}</strong> for <strong>{event_title}</strong> on <strong>{event_date}</strong>.</p><p>If this is unexpected or you can\'t make it, you can cancel the signup from the Volunteer Schedule: <a href="{event_link}">{event_link}</a></p><p>Best regards,<br>TGG Club Team</p>',
+                'description' => 'Sent to a member when a manage-hosting user signs them up for a volunteer slot on their behalf.',
+            ],
+            [
+                'template_key' => 'volunteer_slot_removed',
+                'subject' => 'Removed From Volunteer Slot: {event_title}',
+                'body' => '<h2>Hello, {display_name},</h2><p><strong>{actor_name}</strong> removed you from the <strong>{slot_label}</strong> slot for <strong>{event_title}</strong> on <strong>{event_date}</strong>.</p><p>If you have questions, please reach out to a Hosting Manager.</p><p>Best regards,<br>TGG Club Team</p>',
+                'description' => 'Sent to a member when a manage-hosting user removes them from an already-confirmed volunteer slot.',
+            ],
         ];
 
         $sql = 'INSERT INTO `tgg_email_templates` (`template_key`, `subject`, `body`, `description`)

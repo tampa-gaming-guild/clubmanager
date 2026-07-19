@@ -217,8 +217,11 @@ class Event {
      * Register a volunteer for a slot. Returns the slot row on success.
      * UNIQUE(slot_id) makes the insert the race guard: whoever commits first
      * gets the slot, everyone else lands in the 23000 handler.
+     * $status is 'confirmed' unless the caller determined this signup needs a
+     * majordomo's confirmation first (self-signup by someone without the
+     * 'volunteer' permission) -- see VolunteerSignupRequest.
      */
-    public static function signupVolunteer(int $slotId, int $contactId): array {
+    public static function signupVolunteer(int $slotId, int $contactId, string $status = 'confirmed'): array {
         $appDb = Database::getAppConnection();
 
         $slot = EventSlot::getSlot($slotId);
@@ -229,12 +232,13 @@ class Event {
 
         try {
             $stmt = $appDb->prepare("
-                INSERT INTO tgg_volunteer_signups (slot_id, contact_id, signed_up_at)
-                VALUES (:slot_id, :contact_id, NOW())
+                INSERT INTO tgg_volunteer_signups (slot_id, contact_id, status, signed_up_at)
+                VALUES (:slot_id, :contact_id, :status, NOW())
             ");
             $stmt->execute([
                 'slot_id' => $slotId,
-                'contact_id' => $contactId
+                'contact_id' => $contactId,
+                'status' => $status
             ]);
         } catch (\PDOException $e) {
             if ($e->getCode() == 23000) {
@@ -249,7 +253,7 @@ class Event {
     /**
      * Sign a contact up for every open slot on an event, capturing per-slot results.
      */
-    public static function signupVolunteerAllOpenSlots(int $eventId, int $contactId): array {
+    public static function signupVolunteerAllOpenSlots(int $eventId, int $contactId, string $status = 'confirmed'): array {
         $appDb = Database::getAppConnection();
         $stmt = $appDb->prepare("
             SELECT sl.id, sl.slot_label
@@ -264,7 +268,7 @@ class Event {
         $results = [];
         foreach ($openSlots as $slot) {
             try {
-                self::signupVolunteer((int)$slot['id'], $contactId);
+                self::signupVolunteer((int)$slot['id'], $contactId, $status);
                 $results[] = ['slot_id' => (int)$slot['id'], 'role' => $slot['slot_label'], 'success' => true];
             } catch (Exception $e) {
                 $results[] = ['slot_id' => (int)$slot['id'], 'role' => $slot['slot_label'], 'success' => false, 'error' => safe_err('Signup failed: ', $e)];
@@ -283,6 +287,54 @@ class Event {
             'slot_id' => $slotId,
             'contact_id' => $contactId
         ]);
+    }
+
+    /**
+     * The current signup (if any) for a slot -- contact_id + status. Used before
+     * cancelling (to pick the right notification email) and by approveVolunteerSignup().
+     */
+    public static function getSignupForSlot(int $slotId): ?array {
+        $appDb = Database::getAppConnection();
+        $stmt = $appDb->prepare("SELECT contact_id, status FROM tgg_volunteer_signups WHERE slot_id = :slot_id LIMIT 1");
+        $stmt->execute(['slot_id' => $slotId]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    /**
+     * Confirm a pending volunteer signup (majordomo action). Idempotency guard
+     * mirrors BillingHelper::approvePendingPayment.
+     * @return array{slot_id: int, contact_id: int, slot_label: string} for the caller's email/audit log
+     * @throws Exception
+     */
+    public static function approveVolunteerSignup(int $slotId, int $resolverContactId): array {
+        $appDb = Database::getAppConnection();
+
+        $slot = EventSlot::getSlot($slotId);
+        if (!$slot) {
+            throw new Exception("That volunteer slot does not exist.", 423);
+        }
+
+        $signup = self::getSignupForSlot($slotId);
+        if (!$signup) {
+            throw new Exception("There is no signup for this slot.", 423);
+        }
+        if ($signup['status'] !== 'pending') {
+            throw new Exception("This signup has already been confirmed.", 423);
+        }
+
+        $stmt = $appDb->prepare("
+            UPDATE tgg_volunteer_signups
+            SET status = 'confirmed', resolved_at = NOW(), resolved_by = :resolved_by
+            WHERE slot_id = :slot_id
+        ");
+        $stmt->execute(['resolved_by' => $resolverContactId, 'slot_id' => $slotId]);
+
+        return [
+            'slot_id' => $slotId,
+            'contact_id' => (int)$signup['contact_id'],
+            'slot_label' => $slot['slot_label']
+        ];
     }
 
     /**
@@ -312,7 +364,7 @@ class Event {
 
         // Get volunteer rows from local database
         $stmt = $appDb->prepare("
-            SELECT s.contact_id, s.slot_id, sl.slot_label, sl.slot_type, s.signed_up_at
+            SELECT s.contact_id, s.slot_id, s.status, sl.slot_label, sl.slot_type, s.signed_up_at
             FROM tgg_volunteer_signups s
             JOIN tgg_event_slots sl ON sl.id = s.slot_id
             WHERE sl.event_id = :event_id
