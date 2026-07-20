@@ -1271,7 +1271,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                 </div>
                             <?php endif; ?>
 
-                            <h4 style="margin: 20px 0 10px 0; color: #fff; font-size: 0.95rem;">Shifts Awaiting Confirmation</h4>
+                            <h4 style="margin: 20px 0 10px 0; color: #fff; font-size: 0.95rem;">Hosting Shift History</h4>
                             <?php if (empty($volunteerShifts)): ?>
                                 <p class="private-locked-msg">No shifts found.</p>
                             <?php else: ?>
