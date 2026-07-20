@@ -1,153 +1,33 @@
 <?php
 /**
- * Admin Volunteer Credits Config & Processing
- * Allows administrators to update the credits rewarded for specific volunteer roles
- * and convert earned volunteer credits into membership expiration date extensions.
+ * Admin Membership Credits: Config, Attendance Confirmation & Manual Override
+ * Lets a Hosting Manager configure the Membership Credits earned for specific
+ * hosting shifts, confirm which signed-up members actually worked a past shift
+ * (which is what grants the credit), and manually apply banked credits to
+ * extend a member's subscription outside of normal renewal timing.
  */
 require_once dirname(dirname(dirname(__DIR__))) . '/config/bootstrap.php';
 
 use App\Auth;
 use App\AuditLog;
+use App\BillingHelper;
 use App\Database;
-use App\EventSlot;
-use App\MailHelper;
+use App\MembershipCredits;
+use App\MembershipService;
 
 Auth::requirePermission('manage hosting');
 
 $errorMsg = null;
 $successMsg = null;
 
-/**
- * Recalculate member credit totals (earned, applied, expired, available) and sync database.
- */
-function updateMemberCredits($appDb, $contactId, $expirationDays) {
-    // 1. Fetch all transactions for this member
-    $stmt = $appDb->prepare("
-        SELECT id, volunteer_date, credits_earned, credits_applied 
-        FROM tgg_volunteer_credit_transactions 
-        WHERE contact_id = :contact_id 
-        ORDER BY volunteer_date ASC, id ASC
-    ");
-    $stmt->execute(['contact_id' => $contactId]);
-    $transactions = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    $earned = [];
-    $applied = [];
-    
-    $totalEarned = 0.0;
-    $totalApplied = 0.0;
-    
-    foreach ($transactions as $tx) {
-        $valEarned = (float)$tx['credits_earned'];
-        $valApplied = (float)$tx['credits_applied'];
-        if ($valEarned > 0.0) {
-            $earned[] = [
-                'id' => $tx['id'],
-                'date' => $tx['volunteer_date'],
-                'amount' => $valEarned,
-                'remaining' => $valEarned
-            ];
-            $totalEarned += $valEarned;
-        }
-        if ($valApplied > 0.0) {
-            $applied[] = [
-                'id' => $tx['id'],
-                'date' => $tx['volunteer_date'],
-                'amount' => $valApplied
-            ];
-            $totalApplied += $valApplied;
-        }
-    }
-    
-    $totalExpired = 0.0;
-    
-    if ($expirationDays > 0.0) {
-        // Match applications to earned credits using FIFO
-        foreach ($applied as $appTx) {
-            $appDate = $appTx['date'];
-            $appAmount = $appTx['amount'];
-            
-            foreach ($earned as &$earnTx) {
-                if ($earnTx['remaining'] <= 0.0) {
-                    continue;
-                }
-                
-                // Check if this earned transaction was expired AT the time of this application
-                $earnDate = $earnTx['date'];
-                $expireDate = date('Y-m-d', strtotime($earnDate . " + " . (int)$expirationDays . " days"));
-                if ($expireDate < $appDate) {
-                    continue; // Skip expired
-                }
-                
-                if ($appAmount >= $earnTx['remaining']) {
-                    $appAmount -= $earnTx['remaining'];
-                    $earnTx['remaining'] = 0.0;
-                } else {
-                    $earnTx['remaining'] -= $appAmount;
-                    $appAmount = 0.0;
-                    break; // Application fully allocated
-                }
-            }
-            unset($earnTx);
-        }
-        
-        // Count expired unapplied credits as of today
-        $today = date('Y-m-d');
-        foreach ($earned as $earnTx) {
-            if ($earnTx['remaining'] > 0.0) {
-                $earnDate = $earnTx['date'];
-                $expireDate = date('Y-m-d', strtotime($earnDate . " + " . (int)$expirationDays . " days"));
-                if ($expireDate < $today) {
-                    $totalExpired += $earnTx['remaining'];
-                }
-            }
-        }
-    } else {
-        $totalExpired = 0.0;
-    }
-    
-    // Update or Insert into tgg_member_settings
-    $stmtSelect = $appDb->prepare("SELECT contact_id FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1");
-    $stmtSelect->execute(['contact_id' => $contactId]);
-    if ($stmtSelect->fetch()) {
-        $stmtUpdate = $appDb->prepare("
-            UPDATE tgg_member_settings 
-            SET credits_earned = :earned, credits_applied = :applied, expired_credits = :expired 
-            WHERE contact_id = :contact_id
-        ");
-        $stmtUpdate->execute([
-            'earned' => $totalEarned,
-            'applied' => $totalApplied,
-            'expired' => $totalExpired,
-            'contact_id' => $contactId
-        ]);
-    } else {
-        $stmtInsert = $appDb->prepare("
-            INSERT INTO tgg_member_settings (contact_id, password_hash, role, credits_earned, credits_applied, expired_credits)
-            VALUES (:contact_id, '', 'member', :earned, :applied, :expired)
-        ");
-        $stmtInsert->execute([
-            'contact_id' => $contactId,
-            'earned' => $totalEarned,
-            'applied' => $totalApplied,
-            'expired' => $totalExpired
-        ]);
-    }
-    
-    return [
-        'credits_earned' => $totalEarned,
-        'credits_applied' => $totalApplied,
-        'expired_credits' => $totalExpired,
-        'available_credits' => max(0.0, $totalEarned - $totalApplied - $totalExpired)
-    ];
-}
+$actorId = $_SESSION['user']['contact_id'] ?? null;
 
-// POST Handler: Update settings or process conversions
+// POST Handler: Update settings, confirm attendance, or apply credits now
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
         $errorMsg = "Invalid security token.";
     } elseif (isset($_POST['action_update_settings'])) {
-        // A. Update configuration settings
+        // A. Update credit weight configuration
         $credits = $_POST['credits'] ?? [];
         try {
             $appDb = Database::getAppConnection();
@@ -165,16 +45,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($key === 'renewal_grace_days') {
                     continue;
                 }
-                $valFloat = (float)$val;
-                if ($valFloat < 0) {
+                $valInt = (int)round((float)$val);
+                if ($valInt < 0) {
                     throw new Exception("Credit values cannot be negative.");
                 }
                 $stmt->execute([
-                    'credits' => $valFloat,
+                    'credits' => $valInt,
                     'key' => $key
                 ]);
-                if (array_key_exists($key, $beforeValues) && (float)$beforeValues[$key] !== $valFloat) {
-                    $changes[$key] = ['old' => (float)$beforeValues[$key], 'new' => $valFloat];
+                if (array_key_exists($key, $beforeValues) && (int)round((float)$beforeValues[$key]) !== $valInt) {
+                    $changes[$key] = ['old' => (int)round((float)$beforeValues[$key]), 'new' => $valInt];
                 }
             }
             $appDb->commit();
@@ -182,204 +62,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!empty($changes)) {
                 AuditLog::log('volunteer_config', 'credit_settings_updated', ['changes' => $changes]);
             }
-            $successMsg = "Volunteer credit settings updated successfully.";
+            $successMsg = "Membership Credit settings updated successfully.";
         } catch (Exception $e) {
             if (isset($appDb) && $appDb->inTransaction()) {
                 $appDb->rollBack();
             }
             $errorMsg = safe_err("Failed to update credits: ", $e);
         }
-    } elseif (isset($_POST['action_convert'])) {
-        // B. Process credits and extend memberships
-        $selectedMembers = $_POST['selected_members'] ?? [];
-        $startDate = $_POST['start_date'] ?? '';
-        $endDate = $_POST['end_date'] ?? '';
-        
-        if (empty($selectedMembers)) {
-            $errorMsg = "No members selected for processing.";
+    } elseif (isset($_POST['action_confirm_attendance'])) {
+        // B. Confirm attendance for selected shifts -- this is what grants the credit.
+        $slotIds = array_map('intval', $_POST['confirm_slots'] ?? []);
+        if (empty($slotIds)) {
+            $errorMsg = "No shifts selected to confirm.";
+        } else {
+            $confirmed = [];
+            $failed = [];
+            foreach ($slotIds as $slotId) {
+                try {
+                    $result = MembershipCredits::confirmAttendance($slotId, (int)$actorId);
+                    $confirmed[] = $result;
+                } catch (Exception $e) {
+                    $failed[] = "Slot #{$slotId}: " . $e->getMessage();
+                }
+            }
+            if (!empty($confirmed)) {
+                $successMsg = count($confirmed) . " shift(s) confirmed -- Membership Credits granted.";
+            }
+            if (!empty($failed)) {
+                $errorMsg = (empty($confirmed) ? '' : '') . implode(' | ', $failed);
+            }
+        }
+    } elseif (isset($_POST['action_apply_credits'])) {
+        // C. Manual override: apply a member's banked Membership Credits now,
+        // outside of normal renewal timing.
+        $targetContactId = (int)($_POST['apply_contact_id'] ?? 0);
+        $months = (int)($_POST['apply_months'] ?? 0);
+        if ($targetContactId <= 0) {
+            $errorMsg = "Please select a member.";
+        } elseif ($months < 1) {
+            $errorMsg = "Please enter at least one month to apply.";
         } else {
             try {
-                $appDb = Database::getAppConnection();
-                
-                // Fetch conversion rate
-                $rateQuery = $appDb->query("SELECT credits FROM tgg_volunteer_credits WHERE credit_key = 'credits_per_month' LIMIT 1");
-                $conversionRate = (float)$rateQuery->fetchColumn();
-                if ($conversionRate <= 0) {
-                    $conversionRate = 4.0;
-                }
-                
-                // Fetch all credit configs into key-value map
-                $configsStmt = $appDb->query("SELECT credit_key, credits FROM tgg_volunteer_credits");
-                $creditsMap = $configsStmt->fetchAll(PDO::FETCH_KEY_PAIR);
-                $expirationDays = (float)($creditsMap['credit_expiration_days'] ?? 365.0);
-                
-                $appDb->beginTransaction();
-                
-                $todayStr = date('Y-m-d');
-                $emailsToSend = [];
-                
-                // Insert transaction statement. shift keeps a label snapshot for
-                // display; slot_id is the precise processed-signup marker.
-                $actorCols = AuditLog::actorColumns();
-                $insertTrans = $appDb->prepare("
-                    INSERT INTO tgg_volunteer_credit_transactions (contact_id, event_id, slot_id, volunteer_date, shift, credits_earned, credits_applied, created_by, impersonator_id, source)
-                    VALUES (:contact_id, :event_id, :slot_id, :volunteer_date, :shift, :credits_earned, 0.0, :created_by, :impersonator_id, :source)
-                ");
-
-                foreach ($selectedMembers as $cid) {
-                    $cid = (int)$cid;
-
-                    // Fetch unprocessed signups for this member in date range
-                    $stmtUnprocessed = $appDb->prepare("
-                        SELECT s.slot_id, sl.event_id, sl.slot_label AS role, sl.slot_type, e.start_time
-                        FROM tgg_volunteer_signups s
-                        INNER JOIN tgg_event_slots sl ON sl.id = s.slot_id
-                        INNER JOIN tgg_events e ON sl.event_id = e.id
-                        LEFT JOIN tgg_volunteer_credit_transactions t ON t.slot_id = s.slot_id AND t.contact_id = s.contact_id
-                        WHERE s.contact_id = :contact_id
-                          AND e.start_time >= :start_time
-                          AND e.start_time <= :end_time
-                          AND t.id IS NULL
-                    ");
-                    $stmtUnprocessed->execute([
-                        'contact_id' => $cid,
-                        'start_time' => $startDate . ' 00:00:00',
-                        'end_time' => $endDate . ' 23:59:59'
-                    ]);
-                    $newShifts = $stmtUnprocessed->fetchAll();
-                    
-                    if (empty($newShifts)) {
-                        continue;
-                    }
-                    
-                    foreach ($newShifts as $shift) {
-                        $key = EventSlot::creditKey($shift['slot_type'], $shift['start_time']);
-                        $earned = (float)($creditsMap[$key] ?? 0.0);
-
-                        // Log shifts transaction
-                        $insertTrans->execute([
-                            'contact_id' => $cid,
-                            'event_id' => (int)$shift['event_id'],
-                            'slot_id' => (int)$shift['slot_id'],
-                            'volunteer_date' => date('Y-m-d', strtotime($shift['start_time'])),
-                            'shift' => $shift['role'],
-                            'credits_earned' => $earned,
-                            'created_by' => $actorCols['created_by'],
-                            'impersonator_id' => $actorCols['impersonator_id'],
-                            'source' => $actorCols['source']
-                        ]);
-                    }
-                    
-                    // Recalculate member credits including the newly logged transactions
-                    $details = updateMemberCredits($appDb, $cid, $expirationDays);
-                    
-                    $monthsToExtend = (int)floor($details['available_credits'] / $conversionRate);
-                    
-                    if ($monthsToExtend > 0) {
-                        $appliedDiff = $monthsToExtend * $conversionRate;
-                        
-                        // Log extension transaction
-                        $insertExtension = $appDb->prepare("
-                            INSERT INTO tgg_volunteer_credit_transactions (contact_id, event_id, volunteer_date, shift, credits_earned, credits_applied, created_by, impersonator_id, source)
-                            VALUES (:contact_id, NULL, :volunteer_date, 'Apply Extension', 0.0, :credits_applied, :created_by, :impersonator_id, :source)
-                        ");
-                        $insertExtension->execute([
-                            'contact_id' => $cid,
-                            'volunteer_date' => $todayStr,
-                            'credits_applied' => $appliedDiff,
-                            'created_by' => $actorCols['created_by'],
-                            'impersonator_id' => $actorCols['impersonator_id'],
-                            'source' => $actorCols['source']
-                        ]);
-                        
-                        // Retrieve local subscription details
-                        $subStmt = $appDb->prepare("SELECT plan_id, end_date FROM tgg_subscriptions WHERE contact_id = :contact_id LIMIT 1");
-                        $subStmt->execute(['contact_id' => $cid]);
-                        $existingSub = $subStmt->fetch();
-                        
-                        // Calculate new end date
-                        $currentEndDate = null;
-                        if ($existingSub) {
-                            $currentEndDate = $existingSub['end_date'];
-                        }
-                        
-                        $startDateStr = $todayStr;
-                        if ($currentEndDate && strtotime($currentEndDate) >= strtotime($todayStr)) {
-                            $startDateStr = $currentEndDate;
-                        }
-                        $newEndDate = date('Y-m-d', strtotime($startDateStr . " +{$monthsToExtend} month"));
-                        
-                        // Insert or Update local subscription
-                        if ($existingSub) {
-                            $updateSub = $appDb->prepare("
-                                UPDATE tgg_subscriptions 
-                                SET status = 'active', end_date = :end_date 
-                                WHERE contact_id = :contact_id
-                            ");
-                            $updateSub->execute([
-                                'end_date' => $newEndDate,
-                                'contact_id' => $cid
-                            ]);
-                        } else {
-                            $insertSub = $appDb->prepare("
-                                INSERT INTO tgg_subscriptions (contact_id, plan_id, status, join_date, start_date, end_date, rate_id)
-                                VALUES (:contact_id, 2, 'active', :join_date, :start_date, :end_date, (SELECT id FROM tgg_subscription_rates WHERE plan_id = 2 LIMIT 1))
-                            ");
-                            $insertSub->execute([
-                                'contact_id' => $cid,
-                                'join_date' => $todayStr,
-                                'start_date' => $todayStr,
-                                'end_date' => $newEndDate
-                            ]);
-                        }
-                        
-                        // No CiviCRM Membership updates needed anymore
-                        
-                        // Recalculate and write final values (including applied credits) to settings
-                        updateMemberCredits($appDb, $cid, $expirationDays);
-
-                        $emailsToSend[] = [
-                            'contact_id' => $cid,
-                            'credits_used' => $appliedDiff,
-                            'months_extended' => $monthsToExtend,
-                            'new_end_date' => $newEndDate
-                        ];
-                    }
-                }
-                
-                $appDb->commit();
-
-                // Send credit conversion notification emails
-                foreach ($emailsToSend as $mailInfo) {
-                    try {
-                        $contactQuery = $appDb->prepare("SELECT display_name, email FROM tgg_contacts WHERE id = :contact_id LIMIT 1");
-                        $contactQuery->execute(['contact_id' => $mailInfo['contact_id']]);
-                        $contact = $contactQuery->fetch(PDO::FETCH_ASSOC);
-
-                        if ($contact && !empty($contact['email'])) {
-                            $placeholders = [
-                                'display_name' => $contact['display_name'] ?? 'Member',
-                                'credits_used' => number_format($mailInfo['credits_used'], 1),
-                                'months_extended' => $mailInfo['months_extended'],
-                                'new_end_date' => $mailInfo['new_end_date']
-                            ];
-                            MailHelper::sendTemplate($contact['email'], 'credits_converted', $placeholders, $mailInfo['contact_id'], $_SESSION['user']['contact_id']);
-                        }
-                    } catch (Exception $mailEx) {
-                        error_log("Failed to send volunteer credits conversion email: " . $mailEx->getMessage());
-                    }
-                }
-                
-                $successMsg = "Successfully processed volunteer credits and extended memberships for selected members.";
+                $result = BillingHelper::applyMembershipCreditsToMembership($targetContactId, $months, (int)$actorId);
+                $successMsg = "Applied {$result['months_applied']} month(s) of Membership Credits -- new expiration date " . date('F j, Y', strtotime($result['end_date'])) . ".";
             } catch (Exception $e) {
-                if (isset($appDb) && $appDb->inTransaction()) $appDb->rollBack();
-                $errorMsg = safe_err("Processing failed: ", $e);
+                $errorMsg = safe_err("Failed to apply Membership Credits: ", $e);
             }
         }
     }
 }
 
-// GET Handler: Retrieve Settings
+// GET Handler: Load credit weight settings (Section 1)
 // renewal_grace_days lives in this table for storage convenience but is a
 // membership setting, edited on the Memberships page -- not shown here.
 try {
@@ -388,113 +121,33 @@ try {
     $creditSettings = $stmt->fetchAll();
 } catch (Exception $e) {
     $creditSettings = [];
-    $errorMsg = safe_err("Unable to retrieve credits: ", $e);
+    $errorMsg = safe_err(($errorMsg ? $errorMsg . " | " : "") . "Unable to retrieve credits: ", $e);
 }
 
-// GET Handler: Load Eligible Unprocessed Signups
+// GET Handler: Load unconfirmed past shifts in the selected date range (Section 2)
 $startDate = isset($_GET['start_date']) ? $_GET['start_date'] : '';
 $endDate = isset($_GET['end_date']) ? $_GET['end_date'] : '';
-$eligibleMembers = [];
+$eventsForConfirmation = [];
 
 if (!empty($startDate) && !empty($endDate)) {
     try {
-        $appDb = Database::getAppConnection();
-        
-        // Fetch all credits configs
-        $configsStmt = $appDb->query("SELECT credit_key, credits FROM tgg_volunteer_credits");
-        $creditsMap = $configsStmt->fetchAll(PDO::FETCH_KEY_PAIR);
-        $conversionRate = (float)($creditsMap['credits_per_month'] ?? 4.0);
-        if ($conversionRate <= 0) $conversionRate = 4.0;
-        $expirationDays = (float)($creditsMap['credit_expiration_days'] ?? 365.0);
-        
-        // Fetch all unprocessed signups during the time range
-        $stmtSignups = $appDb->prepare("
-            SELECT s.slot_id, sl.event_id, s.contact_id, sl.slot_label AS role, sl.slot_type, e.title, e.start_time
-            FROM tgg_volunteer_signups s
-            INNER JOIN tgg_event_slots sl ON sl.id = s.slot_id
-            INNER JOIN tgg_events e ON sl.event_id = e.id
-            LEFT JOIN tgg_volunteer_credit_transactions t ON t.slot_id = s.slot_id AND t.contact_id = s.contact_id
-            WHERE e.start_time >= :start_time
-              AND e.start_time <= :end_time
-              AND t.id IS NULL
-            ORDER BY e.start_time ASC
-        ");
-        $stmtSignups->execute([
-            'start_time' => $startDate . ' 00:00:00',
-            'end_time' => $endDate . ' 23:59:59'
-        ]);
-        $unprocessedSignups = $stmtSignups->fetchAll();
-        
-        if (!empty($unprocessedSignups)) {
-            // Group by contact_id
-            $groupedSignups = [];
-            foreach ($unprocessedSignups as $signup) {
-                $groupedSignups[$signup['contact_id']][] = $signup;
-            }
-            
-            // Fetch contact names from local contacts
-            $contactIds = array_keys($groupedSignups);
-            $placeholders = implode(',', array_fill(0, count($contactIds), '?'));
-            $stmtNames = $appDb->prepare("SELECT id, display_name FROM tgg_contacts WHERE id IN ({$placeholders})");
-            $stmtNames->execute(array_values($contactIds));
-            $namesMap = $stmtNames->fetchAll(PDO::FETCH_KEY_PAIR);
-            
-            // Recalculate member settings (current credits_earned & credits_applied & expired_credits)
-            $settingsMap = [];
-            foreach ($contactIds as $cid) {
-                $settingsMap[$cid] = updateMemberCredits($appDb, (int)$cid, $expirationDays);
-            }
-            
-            // Fetch current expiration dates
-            $stmtSubs = $appDb->prepare("SELECT contact_id, end_date FROM tgg_subscriptions WHERE contact_id IN ({$placeholders})");
-            $stmtSubs->execute(array_values($contactIds));
-            $subsMap = $stmtSubs->fetchAll(PDO::FETCH_KEY_PAIR);
-            
-            foreach ($groupedSignups as $cid => $shifts) {
-                $newCredits = 0.0;
-                $shiftDetails = [];
-                
-                foreach ($shifts as $shift) {
-                    $key = EventSlot::creditKey($shift['slot_type'], $shift['start_time']);
-                    $val = (float)($creditsMap[$key] ?? 0.0);
-                    $newCredits += $val;
-                    
-                    $valFormatted = ($val == (int)$val) ? (int)$val : $val;
-                    $shiftDetails[] = date('M j', strtotime($shift['start_time'])) . ' ' . $valFormatted;
-                }
-                
-                $currAvailableBefore = (float)($settingsMap[$cid]['available_credits'] ?? 0.0);
-                
-                $totalUnapplied = $currAvailableBefore + $newCredits;
-                $monthsToExtend = (int)floor($totalUnapplied / $conversionRate);
-                
-                $currEnd = $subsMap[$cid] ?? null;
-                $proposedEnd = 'No extension';
-                if ($monthsToExtend > 0) {
-                    $todayStr = date('Y-m-d');
-                    $baseDate = $todayStr;
-                    if ($currEnd && strtotime($currEnd) >= strtotime($todayStr)) {
-                        $baseDate = $currEnd;
-                    }
-                    $proposedEnd = date('Y-m-d', strtotime($baseDate . " +{$monthsToExtend} month"));
-                }
-                
-                $eligibleMembers[] = [
-                    'contact_id' => $cid,
-                    'display_name' => $namesMap[$cid] ?? "Member #{$cid}",
-                    'shift_list' => implode("\n", $shiftDetails),
-                    'new_credits' => $newCredits,
-                    'unapplied_credits' => $totalUnapplied,
-                    'expired_credits' => $settingsMap[$cid]['expired_credits'] ?? 0.0,
-                    'current_end_date' => $currEnd ?: 'No active membership',
-                    'extension_months' => $monthsToExtend,
-                    'proposed_end_date' => $proposedEnd
-                ];
-            }
+        $unconfirmedShifts = MembershipCredits::getUnconfirmedShifts($startDate, $endDate);
+        foreach ($unconfirmedShifts as $shift) {
+            $eventsForConfirmation[$shift['event_id']]['event_title'] = $shift['event_title'];
+            $eventsForConfirmation[$shift['event_id']]['start_time'] = $shift['start_time'];
+            $eventsForConfirmation[$shift['event_id']]['shifts'][] = $shift;
         }
     } catch (Exception $e) {
-        $errorMsg = safe_err("Error loading eligible signups: ", $e);
+        $errorMsg = safe_err(($errorMsg ? $errorMsg . " | " : "") . "Error loading unconfirmed shifts: ", $e);
     }
+}
+
+// Member picker list for Section 3 (manual override)
+$allActiveMembers = [];
+try {
+    $allActiveMembers = MembershipService::getMembersList();
+} catch (Exception $e) {
+    // Fallback to empty
 }
 ?>
 <!DOCTYPE html>
@@ -502,7 +155,7 @@ if (!empty($startDate) && !empty($endDate)) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Volunteer Credits - Admin Dashboard</title>
+    <title>Membership Credits - Admin Dashboard</title>
     <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
     <link rel="icon" type="image/png" href="../favicon.png">
     <link rel="apple-touch-icon" href="../favicon.png">
@@ -542,16 +195,47 @@ if (!empty($startDate) && !empty($endDate)) {
             gap: 15px;
             align-items: flex-end;
             margin-bottom: 25px;
+            flex-wrap: wrap;
         }
         .form-group {
             display: flex;
             flex-direction: column;
             gap: 6px;
+            margin-bottom: 0;
         }
         .form-group label {
             font-size: 0.85rem;
             color: var(--color-text-secondary);
             font-weight: 500;
+        }
+        .form-group-btn {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .form-group-btn .btn-spacer {
+            font-size: 0.85rem;
+            line-height: 1;
+            visibility: hidden;
+        }
+        .confirm-event-group {
+            border: 1px solid var(--border-glass);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            background: rgba(255, 255, 255, 0.02);
+        }
+        .confirm-event-group h4 {
+            margin: 0 0 10px 0;
+            color: #fff;
+            font-size: 0.95rem;
+        }
+        .confirm-shift-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 6px 0;
+            font-size: 0.85rem;
         }
     </style>
 </head>
@@ -563,7 +247,7 @@ if (!empty($startDate) && !empty($endDate)) {
             <div class="admin-grid">
                 <?php include 'sidebar.php'; ?>
 
-                <!-- Volunteer Credits Workspace -->
+                <!-- Membership Credits Workspace -->
                 <section class="admin-workspace glass-panel">
                     <?php if ($errorMsg): ?>
                         <div class="alert alert-danger" style="margin-bottom: 20px;"><?php echo e($errorMsg); ?></div>
@@ -573,45 +257,43 @@ if (!empty($startDate) && !empty($endDate)) {
                         <div class="alert alert-success" style="margin-bottom: 20px;"><?php echo e($successMsg); ?></div>
                     <?php endif; ?>
 
-                    <h2>Volunteer Credits Configuration</h2>
+                    <h2>Membership Credit Weights</h2>
                     <p class="description-text" style="margin-bottom: 25px;">
-                        Configure the credit weights earned by members for filling specific shift roles, and the exchange rate for free membership months.
+                        Configure the Membership Credits earned by members for filling specific hosting shift roles, and the exchange rate for free membership months. Hosting is currently the only way to earn Membership Credits, but more ways may be added later.
                     </p>
 
                     <form action="volunteer_credits.php" method="POST" style="margin-bottom: 50px;">
                         <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
                         <input type="hidden" name="action_update_settings" value="1">
-                        
+
                         <div class="admin-table-container">
                             <table class="admin-table" style="width: 100%; margin-bottom: 20px;">
                                 <thead>
                                     <tr>
                                         <th style="width: 60%;">Shift / Configuration Property</th>
-                                        <th style="width: 40%;">Volunteer Credits Value</th>
+                                        <th style="width: 40%;">Membership Credits Value</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <?php if (empty($creditSettings)): ?>
                                         <tr>
                                             <td colspan="2" style="text-align: center; color: var(--color-text-secondary); padding: 20px;">
-                                                No volunteer credit records found.
+                                                No Membership Credit records found.
                                             </td>
                                         </tr>
                                     <?php else: ?>
-                                        <?php foreach ($creditSettings as $setting): 
-                                            $isDays = ($setting['credit_key'] === 'credit_expiration_days');
-                                        ?>
+                                        <?php foreach ($creditSettings as $setting): ?>
                                             <tr>
                                                 <td style="font-weight: 600; color: #fff;">
                                                     <?php echo e($setting['credit_label']); ?>
                                                 </td>
                                                 <td>
-                                                    <input type="number" 
-                                                        class="credits-input" 
-                                                        name="credits[<?php echo e($setting['credit_key']); ?>]" 
-                                                        value="<?php echo $isDays ? (int)$setting['credits'] : (float)$setting['credits']; ?>" 
-                                                        step="<?php echo $isDays ? '1' : '0.1'; ?>" 
-                                                        min="0" 
+                                                    <input type="number"
+                                                        class="credits-input"
+                                                        name="credits[<?php echo e($setting['credit_key']); ?>]"
+                                                        value="<?php echo (int)round((float)$setting['credits']); ?>"
+                                                        step="1"
+                                                        min="0"
                                                         required>
                                                 </td>
                                             </tr>
@@ -630,12 +312,11 @@ if (!empty($startDate) && !empty($endDate)) {
 
                     <hr style="border: none; border-bottom: 1px solid var(--border-glass); margin-bottom: 40px;">
 
-                    <h2>Process & Convert Credits</h2>
+                    <h2>Confirm Attendance</h2>
                     <p class="description-text" style="margin-bottom: 25px;">
-                        Select a date range to compile past volunteer shifts. Convert accumulated unapplied credits to extend members' subscription expiration dates.
+                        Select a date range, then check off which signed-up members actually worked their shift. Confirming a shift is what grants that member Membership Credits -- signing up alone does not.
                     </p>
 
-                    <!-- Date Range Selection Form -->
                     <form action="volunteer_credits.php" method="GET" class="form-row">
                         <div class="form-group">
                             <label for="start-date">Start Date</label>
@@ -645,91 +326,76 @@ if (!empty($startDate) && !empty($endDate)) {
                             <label for="end-date">End Date</label>
                             <input type="date" id="end-date" name="end_date" class="date-input" value="<?php echo e($endDate ?: date('Y-m-d')); ?>" required>
                         </div>
-                        <button type="submit" class="btn btn-primary" style="padding: 10px 20px;">Load Eligible Signups</button>
+                        <div class="form-group-btn">
+                            <span class="btn-spacer">&nbsp;</span>
+                            <button type="submit" class="btn btn-primary" style="padding: 10px 20px;">Load Past Shifts</button>
+                        </div>
                     </form>
 
-                    <!-- Eligible Signups Table -->
                     <?php if (!empty($startDate) && !empty($endDate)): ?>
                         <form action="volunteer_credits.php" method="POST">
                             <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
-                            <input type="hidden" name="action_convert" value="1">
-                            <input type="hidden" name="start_date" value="<?php echo e($startDate); ?>">
-                            <input type="hidden" name="end_date" value="<?php echo e($endDate); ?>">
+                            <input type="hidden" name="action_confirm_attendance" value="1">
 
-                            <div class="admin-table-container" style="margin-top: 20px;">
-                                <table class="admin-table" style="width: 100%; margin-bottom: 20px;">
-                                    <thead>
-                                        <tr>
-                                            <th style="width: 5%; text-align: center;"><input type="checkbox" id="select-all" onclick="toggleAllCheckboxes(this)"></th>
-                                            <th style="width: 25%;">Member Name</th>
-                                            <th style="width: 30%;">New Shifts Completed</th>
-                                            <th style="width: 10%; text-align: center;">New Credits</th>
-                                            <th style="width: 10%; text-align: center;">Unapplied Balance</th>
-                                            <th style="width: 10%; text-align: center;">Extension</th>
-                                            <th style="width: 10%;">Proposed Expiration</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <?php if (empty($eligibleMembers)): ?>
-                                            <tr>
-                                                <td colspan="7" style="text-align: center; color: var(--color-text-secondary); padding: 30px;">
-                                                    No unprocessed volunteer shifts found for the selected date range.
-                                                </td>
-                                            </tr>
-                                        <?php else: ?>
-                                            <?php foreach ($eligibleMembers as $member): ?>
-                                                <tr>
-                                                    <td style="text-align: center;">
-                                                        <input type="checkbox" name="selected_members[]" class="member-checkbox" value="<?php echo e($member['contact_id']); ?>">
-                                                    </td>
-                                                    <td style="font-weight: 600; color: #fff;">
-                                                        <?php echo e($member['display_name']); ?>
-                                                        <span style="display: block; font-size: 0.75rem; color: var(--color-text-secondary); font-weight: normal;">
-                                                            ID: <?php echo e($member['contact_id']); ?>
-                                                            <?php if ($member['expired_credits'] > 0.0): ?>
-                                                                | Expired: <?php echo (float)$member['expired_credits']; ?>
-                                                            <?php endif; ?>
-                                                        </span>
-                                                    </td>
-                                                    <td style="font-size: 0.8rem; color: var(--color-text-secondary); line-height: 1.4;">
-                                                        <?php echo nl2br(e($member['shift_list'])); ?>
-                                                    </td>
-                                                    <td style="text-align: center; font-weight: bold; color: var(--color-primary);">
-                                                        +<?php echo number_format($member['new_credits'], 1); ?>
-                                                    </td>
-                                                    <td style="text-align: center; font-weight: 500;">
-                                                        <?php echo number_format($member['unapplied_credits'], 1); ?>
-                                                    </td>
-                                                    <td style="text-align: center;">
-                                                        <?php if ($member['extension_months'] > 0): ?>
-                                                            <span class="badge badge-active" style="background: rgba(34, 197, 94, 0.15); color: var(--color-success); border: 1px solid rgba(34, 197, 94, 0.3);">
-                                                                +<?php echo $member['extension_months']; ?> Month<?php echo $member['extension_months'] > 1 ? 's' : ''; ?>
-                                                            </span>
-                                                        <?php else: ?>
-                                                            <span style="color: var(--color-text-muted); font-size: 0.8rem;">None</span>
-                                                        <?php endif; ?>
-                                                    </td>
-                                                    <td style="font-size: 0.85rem; color: #fff;">
-                                                        <?php if ($member['extension_months'] > 0): ?>
-                                                            <strong><?php echo e($member['proposed_end_date']); ?></strong>
-                                                        <?php else: ?>
-                                                            <span style="color: var(--color-text-secondary);"><?php echo e($member['current_end_date']); ?></span>
-                                                        <?php endif; ?>
-                                                    </td>
-                                                </tr>
-                                            <?php endforeach; ?>
-                                        <?php endif; ?>
-                                    </tbody>
-                                </table>
-                            </div>
-
-                            <?php if (!empty($eligibleMembers)): ?>
-                                <div style="text-align: left;">
-                                    <button type="submit" class="btn btn-success" style="padding: 10px 24px;">Process & Convert Selected Credits</button>
+                            <?php if (empty($eventsForConfirmation)): ?>
+                                <p class="private-locked-msg">No unconfirmed past shifts found for the selected date range.</p>
+                            <?php else: ?>
+                                <?php foreach ($eventsForConfirmation as $eventId => $event): ?>
+                                    <div class="confirm-event-group">
+                                        <h4>
+                                            <?php echo e($event['event_title'] ?: 'Volunteer Event'); ?>
+                                            <span style="font-weight: normal; color: var(--color-text-secondary); font-size: 0.85rem;">
+                                                (<?php echo date('M j, Y', strtotime($event['start_time'])); ?>)
+                                            </span>
+                                        </h4>
+                                        <?php foreach ($event['shifts'] as $shift): ?>
+                                            <label class="confirm-shift-row">
+                                                <input type="checkbox" name="confirm_slots[]" value="<?php echo (int)$shift['slot_id']; ?>">
+                                                <span style="color: #fff; font-weight: 600;"><?php echo e($shift['display_name']); ?></span>
+                                                <span style="color: var(--color-text-secondary);">&mdash; <?php echo e($shift['slot_label']); ?></span>
+                                                <span style="color: var(--color-primary); font-weight: bold; margin-left: auto;">+<?php echo (int)$shift['credits']; ?> credit<?php echo $shift['credits'] === 1 ? '' : 's'; ?></span>
+                                            </label>
+                                        <?php endforeach; ?>
+                                    </div>
+                                <?php endforeach; ?>
+                                <div style="text-align: left; margin-top: 10px;">
+                                    <button type="submit" class="btn btn-success" style="padding: 10px 24px;">Confirm Selected Shifts &amp; Grant Membership Credits</button>
                                 </div>
                             <?php endif; ?>
                         </form>
                     <?php endif; ?>
+
+                    <hr style="border: none; border-bottom: 1px solid var(--border-glass); margin: 40px 0;">
+
+                    <h2>Apply Membership Credits Now</h2>
+                    <p class="description-text" style="margin-bottom: 25px;">
+                        Manual override for support cases outside normal renewal timing -- Membership Credits are otherwise applied automatically at auto-renewal (if the member opted in) or offered as a choice during manual renewal.
+                    </p>
+
+                    <form action="volunteer_credits.php" method="POST" class="form-row" data-confirm="Apply this member's banked Membership Credits now to extend their membership?">
+                        <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                        <input type="hidden" name="action_apply_credits" value="1">
+
+                        <div class="form-group">
+                            <label for="apply-member">Member</label>
+                            <input type="text" id="apply-member" list="apply-members-list" placeholder="Type member name..." style="width: 260px; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-glass); background: rgba(255, 255, 255, 0.05); color: #fff;" oninput="updateApplyMemberId(this)" required>
+                            <input type="hidden" id="apply_contact_id" name="apply_contact_id" value="">
+                        </div>
+                        <div class="form-group">
+                            <label for="apply-months">Months to Apply</label>
+                            <input type="number" id="apply-months" name="apply_months" class="date-input" style="width: 100px;" min="1" step="1" required>
+                        </div>
+                        <div class="form-group-btn">
+                            <span class="btn-spacer">&nbsp;</span>
+                            <button type="submit" class="btn btn-warning" style="padding: 10px 20px;">Apply Now</button>
+                        </div>
+                    </form>
+
+                    <datalist id="apply-members-list">
+                        <?php foreach ($allActiveMembers as $member): ?>
+                            <option value="<?php echo e($member['display_name'] . ' (ID: ' . $member['id'] . ')'); ?>"></option>
+                        <?php endforeach; ?>
+                    </datalist>
                 </section>
             </div>
         </main>
@@ -737,11 +403,9 @@ if (!empty($startDate) && !empty($endDate)) {
         <?php include __DIR__ . '/../partials/footer.php'; ?>
 
     <script>
-    function toggleAllCheckboxes(master) {
-        const checkboxes = document.querySelectorAll('.member-checkbox');
-        checkboxes.forEach(cb => {
-            cb.checked = master.checked;
-        });
+    function updateApplyMemberId(input) {
+        const match = input.value.match(/\(ID:\s*(\d+)\)/);
+        document.getElementById('apply_contact_id').value = match ? match[1] : '';
     }
     </script>
 </body>

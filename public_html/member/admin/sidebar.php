@@ -15,7 +15,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
         <?php endif; ?>
         
         <?php if (has_permission('manage hosting')): ?>
-            <li><a href="volunteer_credits.php" class="<?php echo ($current_page === 'volunteer_credits.php') ? 'active' : ''; ?>">Volunteer Credits</a></li>
+            <li><a href="volunteer_credits.php" class="<?php echo ($current_page === 'volunteer_credits.php') ? 'active' : ''; ?>">Membership Credits</a></li>
         <?php endif; ?>
         
         <?php if (has_permission('all')): ?>

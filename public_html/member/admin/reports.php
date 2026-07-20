@@ -284,7 +284,10 @@ try {
                                                         $badgeClass = 'badge-active';
                                                         $badgeLabel = 'Paid (Card)';
                                                         
-                                                        if (strpos($trxnId, 'offline_volunteer_credit_') === 0) {
+                                                        if (strpos($trxnId, 'credit_redeem_') === 0) {
+                                                            $badgeClass = 'badge-volunteer';
+                                                            $badgeLabel = 'Membership Credits Redeemed';
+                                                        } elseif (strpos($trxnId, 'offline_volunteer_credit_') === 0) {
                                                             $badgeClass = 'badge-volunteer';
                                                             $badgeLabel = 'Volunteer';
                                                         } elseif (strpos($trxnId, 'offline_complimentary_') === 0) {

@@ -158,6 +158,9 @@ try {
                                                     if (($pay['payment_status'] ?? '') === 'failed') {
                                                         $badgeClass = 'badge-expired';
                                                         $badgeLabel = 'Declined';
+                                                    } elseif (strpos($trxnId, 'credit_redeem_') === 0) {
+                                                        $badgeClass = 'badge-volunteer';
+                                                        $badgeLabel = 'Membership Credits Redeemed';
                                                     } elseif (strpos($trxnId, 'offline_volunteer_credit_') === 0) {
                                                         $badgeClass = 'badge-volunteer';
                                                         $badgeLabel = 'Volunteer';

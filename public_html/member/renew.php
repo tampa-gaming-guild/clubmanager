@@ -6,6 +6,7 @@
 require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
 use App\Database;
+use App\MembershipCredits;
 use App\MembershipService;
 use App\StripeHelper;
 use App\Auth;
@@ -142,6 +143,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                     $errorMsg = safe_err("Failed to process offline renewal: ", $e);
                 }
             }
+        } elseif ($paymentFlow === 'credits') {
+            $creditMonths = (int)($_POST['credit_months'] ?? 0);
+            if ($creditMonths < 1) {
+                $errorMsg = "Please select how many months of Membership Credits to use.";
+            } else {
+                try {
+                    $result = BillingHelper::applyMembershipCreditsToMembership($contactId, $creditMonths);
+
+                    $successMsg = "Membership extended by {$result['months_applied']} month(s) using Membership Credits, through " . date('F j, Y', strtotime($result['end_date'])) . ".";
+                    $successMsg .= ' <a href="profile.php?id=' . $contactId . '" class="btn btn-secondary btn-small" style="display: inline-block; margin-left: 15px; padding: 4px 10px; font-size: 0.8rem; vertical-align: middle; background: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.25); color: #fff;">Back to Profile</a>';
+
+                    $membership = BillingHelper::getMemberSubscriptionDetails($contactId);
+                    if (!$membership) {
+                        $membership = MembershipService::getMemberMembershipDetails($contactId);
+                    }
+                } catch (Exception $e) {
+                    $errorMsg = safe_err("Failed to apply Membership Credits: ", $e);
+                }
+            }
         } else {
             // Stripe payment flow
             $tierId = (int)($_POST['tier_id'] ?? 0);
@@ -184,6 +204,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
             }
         }
     }
+}
+
+$redeemableMonths = 0;
+try {
+    $redeemableMonths = MembershipCredits::getRedeemableMonths($contactId);
+} catch (Exception $e) {
+    // Leave at 0 -- the Membership Credits section just won't show.
 }
 ?>
 <!DOCTYPE html>
@@ -303,7 +330,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                             </form>
                         </div>
 
-                        <!-- SECTION 2: OFFLINE PAYMENT (ADMIN DIRECT ENTRY) -->
+                        <?php if ($redeemableMonths >= 1): ?>
+                        <!-- SECTION 2: USE MEMBERSHIP CREDITS -->
+                        <div class="renewal-section-card" style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 20px; text-align: left;">
+                            <h3 style="margin-top: 0; margin-bottom: 15px; color: var(--color-success); display: flex; align-items: center; gap: 8px; font-size: 1.1rem;">
+                                <span>🏅</span> Use Membership Credits
+                            </h3>
+                            <form action="renew.php?contact_id=<?php echo $contactId; ?>" method="POST" class="auth-form" data-confirm="Use Membership Credits to extend this membership? This does not charge a card.">
+                                <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                <input type="hidden" name="payment_flow" value="credits">
+
+                                <div class="form-group">
+                                    <label for="credit_months">Months to Redeem (<?php echo $redeemableMonths; ?> available)</label>
+                                    <select id="credit_months" name="credit_months" required>
+                                        <?php for ($m = 1; $m <= $redeemableMonths; $m++): ?>
+                                            <option value="<?php echo $m; ?>" <?php echo $m === $redeemableMonths ? 'selected' : ''; ?>><?php echo $m; ?> month<?php echo $m > 1 ? 's' : ''; ?></option>
+                                        <?php endfor; ?>
+                                    </select>
+                                </div>
+
+                                <div class="info-block mt-10" style="margin-bottom: 15px;">
+                                    <p><strong>Note:</strong> Redeeming Membership Credits extends the membership for free -- no card is charged.</p>
+                                </div>
+
+                                <button type="submit" class="btn btn-success btn-block">Use Membership Credits</button>
+                            </form>
+                        </div>
+                        <?php endif; ?>
+
+                        <!-- SECTION 3: OFFLINE PAYMENT (ADMIN DIRECT ENTRY) -->
                         <div class="renewal-section-card" style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 20px; text-align: left;">
                             <h3 style="margin-top: 0; margin-bottom: 15px; color: var(--color-warning); display: flex; align-items: center; gap: 8px; font-size: 1.1rem;">
                                 <span>📝</span> Record Offline Payment (Direct Entry)
@@ -676,6 +731,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                         <button type="submit" class="btn btn-primary btn-block">Pay Renewal Dues</button>
                         <a href="profile.php?id=<?php echo $contactId; ?>" class="btn btn-secondary btn-block mt-10" style="text-align: center; justify-content: center; align-items: center;">Back to Profile</a>
                     </form>
+
+                    <?php if ($redeemableMonths >= 1): ?>
+                    <div class="renewal-section-card mt-20" style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 20px; text-align: left;">
+                        <h3 style="margin-top: 0; margin-bottom: 15px; color: var(--color-success); display: flex; align-items: center; gap: 8px; font-size: 1.1rem;">
+                            <span>🏅</span> Use Membership Credits
+                        </h3>
+                        <form action="renew.php?contact_id=<?php echo $contactId; ?>" method="POST" class="auth-form" data-confirm="Use Membership Credits to extend this membership? This does not charge a card.">
+                            <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                            <input type="hidden" name="payment_flow" value="credits">
+
+                            <div class="form-group">
+                                <label for="credit_months_self">Months to Redeem (<?php echo $redeemableMonths; ?> available)</label>
+                                <select id="credit_months_self" name="credit_months" required>
+                                    <?php for ($m = 1; $m <= $redeemableMonths; $m++): ?>
+                                        <option value="<?php echo $m; ?>" <?php echo $m === $redeemableMonths ? 'selected' : ''; ?>><?php echo $m; ?> month<?php echo $m > 1 ? 's' : ''; ?></option>
+                                    <?php endfor; ?>
+                                </select>
+                            </div>
+
+                            <div class="info-block mt-10" style="margin-bottom: 15px;">
+                                <p><strong>Note:</strong> Redeeming Membership Credits extends the membership for free -- no card is charged.</p>
+                            </div>
+
+                            <button type="submit" class="btn btn-success btn-block">Use Membership Credits</button>
+                        </form>
+                    </div>
+                    <?php endif; ?>
                 <?php endif; ?>
             </div>
         </main>

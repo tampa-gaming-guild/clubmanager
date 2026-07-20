@@ -29,9 +29,9 @@ final class EmailTemplatesSeeder extends AbstractSeed
             ],
             [
                 'template_key' => 'credits_converted',
-                'subject' => 'Membership Extended: Volunteer Credits Redeemed!',
-                'body' => '<h2>Hello, {display_name}!</h2><p>Congratulations! You have successfully redeemed <strong>{credits_used}</strong> volunteer credits.</p><p>As a result, your membership has been extended by <strong>{months_extended} month(s)</strong> free of charge.</p><p>Your new membership expiration date is <strong>{new_end_date}</strong>.</p><p>Thank you for volunteering and contributing your time to the club!</p><p>Best regards,<br>TGG Club Team</p>',
-                'description' => "Notification sent when an admin applies volunteer credits to extend a user's membership.",
+                'subject' => 'Membership Extended: Membership Credits Redeemed!',
+                'body' => '<h2>Hello, {display_name}!</h2><p>Congratulations! You have successfully redeemed <strong>{credits_used}</strong> Membership Credits.</p><p>As a result, your membership has been extended by <strong>{months_extended} month(s)</strong> free of charge.</p><p>Your new membership expiration date is <strong>{new_end_date}</strong>.</p><p>Thank you for contributing to the club!</p><p>Best regards,<br>TGG Club Team</p>',
+                'description' => "Notification sent when Membership Credits are applied to extend a member's membership.",
             ],
             [
                 'template_key' => 'password_reset_link',

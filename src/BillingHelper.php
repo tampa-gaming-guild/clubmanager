@@ -81,7 +81,7 @@ class BillingHelper {
      * @param string $unit 'month' or 'year'
      * @return string 'Y-m-d'
      */
-    private static function addPeriodMinusOneDay(string $startDate, int $interval, string $unit): string {
+    public static function addPeriodMinusOneDay(string $startDate, int $interval, string $unit): string {
         $months = (strtolower($unit) === 'year') ? $interval * 12 : $interval;
 
         $dt = new \DateTime($startDate);
@@ -1537,6 +1537,140 @@ class BillingHelper {
     }
 
     /**
+     * Spend banked Membership Credits to extend a membership -- the single write path
+     * reused by the admin manual-override action, the autorenew cron (when a member has
+     * opted in and has enough banked), and renew.php's "Use Membership Credits" option.
+     * Never touches Stripe. Earning and spending stay fully separate: this only consumes
+     * an already-earned balance (see MembershipCredits::confirmAttendance() for earning).
+     *
+     * @throws Exception if $months < 1, no subscription exists for $contactId to extend,
+     *                    or there isn't enough available credit for $months whole months.
+     * @return array{end_date: string, months_applied: int, credits_applied: int, plan_name: string}
+     */
+    public static function applyMembershipCreditsToMembership(int $contactId, int $months, ?int $actorContactId = null): array {
+        if ($months < 1) {
+            throw new Exception("Must redeem at least one month of Membership Credits.");
+        }
+
+        $appDb = Database::getAppConnection();
+
+        $subStmt = $appDb->prepare("SELECT plan_id, rate_id, end_date FROM tgg_subscriptions WHERE contact_id = :contact_id LIMIT 1");
+        $subStmt->execute(['contact_id' => $contactId]);
+        $sub = $subStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$sub) {
+            throw new Exception("No membership found to extend -- Membership Credits can only be redeemed against an existing membership.");
+        }
+
+        $redeemableMonths = MembershipCredits::getRedeemableMonths($contactId);
+        if ($months > $redeemableMonths) {
+            throw new Exception("Not enough Membership Credits banked for {$months} month(s) -- only {$redeemableMonths} available.");
+        }
+
+        $creditsToApply = $months * MembershipCredits::getConversionRate();
+
+        // Same grace-period rule as every other renewal path: extend from the day
+        // after the current expiry if it's still active or lapsed within grace,
+        // otherwise start a fresh period from today.
+        $today = date('Y-m-d');
+        $startDate = $today;
+        if (!empty($sub['end_date'])) {
+            $daysSinceExpiry = (strtotime($today) - strtotime($sub['end_date'])) / 86400;
+            if ($daysSinceExpiry <= self::getRenewalGraceDays()) {
+                $startDate = date('Y-m-d', strtotime($sub['end_date'] . ' +1 day'));
+            }
+        }
+        $newEndDate = self::addPeriodMinusOneDay($startDate, $months, 'month');
+
+        $planStmt = $appDb->prepare("SELECT name FROM tgg_subscription_plans WHERE id = :id LIMIT 1");
+        $planStmt->execute(['id' => $sub['plan_id']]);
+        $planName = (string)($planStmt->fetchColumn() ?: 'Membership');
+
+        $uniqueId = 'credit_redeem_' . uniqid();
+        $actorCols = AuditLog::actorColumns($actorContactId);
+
+        $appDb->beginTransaction();
+        try {
+            // A. Log a $0.00 ledger row -- no money changes hands, but the redemption
+            // still needs to show up in payment history like any other renewal.
+            $insertLedger = $appDb->prepare("
+                INSERT INTO tgg_billing_ledger (contact_id, plan_id, rate_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type, created_by, impersonator_id, source)
+                VALUES (:contact_id, :plan_id, :rate_id, :stripe_session_id, :payment_intent_id, 0.00, 'usd', 'paid', 'credit_redeem', :created_by, :impersonator_id, :source)
+            ");
+            $insertLedger->execute([
+                'contact_id' => $contactId,
+                'plan_id' => $sub['plan_id'],
+                'rate_id' => $sub['rate_id'],
+                'stripe_session_id' => $uniqueId,
+                'payment_intent_id' => $uniqueId,
+                'created_by' => $actorCols['created_by'],
+                'impersonator_id' => $actorCols['impersonator_id'],
+                'source' => $actorCols['source'],
+            ]);
+
+            // B. Log the "Apply Extension" applied-row against the Membership Credits
+            // ledger, same shape the old admin conversion tool used.
+            $insertCreditTx = $appDb->prepare("
+                INSERT INTO tgg_volunteer_credit_transactions (contact_id, event_id, volunteer_date, shift, credits_earned, credits_applied, created_by, impersonator_id, source)
+                VALUES (:contact_id, NULL, :volunteer_date, 'Apply Extension', 0, :credits_applied, :created_by, :impersonator_id, :source)
+            ");
+            $insertCreditTx->execute([
+                'contact_id' => $contactId,
+                'volunteer_date' => $today,
+                'credits_applied' => $creditsToApply,
+                'created_by' => $actorCols['created_by'],
+                'impersonator_id' => $actorCols['impersonator_id'],
+                'source' => $actorCols['source'],
+            ]);
+
+            // C. Extend the membership.
+            $updateSub = $appDb->prepare("
+                UPDATE tgg_subscriptions
+                SET status = 'active', end_date = :end_date, auto_renew_attempts = 0
+                WHERE contact_id = :contact_id
+            ");
+            $updateSub->execute(['end_date' => $newEndDate, 'contact_id' => $contactId]);
+
+            $appDb->commit();
+        } catch (Exception $e) {
+            if ($appDb->inTransaction()) {
+                $appDb->rollBack();
+            }
+            throw $e;
+        }
+
+        MembershipCredits::getCreditSummary($contactId); // refresh cached totals after spend
+
+        AuditLog::log('membership', 'membership_credits_applied', [
+            'months_applied' => $months,
+            'credits_applied' => $creditsToApply,
+            'new_end_date' => $newEndDate,
+        ], $contactId, $actorContactId);
+
+        try {
+            $contactStmt = $appDb->prepare("SELECT display_name, email FROM tgg_contacts WHERE id = :id LIMIT 1");
+            $contactStmt->execute(['id' => $contactId]);
+            $contact = $contactStmt->fetch(PDO::FETCH_ASSOC);
+            if ($contact && !empty($contact['email'])) {
+                MailHelper::sendTemplate($contact['email'], 'credits_converted', [
+                    'display_name' => $contact['display_name'] ?? 'Member',
+                    'credits_used' => $creditsToApply,
+                    'months_extended' => $months,
+                    'new_end_date' => $newEndDate,
+                ], $contactId, $actorContactId);
+            }
+        } catch (Exception $mailEx) {
+            error_log("Failed to send Membership Credits conversion email: " . $mailEx->getMessage());
+        }
+
+        return [
+            'end_date' => $newEndDate,
+            'months_applied' => $months,
+            'credits_applied' => $creditsToApply,
+            'plan_name' => $planName,
+        ];
+    }
+
+    /**
      * Charge a due auto-renewal off-session via the member's saved Stripe card. Allows up to
      * 3 consecutive attempts per renewal cycle (this call plus 2 retries, one per daily cron
      * run): the first failure sends a warning email, the 3rd failure marks the subscription
@@ -1575,6 +1709,28 @@ class BillingHelper {
                 // here too in case it was ever set some other way.
                 return ['result' => 'skipped', 'message' => 'Session plans are never auto-renewed', 'end_date' => null];
             }
+            // Auto-apply Membership Credits before ever considering the card: an
+            // opted-in member with enough banked credit renews for free, on any
+            // subscription, card on file or not.
+            $autoApplyStmt = $appDb->prepare("SELECT auto_apply_credits FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1");
+            $autoApplyStmt->execute(['contact_id' => $contactId]);
+            if ((bool)$autoApplyStmt->fetchColumn()) {
+                $redeemableMonths = MembershipCredits::getRedeemableMonths($contactId);
+                if ($redeemableMonths >= 1) {
+                    try {
+                        $result = self::applyMembershipCreditsToMembership($contactId, $redeemableMonths, null);
+                        return [
+                            'result' => 'credited',
+                            'message' => "Renewed via {$redeemableMonths} month(s) of Membership Credits through {$result['end_date']}",
+                            'end_date' => $result['end_date'],
+                        ];
+                    } catch (Exception $e) {
+                        error_log("Auto-apply Membership Credits failed for contact #{$contactId}, falling back to card charge: " . $e->getMessage());
+                        // fall through to the Stripe charge below
+                    }
+                }
+            }
+
             if (empty($sub['stripe_customer_id']) || empty($sub['stripe_payment_method_id'])) {
                 return ['result' => 'skipped', 'message' => 'No card on file', 'end_date' => null];
             }

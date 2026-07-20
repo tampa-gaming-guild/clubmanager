@@ -7,6 +7,7 @@ require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
 use App\Database;
 use App\EventSlot;
+use App\MembershipCredits;
 use App\MembershipService;
 use App\Auth;
 use App\AuditLog;
@@ -61,7 +62,7 @@ try {
         $subBilling = $subBillingStmt->fetch() ?: ['auto_renew' => 0, 'stripe_customer_id' => null, 'stripe_payment_method_id' => null];
 
         // C. Fetch Local Settings / Privacy Info
-        $settingsStmt = $appDb->prepare("SELECT role, custom_display_name, is_founder FROM tgg_member_settings WHERE contact_id = :id LIMIT 1");
+        $settingsStmt = $appDb->prepare("SELECT role, custom_display_name, is_founder, auto_apply_credits FROM tgg_member_settings WHERE contact_id = :id LIMIT 1");
         $settingsStmt->execute(['id' => $profileId]);
         $settings = $settingsStmt->fetch();
 
@@ -81,7 +82,8 @@ if (!$settings) {
     $settings = [
         'role' => 'member',
         'custom_display_name' => $contact['display_name'],
-        'is_founder' => 0
+        'is_founder' => 0,
+        'auto_apply_credits' => 0
     ];
 }
 
@@ -152,25 +154,24 @@ if ($canViewBilling && $appDb) {
     }
 }
 
-// Fetch Volunteer Credits details if Viewer has Private Access
-$expirationDays = 365.0; // Default
+// Fetch Membership Credits details if Viewer has Private Access
 $volunteerShifts = [];
-$totalEarned = 0.0;
-$totalApplied = 0.0;
-$totalExpired = 0.0;
-$availableCredits = 0.0;
-$pendingCredits = 0.0;
+$creditGrants = [];
+$totalEarned = 0;
+$totalApplied = 0;
+$totalExpired = 0;
+$availableCredits = 0;
+$pendingCredits = 0;
 $nextExpirationDate = 'Never';
-$nextExpirationCredits = 0.0;
+$nextExpirationCredits = 0;
+$redeemableMonths = 0;
 
 if ($hasPrivateAccess && $appDb) {
     try {
-        // Fetch expiration days setting
-        $configsStmt = $appDb->query("SELECT credit_key, credits FROM tgg_volunteer_credits");
-        $creditsMap = $configsStmt->fetchAll(PDO::FETCH_KEY_PAIR);
-        $expirationDays = (float)($creditsMap['credit_expiration_days'] ?? 365.0);
+        $configMap = MembershipCredits::getConfigMap();
 
-        // 1. Fetch completed shifts from volunteer signups (past events)
+        // 1. Past shifts still awaiting Hosting Manager attendance confirmation
+        // (confirming is what grants the credit -- see admin/volunteer_credits.php)
         $stmtShifts = $appDb->prepare("
             SELECT sl.slot_label AS role, sl.slot_type, e.title as event_title, e.start_time, t.id as processed_id,
                    t.created_by, t.impersonator_id, t.source,
@@ -192,7 +193,7 @@ if ($hasPrivateAccess && $appDb) {
 
         foreach ($completedShifts as $shift) {
             $key = EventSlot::creditKey($shift['slot_type'], $shift['start_time']);
-            $creditsVal = (float)($creditsMap[$key] ?? 0.0);
+            $creditsVal = (int)round((float)($configMap[$key] ?? 0));
 
             if (!$shift['processed_id']) {
                 $pendingCredits += $creditsVal;
@@ -211,7 +212,7 @@ if ($hasPrivateAccess && $appDb) {
                 'event_title' => $shift['event_title'],
                 'shift' => $shift['role'],
                 'credits' => $creditsVal,
-                'status' => $shift['processed_id'] ? 'Processed' : 'Pending',
+                'status' => $shift['processed_id'] ? 'Confirmed' : 'Awaiting Confirmation',
                 'processed_by' => $shift['processed_id']
                     ? AuditLog::describeActor(
                         $shift['created_by'] !== null ? (int)$shift['created_by'] : null,
@@ -223,124 +224,20 @@ if ($hasPrivateAccess && $appDb) {
             ];
         }
 
-        // 2. Fetch all logged transactions (for FIFO calculation of processed totals and expirations)
-        $stmtTx = $appDb->prepare("
-            SELECT id, volunteer_date, shift, credits_earned, credits_applied
-            FROM tgg_volunteer_credit_transactions
-            WHERE contact_id = :contact_id
-            ORDER BY volunteer_date ASC, id ASC
-        ");
-        $stmtTx->execute(['contact_id' => $profileId]);
-        $allTx = $stmtTx->fetchAll();
-        
-        $earned = [];
-        $applied = [];
-        
-        foreach ($allTx as $tx) {
-            $valEarned = (float)$tx['credits_earned'];
-            $valApplied = (float)$tx['credits_applied'];
-            if ($valEarned > 0.0) {
-                $earned[] = [
-                    'id' => $tx['id'],
-                    'date' => $tx['volunteer_date'],
-                    'amount' => $valEarned,
-                    'remaining' => $valEarned
-                ];
-                $totalEarned += $valEarned;
-            }
-            if ($valApplied > 0.0) {
-                $applied[] = [
-                    'id' => $tx['id'],
-                    'date' => $tx['volunteer_date'],
-                    'amount' => $valApplied
-                ];
-                $totalApplied += $valApplied;
-            }
-        }
-        
-        if ($expirationDays > 0.0) {
-            // FIFO simulation to match applications to earned credits
-            foreach ($applied as $appTx) {
-                $appDate = $appTx['date'];
-                $appAmount = $appTx['amount'];
-                
-                foreach ($earned as &$earnTx) {
-                    if ($earnTx['remaining'] <= 0.0) {
-                        continue;
-                    }
-                    
-                    $earnDate = $earnTx['date'];
-                    $expireDate = date('Y-m-d', strtotime($earnDate . " + " . (int)$expirationDays . " days"));
-                    if ($expireDate < $appDate) {
-                        continue; // Expired before applied
-                    }
-                    
-                    if ($appAmount >= $earnTx['remaining']) {
-                        $appAmount -= $earnTx['remaining'];
-                        $earnTx['remaining'] = 0.0;
-                    } else {
-                        $earnTx['remaining'] -= $appAmount;
-                        $appAmount = 0.0;
-                        break;
-                    }
-                }
-                unset($earnTx);
-            }
-            
-            $today = date('Y-m-d');
-            $expiringCandidates = [];
-            
-            foreach ($earned as $earnTx) {
-                if ($earnTx['remaining'] > 0.0) {
-                    $earnDate = $earnTx['date'];
-                    $expireDate = date('Y-m-d', strtotime($earnDate . " + " . (int)$expirationDays . " days"));
-                    if ($expireDate < $today) {
-                        $totalExpired += $earnTx['remaining'];
-                    } else {
-                        $expiringCandidates[] = [
-                            'expire_date' => $expireDate,
-                            'amount' => $earnTx['remaining']
-                        ];
-                    }
-                }
-            }
-            
-            // Find next expiration date and amount
-            if (!empty($expiringCandidates)) {
-                usort($expiringCandidates, function($a, $b) {
-                    return strcmp($a['expire_date'], $b['expire_date']);
-                });
-                
-                $nextExpirationDate = $expiringCandidates[0]['expire_date'];
-                $nextExpirationCredits = 0.0;
-                foreach ($expiringCandidates as $cand) {
-                    if ($cand['expire_date'] === $nextExpirationDate) {
-                        $nextExpirationCredits += $cand['amount'];
-                    }
-                }
-            }
-        }
-        
-        $availableCredits = max(0.0, $totalEarned - $totalApplied - $totalExpired);
-        
-        // Dynamically update db settings to avoid drift
-        $stmtSelect = $appDb->prepare("SELECT contact_id FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1");
-        $stmtSelect->execute(['contact_id' => $profileId]);
-        if ($stmtSelect->fetch()) {
-            $stmtUpdate = $appDb->prepare("
-                UPDATE tgg_member_settings 
-                SET credits_earned = :earned, credits_applied = :applied, expired_credits = :expired 
-                WHERE contact_id = :contact_id
-            ");
-            $stmtUpdate->execute([
-                'earned' => $totalEarned,
-                'applied' => $totalApplied,
-                'expired' => $totalExpired,
-                'contact_id' => $profileId
-            ]);
-        }
+        // 2. Membership Credits bank: aggregate summary + itemized grant history
+        // (shared FIFO math lives in MembershipCredits so this can never drift
+        // from what renewal-time spending actually sees)
+        $summary = MembershipCredits::getCreditSummary($profileId);
+        $totalEarned = $summary['earned'];
+        $totalApplied = $summary['applied'];
+        $totalExpired = $summary['expired'];
+        $availableCredits = $summary['available'];
+        $nextExpirationDate = $summary['next_expiration_date'] ?? 'Never';
+        $nextExpirationCredits = $summary['next_expiration_credits'];
+        $redeemableMonths = MembershipCredits::getRedeemableMonths($profileId);
+        $creditGrants = MembershipCredits::getTransactionHistory($profileId);
     } catch (Exception $e) {
-        $errorMsg = safe_err(($errorMsg ? $errorMsg . " | " : "") . "Failed to load volunteer credits: ", $e);
+        $errorMsg = safe_err(($errorMsg ? $errorMsg . " | " : "") . "Failed to load Membership Credits: ", $e);
     }
 }
 
@@ -455,6 +352,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($hasPrivateAccess || $canManageCon
                 $successMsg = $newAutoRenew ? "Auto-renew enabled." : "Auto-renew disabled.";
             } catch (Exception $e) {
                 $errorMsg = safe_err("Failed to update auto-renew setting: ", $e);
+            }
+        }
+
+        // A0c. Handle Auto-Apply Membership Credits Toggle
+        if (isset($_POST['auto_apply_credits_update']) && $hasPrivateAccess) {
+            $newAutoApply = isset($_POST['auto_apply_credits']) ? 1 : 0;
+            try {
+                $update = $appDb->prepare("UPDATE tgg_member_settings SET auto_apply_credits = :v WHERE contact_id = :id");
+                $update->execute(['v' => $newAutoApply, 'id' => $profileId]);
+                $settings['auto_apply_credits'] = $newAutoApply;
+                AuditLog::log('membership', 'auto_apply_credits_toggled', ['enabled' => (bool)$newAutoApply], $profileId);
+                $successMsg = $newAutoApply ? "Auto-apply Membership Credits enabled." : "Auto-apply Membership Credits disabled.";
+            } catch (Exception $e) {
+                $errorMsg = safe_err("Failed to update auto-apply Membership Credits setting: ", $e);
             }
         }
 
@@ -922,7 +833,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                         <div class="profile-tabs">
                             <?php if ($hasPrivateAccess): ?>
                                 <button class="tab-button active" onclick="switchTab('profile')">Profile</button>
-                                <button class="tab-button" onclick="switchTab('volunteering')">Volunteering</button>
+                                <button class="tab-button" onclick="switchTab('volunteering')">Membership Credits</button>
                                 <button class="tab-button" onclick="switchTab('attendance')">Attendance</button>
                             <?php endif; ?>
                             <?php if ($canViewBilling): ?>
@@ -1248,43 +1159,43 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
 
                     <?php if ($hasPrivateAccess): ?>
                     <div id="tab-volunteering" class="tab-content">
-                        <!-- VOLUNTEERING & CREDITS SECTION -->
+                        <!-- MEMBERSHIP CREDITS SECTION -->
                         <div class="detail-section private-detail-section full-width-section">
                             <div class="section-header">
-                                <h3 class="section-title">Volunteering & Credits</h3>
+                                <h3 class="section-title">Membership Credits</h3>
                                 <span class="private-badge">🔒 Owner & Admins Only</span>
                             </div>
-                            
+
                             <div class="volunteer-summary-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 20px; background: rgba(255, 255, 255, 0.02); padding: 15px; border-radius: 8px; border: 1px solid var(--border-glass);">
                                 <div>
                                     <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-secondary);">Lifetime Earned:</p>
                                     <h4 style="margin: 5px 0 0 0; color: #fff; font-size: 1.2rem;">
-                                        <?php echo number_format($totalEarned, 1); ?>
-                                        <?php if ($pendingCredits > 0.0): ?>
+                                        <?php echo (int)$totalEarned; ?>
+                                        <?php if ($pendingCredits > 0): ?>
                                             <span style="font-size: 0.8rem; color: var(--color-text-secondary); font-weight: normal;">
-                                                (+<?php echo number_format($pendingCredits, 1); ?> pending)
+                                                (+<?php echo (int)$pendingCredits; ?> pending confirmation)
                                             </span>
                                         <?php endif; ?>
                                     </h4>
                                 </div>
                                 <div>
                                     <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-secondary);">Lifetime Applied:</p>
-                                    <h4 style="margin: 5px 0 0 0; color: #fff; font-size: 1.2rem;"><?php echo number_format($totalApplied, 1); ?></h4>
+                                    <h4 style="margin: 5px 0 0 0; color: #fff; font-size: 1.2rem;"><?php echo (int)$totalApplied; ?></h4>
                                 </div>
                                 <div>
                                     <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-secondary);">Outstanding Balance:</p>
                                     <h4 style="margin: 5px 0 0 0; color: var(--color-success); font-size: 1.2rem;">
-                                        <?php echo number_format($availableCredits, 1); ?>
-                                        <?php if ($pendingCredits > 0.0): ?>
+                                        <?php echo (int)$availableCredits; ?>
+                                        <?php if ($pendingCredits > 0): ?>
                                             <span style="font-size: 0.8rem; color: var(--color-text-secondary); font-weight: normal;">
-                                                (+<?php echo number_format($pendingCredits, 1); ?> pending)
+                                                (+<?php echo (int)$pendingCredits; ?> pending confirmation)
                                             </span>
                                         <?php endif; ?>
                                     </h4>
                                 </div>
                                 <div>
                                     <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-secondary);">Expired Credits:</p>
-                                    <h4 style="margin: 5px 0 0 0; color: var(--color-danger); font-size: 1.2rem;"><?php echo number_format($totalExpired, 1); ?></h4>
+                                    <h4 style="margin: 5px 0 0 0; color: var(--color-danger); font-size: 1.2rem;"><?php echo (int)$totalExpired; ?></h4>
                                 </div>
                             </div>
 
@@ -1294,17 +1205,75 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                     <?php if ($nextExpirationDate === 'Never'): ?>
                                         Never
                                     <?php else: ?>
-                                        <?php echo date('F j, Y', strtotime($nextExpirationDate)); ?> 
+                                        <?php echo date('F j, Y', strtotime($nextExpirationDate)); ?>
                                         <span style="color: var(--color-danger); font-weight: normal; font-size: 0.85rem; margin-left: 10px;">
-                                            (<?php echo number_format($nextExpirationCredits, 1); ?> credit<?php echo $nextExpirationCredits > 1 ? 's' : ''; ?> will expire)
+                                            (<?php echo (int)$nextExpirationCredits; ?> credit<?php echo $nextExpirationCredits > 1 ? 's' : ''; ?> will expire)
                                         </span>
                                     <?php endif; ?>
                                 </strong>
                             </div>
 
-                            <h4 style="margin: 20px 0 10px 0; color: #fff; font-size: 0.95rem;">Completed Shifts</h4>
+                            <div style="margin-bottom: 20px; background: rgba(255, 255, 255, 0.02); padding: 12px 15px; border-radius: 8px; border: 1px solid var(--border-glass); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                                <div>
+                                    <p style="margin: 0 0 3px 0; font-size: 0.9rem; color: #fff; font-weight: 600;">Auto-Apply Membership Credits</p>
+                                    <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-secondary);">When enabled, banked credits are used automatically at auto-renewal (instead of charging your card) whenever there's enough for at least one month.</p>
+                                </div>
+                                <form action="profile.php?id=<?php echo $profileId; ?>" method="POST" style="display: inline; margin: 0;">
+                                    <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                    <input type="hidden" name="auto_apply_credits" value="<?php echo !empty($settings['auto_apply_credits']) ? '0' : '1'; ?>">
+                                    <button type="submit" name="auto_apply_credits_update" class="btn <?php echo !empty($settings['auto_apply_credits']) ? 'btn-success' : 'btn-secondary'; ?> btn-small">
+                                        <?php echo !empty($settings['auto_apply_credits']) ? 'Enabled — Turn Off' : 'Disabled — Turn On'; ?>
+                                    </button>
+                                </form>
+                            </div>
+
+                            <h4 style="margin: 20px 0 10px 0; color: #fff; font-size: 0.95rem;">Membership Credits Earned</h4>
+                            <?php if (empty($creditGrants)): ?>
+                                <p class="private-locked-msg">No Membership Credits earned yet.</p>
+                            <?php else: ?>
+                                <div class="admin-table-container" style="margin-bottom: 20px;">
+                                    <table class="admin-table" style="font-size: 0.85rem; width: 100%;">
+                                        <thead>
+                                            <tr>
+                                                <th style="padding: 8px 10px;">Date</th>
+                                                <th style="padding: 8px 10px;">Shift</th>
+                                                <th style="padding: 8px 10px; text-align: center;">Granted</th>
+                                                <th style="padding: 8px 10px; text-align: center;">Used</th>
+                                                <th style="padding: 8px 10px; text-align: center;">Remaining</th>
+                                                <th style="padding: 8px 10px;">Expires</th>
+                                                <th style="padding: 8px 10px; text-align: center;">Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php foreach ($creditGrants as $grant):
+                                                $statusBadges = [
+                                                    'available' => ['class' => 'badge-active', 'style' => '', 'label' => 'Available'],
+                                                    'partially_used' => ['class' => 'badge-active', 'style' => 'background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3);', 'label' => 'Partially Used'],
+                                                    'fully_used' => ['class' => 'badge-status', 'style' => '', 'label' => 'Fully Used'],
+                                                    'expired' => ['class' => 'badge-expired', 'style' => '', 'label' => 'Expired'],
+                                                ];
+                                                $badge = $statusBadges[$grant['status']] ?? $statusBadges['available'];
+                                            ?>
+                                                <tr>
+                                                    <td style="padding: 8px 10px;"><span class="table-datetime"><?php echo date('Y-m-d', strtotime($grant['date'])); ?></span></td>
+                                                    <td style="padding: 8px 10px;"><?php echo e($grant['shift']); ?></td>
+                                                    <td style="padding: 8px 10px; text-align: center; font-weight: bold; color: var(--color-primary);">+<?php echo (int)$grant['granted']; ?></td>
+                                                    <td style="padding: 8px 10px; text-align: center;"><?php echo (int)$grant['used']; ?></td>
+                                                    <td style="padding: 8px 10px; text-align: center; font-weight: bold;"><?php echo (int)$grant['remaining']; ?></td>
+                                                    <td style="padding: 8px 10px;"><?php echo $grant['expires_on'] ? date('Y-m-d', strtotime($grant['expires_on'])) : '—'; ?></td>
+                                                    <td style="padding: 8px 10px; text-align: center;">
+                                                        <span class="badge <?php echo $badge['class']; ?>" style="font-size: 0.75rem; padding: 2px 6px; display: inline-block; <?php echo $badge['style']; ?>"><?php echo $badge['label']; ?></span>
+                                                    </td>
+                                                </tr>
+                                            <?php endforeach; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            <?php endif; ?>
+
+                            <h4 style="margin: 20px 0 10px 0; color: #fff; font-size: 0.95rem;">Shifts Awaiting Confirmation</h4>
                             <?php if (empty($volunteerShifts)): ?>
-                                <p class="private-locked-msg">No completed shifts found.</p>
+                                <p class="private-locked-msg">No shifts found.</p>
                             <?php else: ?>
                                 <div class="admin-table-container">
                                     <table class="admin-table" style="font-size: 0.85rem; width: 100%;">
@@ -1316,7 +1285,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                                 <th style="padding: 8px 10px; text-align: center;">Credits</th>
                                                 <th style="padding: 8px 10px; text-align: center;">Status</th>
                                                 <?php if ($showActorCol): ?>
-                                                    <th style="padding: 8px 10px;">Processed By</th>
+                                                    <th style="padding: 8px 10px;">Confirmed By</th>
                                                 <?php endif; ?>
                                             </tr>
                                         </thead>
@@ -1326,12 +1295,12 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                                     <td style="padding: 8px 10px;"><span class="table-datetime"><?php echo date('Y-m-d', strtotime($tx['date'])); ?></span></td>
                                                     <td style="padding: 8px 10px; font-weight: bold; color: #fff;"><?php echo e($tx['event_title'] ?: 'Volunteer Event'); ?></td>
                                                     <td style="padding: 8px 10px;"><?php echo e($tx['shift']); ?></td>
-                                                    <td style="padding: 8px 10px; text-align: center; font-weight: bold; color: var(--color-primary);">+<?php echo (float)$tx['credits']; ?></td>
+                                                    <td style="padding: 8px 10px; text-align: center; font-weight: bold; color: var(--color-primary);">+<?php echo (int)$tx['credits']; ?></td>
                                                     <td style="padding: 8px 10px; text-align: center;">
-                                                        <?php if ($tx['status'] === 'Processed'): ?>
-                                                            <span class="badge badge-active" style="font-size: 0.75rem; padding: 2px 6px; display: inline-block;">Processed</span>
+                                                        <?php if ($tx['status'] === 'Confirmed'): ?>
+                                                            <span class="badge badge-active" style="font-size: 0.75rem; padding: 2px 6px; display: inline-block;">Confirmed</span>
                                                         <?php else: ?>
-                                                            <span class="badge badge-expired" style="font-size: 0.75rem; padding: 2px 6px; display: inline-block; background: rgba(234, 179, 8, 0.15); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3);">Pending</span>
+                                                            <span class="badge badge-expired" style="font-size: 0.75rem; padding: 2px 6px; display: inline-block; background: rgba(234, 179, 8, 0.15); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3);">Awaiting Confirmation</span>
                                                         <?php endif; ?>
                                                     </td>
                                                     <?php if ($showActorCol): ?>
@@ -1426,6 +1395,9 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                                      if (strpos($trxnId, 'trial_') === 0) {
                                                          $badgeClass = 'badge-free';
                                                          $badgeLabel = 'Email Verified';
+                                                     } elseif (strpos($trxnId, 'credit_redeem_') === 0) {
+                                                         $badgeClass = 'badge-volunteer';
+                                                         $badgeLabel = 'Membership Credits Redeemed';
                                                      } elseif (strpos($trxnId, 'offline_volunteer_credit_') === 0) {
                                                          $badgeClass = 'badge-volunteer';
                                                          $badgeLabel = 'Volunteer';

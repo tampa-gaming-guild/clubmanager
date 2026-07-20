@@ -41,6 +41,7 @@ $stmt = $appDb->query("
 $contactIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
 $charged = 0;
+$credited = 0;
 $declined = 0;
 $expired = 0;
 $skipped = 0;
@@ -52,6 +53,9 @@ foreach ($contactIds as $contactId) {
         switch ($result['result']) {
             case 'charged':
                 $charged++;
+                break;
+            case 'credited':
+                $credited++;
                 break;
             case 'declined':
                 $declined++;
@@ -73,6 +77,6 @@ foreach ($contactIds as $contactId) {
     }
 }
 
-$summary = "[" . date('Y-m-d H:i:s') . "] [autorenew] Summary: " . count($contactIds) . " due, {$charged} charged, {$declined} declined, "
+$summary = "[" . date('Y-m-d H:i:s') . "] [autorenew] Summary: " . count($contactIds) . " due, {$charged} charged, {$credited} credited, {$declined} declined, "
     . "{$expired} expired, {$skipped} skipped, {$errors} errors.";
 echo $summary . "\n";
