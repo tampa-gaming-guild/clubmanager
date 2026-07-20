@@ -2,7 +2,7 @@
 /**
  * Shared top navbar.
  * Caller sets these variables before including this file:
- *   $navActive       string  Key of the link to mark active: dashboard|calendar|volunteers|checkin|admin|login (default '')
+ *   $navActive       string  Key of the link to mark active: dashboard|calendar|volunteers|checkin|admin|login|home|about|library (default '') -- 'findus' still used by how-to-find-us.php but has no matching nav link (removed from the nav, still reachable via in-page "Map and Directions" links)
  *   $navAdminArea    bool    True when included from a page inside admin/ (default false)
  *   $navKiosk        bool    True for the unauthenticated check-in kiosk nav used by checkin.php (default false)
  *   $navGuestCheckin bool    Whether the logged-out nav includes a Check-In link (default true)
@@ -15,7 +15,7 @@ $navPrefix = $navAdminArea ? '../' : '';
 $navAuthed = $navAdminArea || \App\Auth::check();
 ?>
 <header class="navbar">
-    <div class="logo">TGG Members</div>
+    <div class="logo">Tampa Gaming Guild</div>
     <button type="button" class="navbar-toggle" id="navbarToggle" aria-label="Toggle navigation menu" aria-expanded="false" aria-controls="navLinks">
         <span class="navbar-toggle-bar"></span>
         <span class="navbar-toggle-bar"></span>
@@ -127,7 +127,7 @@ $navAuthed = $navAdminArea || \App\Auth::check();
                 <a href="index.php" class="<?php echo $navActive === 'dashboard' ? 'active' : ''; ?>">Dashboard</a>
             <?php else: ?>
                 <a href="index.php" class="<?php echo $navActive === 'login' ? 'active' : ''; ?>">Login</a>
-                <a href="join.php" class="<?php echo $navActive === 'join' ? 'active' : ''; ?>">Join / Renew</a>
+                <a href="join.php" class="<?php echo $navActive === 'join' ? 'active' : ''; ?>" title="Join or renew your membership">Join</a>
             <?php endif; ?>
             <a href="calendar.php" class="<?php echo $navActive === 'calendar' ? 'active' : ''; ?>">Calendar</a>
             <a href="checkin.php" class="<?php echo $navActive === 'checkin' ? 'active' : ''; ?>">Check-In</a>
@@ -141,12 +141,15 @@ $navAuthed = $navAdminArea || \App\Auth::check();
             <?php endif; ?>
             <a href="<?php echo $navPrefix; ?>index.php?action=logout&amp;csrf_token=<?php echo e(get_csrf_token()); ?>" class="btn-logout">Logout</a>
         <?php else: ?>
-            <a href="index.php" class="<?php echo $navActive === 'login' ? 'active' : ''; ?>">Login</a>
-            <a href="join.php" class="<?php echo $navActive === 'join' ? 'active' : ''; ?>">Join / Renew</a>
+            <a href="index.php" class="<?php echo $navActive === 'home' ? 'active' : ''; ?>">Home</a>
+            <a href="about.php" class="<?php echo $navActive === 'about' ? 'active' : ''; ?>">About</a>
+            <a href="join.php" class="<?php echo $navActive === 'join' ? 'active' : ''; ?>" title="Join or renew your membership">Join</a>
+            <a href="library.php" class="<?php echo $navActive === 'library' ? 'active' : ''; ?>">Library</a>
             <a href="calendar.php" class="<?php echo $navActive === 'calendar' ? 'active' : ''; ?>">Calendar</a>
             <?php if ($navGuestCheckin): ?>
                 <a href="checkin.php">Check-In</a>
             <?php endif; ?>
+            <a href="index.php?action=login" class="<?php echo $navActive === 'login' ? 'active' : ''; ?>">Login</a>
         <?php endif; ?>
     </nav>
 </header>

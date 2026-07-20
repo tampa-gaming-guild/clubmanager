@@ -1,0 +1,489 @@
+/* ==========================================================================
+   Public Marketing Site — layout additions on top of style.css's tokens.
+   No new colors are introduced for text/surfaces; everything is built from
+   the --color-*/--font-*/--shadow-glass tokens defined in style.css so these
+   pages inherit the dark glassmorphism theme automatically. A few small
+   accent hues (tier cards, "why we're doing this" highlight card) echo the
+   brand colors used on the club's original site, darkened to fit the theme.
+   ========================================================================== */
+
+/* Counteracts .centered-content's align-items:center, which would otherwise
+   shrink this to its content's intrinsic width instead of filling
+   .main-content -- same pattern as .dashboard-panel uses. */
+.marketing-page {
+    width: 100%;
+}
+
+.marketing-section {
+    margin: 0 auto 60px;
+    max-width: 1100px;
+}
+
+.marketing-section h2 {
+    font-family: var(--font-heading);
+    font-size: 1.8rem;
+    font-weight: 700;
+    text-align: center;
+    margin-bottom: 16px;
+}
+
+.marketing-section .section-intro {
+    text-align: center;
+    color: var(--color-text-secondary);
+    max-width: 700px;
+    margin: 0 auto 30px;
+}
+
+.text-center {
+    text-align: center;
+}
+
+/* --- Photo banner (used as the page hero on every marketing page) ---
+   Full-bleed: breaks out of .main-content's max-width/padding to span the
+   full viewport width, matching the original site's edge-to-edge banner.
+   The left/right:50% + margin:-50vw combo is anchored to the viewport
+   (vw units), not the padded parent, so it's correct regardless of
+   .main-content's own width or padding. */
+.hero-banner {
+    position: relative;
+    left: 50%;
+    right: 50%;
+    width: 100vw;
+    margin-left: -50vw;
+    margin-right: -50vw;
+    min-height: 300px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 40px 20px;
+    margin-top: 0;
+    margin-bottom: 50px;
+    background-size: cover;
+    background-position: center;
+    overflow: hidden;
+}
+
+.hero-banner::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(100deg, hsla(222, 47%, 6%, 0.9) 0%, hsla(222, 47%, 6%, 0.6) 60%, hsla(222, 47%, 6%, 0.35) 100%);
+}
+
+.hero-banner-content {
+    position: relative;
+    z-index: 1;
+}
+
+.hero-banner h1 {
+    font-family: var(--font-heading);
+    font-size: 2.4rem;
+    font-weight: 800;
+    color: #fff;
+}
+
+/* Homepage variant: same centering as every other banner, just taller with
+   room for a tagline underneath. */
+.hero-banner--home {
+    min-height: 380px;
+}
+
+.hero-banner--home h1 {
+    font-style: italic;
+    font-size: 2.8rem;
+    margin-bottom: 8px;
+}
+
+.hero-banner--home .hero-tagline {
+    font-size: 1.2rem;
+    color: var(--color-text-secondary);
+}
+
+/* --- Free Sundays gradient banner --- */
+.free-sundays-banner {
+    background: linear-gradient(120deg, hsla(28, 85%, 35%, 0.4) 0%, hsla(14, 80%, 35%, 0.4) 100%);
+    border: 1px solid hsla(24, 90%, 60%, 0.25);
+    border-radius: 16px;
+    padding: 28px 20px;
+    text-align: center;
+    margin: 0 auto 40px;
+}
+
+.free-sundays-banner h2 {
+    font-family: var(--font-heading);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 1.3rem;
+    color: hsl(30, 95%, 70%);
+    margin-bottom: 10px;
+}
+
+.free-sundays-banner p {
+    color: var(--color-text-secondary);
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+/* --- Membership tier cards --- */
+.tier-cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+}
+
+.tier-card {
+    border-top: 4px solid var(--tier-color, var(--color-primary));
+}
+
+.tier-card.tier-trial {
+    --tier-color: hsl(199, 89%, 55%);
+}
+
+.tier-card.tier-regular {
+    --tier-color: hsl(24, 95%, 58%);
+}
+
+.tier-card.tier-associate {
+    --tier-color: hsl(45, 93%, 58%);
+}
+
+.tier-card h3 {
+    font-family: var(--font-heading);
+    font-size: 1.1rem;
+    margin-bottom: 12px;
+    color: var(--tier-color, var(--color-text-primary));
+}
+
+.tier-card p {
+    color: var(--color-text-secondary);
+    font-size: 0.9rem;
+    margin-bottom: 10px;
+}
+
+.tier-card p:last-child {
+    margin-bottom: 0;
+}
+
+/* --- Full-bleed image + text row, used by both the "About Us" overlap
+   section and the "Come Game With Us" section below.
+   Anchored to the viewport (vw units, not the padded/max-width parent) so
+   it always spans edge-to-edge, matching the original site -- same math as
+   .hero-banner. A small fixed side padding (not a gutter matched to
+   .marketing-section's 1100px column) keeps the row genuinely full-width
+   instead of aligning one edge with the narrower reading column. */
+.overlap-section,
+.bleed-section {
+    position: relative;
+    left: 50%;
+    right: 50%;
+    width: 100vw;
+    margin-left: -50vw;
+    margin-right: -50vw;
+    display: flex;
+    align-items: center;
+    min-height: 400px;
+}
+
+.overlap-section {
+    padding-left: 40px;
+}
+
+.bleed-section.bleed-left {
+    padding-right: 40px;
+    gap: 40px;
+}
+
+.overlap-card {
+    position: relative;
+    z-index: 2;
+    flex-shrink: 0;
+    width: 44%;
+    max-width: 480px;
+    margin-right: -120px;
+    padding: 32px;
+    background: var(--color-surface-glass-solid);
+    border: 1px solid var(--border-glass);
+    border-radius: 16px;
+    box-shadow: var(--shadow-glass);
+}
+
+.overlap-card h2 {
+    text-align: left;
+    margin-bottom: 14px;
+}
+
+.overlap-card p {
+    color: var(--color-text-secondary);
+    margin-bottom: 12px;
+}
+
+.overlap-image,
+.bleed-image {
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    height: 400px;
+    min-width: 0;
+}
+
+.overlap-image img,
+.bleed-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.bleed-text {
+    flex-shrink: 0;
+    width: 50%;
+    max-width: 560px;
+}
+
+.bleed-text h2 {
+    text-align: left;
+    margin-bottom: 14px;
+}
+
+.bleed-text p {
+    color: var(--color-text-secondary);
+    margin-bottom: 12px;
+}
+
+.eyebrow {
+    display: block;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--color-primary);
+    margin-bottom: 8px;
+}
+
+/* --- Meeting-days mini schedule grid -- 2 columns, matching the live
+   site (Wed+Fri paired, Sunday alone on its own row). --- */
+.schedule-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px 24px;
+    margin: 20px 0;
+}
+
+.schedule-grid .schedule-item {
+    background: var(--color-surface-glass-solid);
+    border: 1px solid var(--border-glass);
+    border-radius: 10px;
+    padding: 14px;
+}
+
+.schedule-grid .schedule-item h5 {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-secondary);
+    margin-bottom: 6px;
+}
+
+.schedule-grid .schedule-item p {
+    font-weight: 600;
+    color: var(--color-text-primary);
+}
+
+/* --- Numbered "why we're doing this" cards --- */
+.numbered-cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+}
+
+.numbered-card {
+    padding: 26px;
+    border-radius: 16px;
+    background: var(--color-surface-glass-solid);
+    border: 1px solid var(--border-glass);
+}
+
+.numbered-card .num {
+    font-family: var(--font-heading);
+    font-size: 1.7rem;
+    font-weight: 800;
+    opacity: 0.5;
+    margin-bottom: 4px;
+}
+
+.numbered-card h4 {
+    font-family: var(--font-heading);
+    font-size: 1.1rem;
+    margin-bottom: 10px;
+}
+
+.numbered-card p {
+    color: var(--color-text-secondary);
+    font-size: 0.9rem;
+    margin-bottom: 14px;
+}
+
+.numbered-card .get-started {
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* --- Photo gallery (square box-art crops) --- */
+.gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+}
+
+.gallery-grid img {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+    border-radius: 12px;
+    border: 1px solid var(--border-glass);
+    box-shadow: var(--shadow-glass);
+}
+
+/* --- Simple info list --- */
+.info-list {
+    list-style: none;
+    padding: 0;
+}
+
+.info-list li {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border-glass);
+    color: var(--color-text-secondary);
+}
+
+.info-list li:last-child {
+    border-bottom: none;
+}
+
+.info-list li strong {
+    color: var(--color-text-primary);
+}
+
+/* --- Numbered rules list --- */
+.rules-list {
+    counter-reset: rule;
+    list-style: none;
+    padding: 0;
+}
+
+.rules-list li {
+    counter-increment: rule;
+    position: relative;
+    padding: 14px 0 14px 42px;
+    border-bottom: 1px solid var(--border-glass);
+    color: var(--color-text-secondary);
+}
+
+.rules-list li:last-child {
+    border-bottom: none;
+}
+
+.rules-list li::before {
+    content: counter(rule);
+    position: absolute;
+    left: 0;
+    top: 14px;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--color-surface-glass-solid);
+    border: 1px solid var(--border-glass-focus);
+    color: var(--color-primary);
+    font-weight: 700;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* --- Responsive embedded map ---
+   Deliberately not combined with .glass-panel: that class's padding would
+   need overriding, and any override of its padding shorthand would also
+   zero out this rule's padding-bottom aspect-ratio trick below. Self-
+   contained styling avoids that footgun. */
+.map-embed {
+    position: relative;
+    width: 100%;
+    padding-bottom: 56.25%; /* 16:9 */
+    height: 0;
+    overflow: hidden;
+    border-radius: 16px;
+    border: 1px solid var(--border-glass);
+    box-shadow: var(--shadow-glass);
+}
+
+.map-embed iframe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+}
+
+/* --- Responsive breakpoints ---
+   The live site keeps its image+text rows side-by-side all the way down to
+   phone widths (~768px), only stacking below that -- confirmed by resizing
+   the actual site. Matched here rather than using style.css's 1024px admin/
+   dashboard breakpoint, which stacks far more aggressively than the
+   original marketing site did. */
+@media (max-width: 1024px) {
+    .tier-cards,
+    .numbered-cards {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .hero-banner h1,
+    .hero-banner--home h1 {
+        font-size: 1.9rem;
+    }
+
+    .tier-cards,
+    .numbered-cards,
+    .gallery-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Overlap/bleed rows stay side-by-side exactly at 768px on the live site
+   (its Bootstrap-based grid switches at min-width:768px) -- only stack
+   below that, one pixel earlier than the rest of this file's 768px step. */
+@media (max-width: 767px) {
+    .overlap-section,
+    .bleed-section {
+        position: static;
+        left: auto;
+        right: auto;
+        width: auto;
+        margin-left: 0;
+        margin-right: 0;
+        padding-left: 0;
+        padding-right: 0;
+        flex-direction: column;
+        align-items: stretch;
+        min-height: 0;
+        gap: 24px;
+    }
+
+    .overlap-card,
+    .bleed-text {
+        width: auto;
+        max-width: none;
+        margin-right: 0;
+    }
+
+    .overlap-image,
+    .bleed-image {
+        height: 280px;
+    }
+}

@@ -16,6 +16,11 @@ use App\Event;
 $errorMsg = null;
 $successMsg = null;
 
+// Logged-out visitors see the public marketing home by default; the login
+// form only renders when explicitly requested (nav "Login" link, or a
+// requireAuth() redirect, both of which land here via ?action=login).
+$wantsLogin = isset($_GET['action']) && $_GET['action'] === 'login';
+
 // Handle Logout Action
 if (isset($_GET['action']) && $_GET['action'] === 'logout') {
     if (verify_csrf_token($_GET['csrf_token'] ?? '')) {
@@ -330,16 +335,17 @@ if (Auth::check() && has_permission('admin panel')) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Member Portal - Club Management</title>
+    <title><?php echo Auth::check() ? 'Member Portal - Club Management' : ($wantsLogin ? 'Login - Tampa Gaming Guild' : 'Tampa Gaming Guild - Board Gaming &amp; RPG Club'); ?></title>
     <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
     <link rel="icon" type="image/png" href="favicon.png">
     <link rel="apple-touch-icon" href="favicon.png">
     <link rel="manifest" href="manifest.json">
     <link rel="stylesheet" href="assets/css/style.css<?php echo asset_version('assets/css/style.css'); ?>">
+    <link rel="stylesheet" href="assets/css/marketing.css<?php echo asset_version('assets/css/marketing.css'); ?>">
 </head>
 <body>
     <div class="app-container">
-        <?php $navActive = Auth::check() ? 'dashboard' : 'login'; include __DIR__ . '/partials/navbar.php'; ?>
+        <?php $navActive = Auth::check() ? 'dashboard' : ($wantsLogin ? 'login' : 'home'); include __DIR__ . '/partials/navbar.php'; ?>
 
         <main class="main-content centered-content">
             <?php if ($errorMsg): ?>
@@ -639,7 +645,7 @@ if (Auth::check() && has_permission('admin panel')) {
                     <?php endif; ?>
                 </div>
 
-            <?php else: ?>
+            <?php elseif ($wantsLogin): ?>
                 <!-- LOGGED OUT LOGIN FORM -->
                 <div class="auth-panel glass-panel">
                     <h2>Member Portal</h2>
@@ -668,7 +674,129 @@ if (Auth::check() && has_permission('admin panel')) {
                         <p>Not a member yet? <a href="join.php">Join the club today</a></p>
                         <p>Forgot password? <a href="forgot-password.php">Reset it here</a></p>
                         <p>Need to check-in? <a href="checkin.php">Check-In Portal</a></p>
+                        <p><a href="index.php">&larr; Back to Home</a></p>
                     </div>
+                </div>
+
+            <?php else: ?>
+                <!-- PUBLIC MARKETING HOME -->
+                <div class="marketing-page">
+                    <section class="hero-banner hero-banner--home" style="background-image: url('assets/images/hero-shelf.jpg');">
+                        <div class="hero-banner-content">
+                            <h1>Tampa Gaming Guild</h1>
+                            <p class="hero-tagline">Board gaming and RPG club</p>
+                        </div>
+                    </section>
+
+                    <section class="marketing-section">
+                        <div class="free-sundays-banner">
+                            <h2>Free Sundays!</h2>
+                            <p>Sundays are now free. No membership or commitment is required. Just come and have fun! 1st and 3rd Sundays, 1&ndash;11pm.</p>
+                        </div>
+
+                        <div class="tier-cards">
+                            <div class="glass-panel tier-card tier-trial">
+                                <h3>Trial Membership &ndash; Free</h3>
+                                <p>Attend all of our regular gaming sessions for your first 30 days at no charge.</p>
+                                <p>You cannot use a trial membership more than once.</p>
+                            </div>
+                            <div class="glass-panel tier-card tier-regular">
+                                <h3>Regular Membership &ndash; $30/month or $200/year</h3>
+                                <p>Attend all of our regular gaming sessions.</p>
+                                <p>Monthly includes 1 guest day pass. Yearly includes 2 guest day passes each month.</p>
+                                <p>Includes the right to vote to elect directors and steer the future of the club.</p>
+                            </div>
+                            <div class="glass-panel tier-card tier-associate">
+                                <h3>Associate Membership</h3>
+                                <p>Attend for a $10 entry fee per session.</p>
+                                <p>Associate members do not have any voting rights.</p>
+                            </div>
+                        </div>
+
+                        <p class="text-center" style="margin-top: 28px;">
+                            <a href="join.php" class="btn btn-primary btn-large">Join Today</a>
+                        </p>
+                    </section>
+
+                    <section class="marketing-section">
+                        <div class="bleed-section bleed-left">
+                            <div class="bleed-image">
+                                <img src="assets/images/come-game.jpg" alt="Members playing games together at Tampa Gaming Guild" loading="lazy">
+                            </div>
+                            <div class="bleed-text">
+                                <span class="eyebrow">Come game with us!</span>
+                                <h2>Meeting Days and Hours</h2>
+                                <p>This is our current schedule. We will be expanding it as needed. If you have a preference for a different day please contact us.</p>
+                                <div class="schedule-grid">
+                                    <div class="schedule-item">
+                                        <h5>Every Wednesday Night</h5>
+                                        <p>5:30 pm &ndash; 11:00 pm</p>
+                                    </div>
+                                    <div class="schedule-item">
+                                        <h5>Every Friday Night</h5>
+                                        <p>5:30 pm &ndash; 11:00 pm</p>
+                                    </div>
+                                    <div class="schedule-item">
+                                        <h5>1st &amp; 3rd Sunday of Each Month</h5>
+                                        <p>1:00 pm &ndash; 11:00 pm</p>
+                                    </div>
+                                </div>
+                                <a href="how-to-find-us.php">Map and Directions &rarr;</a>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="marketing-section">
+                        <div class="overlap-section">
+                            <div class="overlap-card">
+                                <span class="eyebrow">About us</span>
+                                <h2>A place to play</h2>
+                                <p>We are a non-profit club formed to provide a place to play board games, role playing games, and other tabletop games. We meet twice a week on Wednesday and Friday evenings, and twice a month on a Sunday afternoon and evening.</p>
+                                <p>Our current location is:<br>Tampa Bay Bridge Center<br>114 W 109th Ave<br>Tampa, FL 33612</p>
+                                <a href="how-to-find-us.php">Map and Directions &rarr;</a>
+                            </div>
+                            <div class="overlap-image">
+                                <img src="assets/images/about-photo.jpg" alt="A board game in progress" loading="lazy">
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="marketing-section">
+                        <span class="eyebrow text-center" style="display: block;">A volunteer organization</span>
+                        <h2>Why we are doing this</h2>
+                        <p class="section-intro">Tampa Gaming Guild is a non-profit club organized for the purpose of providing a comfortable place for gamers to gather and enjoy the latest board games, role playing games, and each other&rsquo;s company.</p>
+
+                        <div class="numbered-cards">
+                            <div class="numbered-card">
+                                <div class="num">1.</div>
+                                <h4>The Facility</h4>
+                                <p>Instead of organizing games in ever-changing locations or in people&rsquo;s homes we now have a single location with regular hours where you can always find someone who wants to play a game.</p>
+                                <a href="join.php" class="get-started">Get Started &rarr;</a>
+                            </div>
+                            <div class="numbered-card">
+                                <div class="num">2.</div>
+                                <h4>The People</h4>
+                                <p>We are gamers who have played together in the Tampa area for more than a decade in various stores, homes, and the former gaming club Grand Arena.</p>
+                                <a href="join.php" class="get-started">Get Started &rarr;</a>
+                            </div>
+                            <div class="numbered-card">
+                                <div class="num">3.</div>
+                                <h4>The Idea</h4>
+                                <p>Provide a place for Tampa gamers to gather in a comfortable environment at reasonable cost. Here we don&rsquo;t have the noise of a restaurant or the obligation to buy anything, nor do we have to share our space with non-gamers or adjust our schedule to suit the needs of the establishment owner.</p>
+                                <a href="join.php" class="get-started">Get Started &rarr;</a>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="marketing-section">
+                        <h2>Game Library</h2>
+                        <p class="section-intro">We have more than 400 board games in our library which you are welcome to play while you are here. Our volunteers will be glad to teach you a game you don&rsquo;t know. Below are pictures of a few of the games available to play. You are also welcome to bring your own games from home.</p>
+                        <div class="gallery-grid">
+                            <img src="assets/images/game-first-martians.jpg" alt="First Martians board game" loading="lazy">
+                            <img src="assets/images/game-mercado-lisboa.jpg" alt="Mercado de Lisboa board game" loading="lazy">
+                            <img src="assets/images/game-heaven-ale.jpg" alt="Heaven & Ale board game" loading="lazy">
+                        </div>
+                    </section>
                 </div>
             <?php endif; ?>
         </main>
