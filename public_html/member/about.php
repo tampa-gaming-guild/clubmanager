@@ -10,6 +10,7 @@ require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>About - Tampa Gaming Guild</title>
+    <meta name="description" content="Learn about Tampa Gaming Guild, a non-profit club providing a comfortable place to play board games, RPGs, and tabletop games in Tampa, FL, plus our club rules.">
     <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
     <link rel="icon" type="image/png" href="favicon.png">
     <link rel="apple-touch-icon" href="favicon.png">

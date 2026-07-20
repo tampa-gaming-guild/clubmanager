@@ -1,0 +1,10 @@
+User-agent: *
+Disallow: /admin/
+Disallow: /checkin.php
+Disallow: /forgot-password.php
+Disallow: /reset-password.php
+Disallow: /verify-email-change.php
+Disallow: /revert-email-change.php
+Allow: /
+
+Sitemap: https://tampagamingguild.org/sitemap.xml

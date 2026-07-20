@@ -10,6 +10,7 @@ require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Library - Tampa Gaming Guild</title>
+    <meta name="description" content="Browse Tampa Gaming Guild's library of 400+ board games, available to play at the club. Full collection listed on BoardGameGeek.">
     <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
     <link rel="icon" type="image/png" href="favicon.png">
     <link rel="apple-touch-icon" href="favicon.png">

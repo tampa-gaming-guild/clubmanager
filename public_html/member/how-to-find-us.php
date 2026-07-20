@@ -10,6 +10,7 @@ require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>How to Find Us - Tampa Gaming Guild</title>
+    <meta name="description" content="Directions and map to Tampa Gaming Guild at the Tampa Bay Bridge Center, 114 W 109th Ave, Tampa, FL 33612.">
     <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
     <link rel="icon" type="image/png" href="favicon.png">
     <link rel="apple-touch-icon" href="favicon.png">

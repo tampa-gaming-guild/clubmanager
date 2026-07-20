@@ -336,6 +336,9 @@ if (Auth::check() && has_permission('admin panel')) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo Auth::check() ? 'Member Portal - Club Management' : ($wantsLogin ? 'Login - Tampa Gaming Guild' : 'Tampa Gaming Guild - Board Gaming &amp; RPG Club'); ?></title>
+    <?php if (!Auth::check() && !$wantsLogin): ?>
+    <meta name="description" content="Tampa Gaming Guild is a non-profit board gaming and RPG club in Tampa, FL. Free Sundays, weekly meetups, and a library of 400+ board games. Join today.">
+    <?php endif; ?>
     <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
     <link rel="icon" type="image/png" href="favicon.png">
     <link rel="apple-touch-icon" href="favicon.png">
