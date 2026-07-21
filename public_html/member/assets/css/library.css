@@ -4,6 +4,17 @@
    pattern as marketing.css.
    ========================================================================== */
 
+.library-bgg-attribution {
+    text-align: center;
+    margin-top: 40px;
+    opacity: 0.85;
+    transition: opacity 0.15s ease;
+}
+
+.library-bgg-attribution:hover {
+    opacity: 1;
+}
+
 .library-page-title {
     font-family: var(--font-heading);
     font-size: 2rem;
