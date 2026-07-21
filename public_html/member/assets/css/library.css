@@ -1,0 +1,292 @@
+/* ==========================================================================
+   Board Game Library gallery -- built from style.css's tokens (see that
+   file's --color-*, --border-glass, --shadow-glass custom properties, same
+   pattern as marketing.css.
+   ========================================================================== */
+
+.library-page-title {
+    font-family: var(--font-heading);
+    font-size: 2rem;
+    font-weight: 700;
+    text-align: center;
+    margin: 20px 0 10px;
+}
+
+.library-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 0 auto 10px;
+    align-items: flex-end;
+    justify-content: center;
+}
+
+.library-filter-bar .filter-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.library-filter-bar label {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+}
+
+.library-filter-bar select {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-glass);
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: #fff;
+    font-size: 0.85rem;
+    outline: none;
+    min-width: 140px;
+}
+
+.library-filter-bar select option {
+    background: #1e1e28;
+}
+
+.library-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.library-result-count {
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
+    margin: 0;
+}
+
+.library-toolbar-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.view-toggle {
+    display: flex;
+    border: 1px solid var(--border-glass);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.view-toggle-btn {
+    background: rgba(255, 255, 255, 0.03);
+    border: none;
+    color: var(--color-text-secondary);
+    padding: 8px 14px;
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+
+.view-toggle-btn.active {
+    background: var(--color-primary);
+    color: #fff;
+}
+
+.game-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 20px;
+}
+
+.game-card {
+    display: flex;
+    flex-direction: column;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-glass);
+    border-radius: 12px;
+    overflow: hidden;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.game-card:hover {
+    transform: translateY(-3px);
+    border-color: var(--color-primary);
+}
+
+.game-card-link {
+    text-decoration: none;
+    color: inherit;
+}
+
+.game-card-thumb {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    background: rgba(0, 0, 0, 0.2);
+    display: block;
+}
+
+/* List view: swap the grid for stacked rows with a small thumbnail beside the details. */
+.game-grid.game-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.game-list .game-card {
+    flex-direction: row;
+    align-items: center;
+}
+
+.game-list .game-card-thumb {
+    width: 90px;
+    height: 68px;
+    aspect-ratio: auto;
+    flex-shrink: 0;
+}
+
+.game-list .game-card-body {
+    flex: 1;
+}
+
+.game-list .game-card-chips {
+    display: none;
+}
+
+.game-card-thumb-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2.5rem;
+}
+
+.game-card-body {
+    padding: 12px 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.game-card-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin: 0;
+    line-height: 1.3;
+}
+
+.game-card-year {
+    font-weight: 400;
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+}
+
+.game-card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 0.78rem;
+    color: var(--color-text-secondary);
+}
+
+.game-card-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.game-card-librarian {
+    margin-top: 6px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-glass);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.game-card-librarian-status {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.game-card-librarian-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.inline-form {
+    display: inline;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.bgg-search-results {
+    max-height: 220px;
+    overflow-y: auto;
+    border-radius: 8px;
+    margin-top: 4px;
+}
+
+.bgg-search-result-item {
+    padding: 8px 12px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border-glass);
+}
+
+.bgg-search-result-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.bgg-selected-summary {
+    font-size: 0.85rem;
+    color: var(--color-text-secondary);
+    padding: 8px 0;
+}
+
+.loan-selected {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-glass);
+    border-radius: 20px;
+    padding: 4px 6px 4px 12px;
+    font-size: 0.8rem;
+    margin-top: 6px;
+}
+
+.btn-clear-loan {
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    border-radius: 50%;
+    color: #fff;
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    font-size: 0.7rem;
+}
+
+@media (max-width: 600px) {
+    .library-filter-bar {
+        justify-content: flex-start;
+    }
+    .library-filter-bar select {
+        min-width: 0;
+        flex: 1;
+    }
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+    .game-list .game-card {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .game-list .game-card-thumb {
+        width: 100%;
+        height: auto;
+        aspect-ratio: 4 / 3;
+    }
+}

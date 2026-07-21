@@ -18,6 +18,7 @@ final class RolesSeeder extends AbstractSeed
             ['name' => 'admin',      'description' => 'Administrator with management access',                              'sort_order' => 2],
             ['name' => 'majordomo',  'description' => 'Volunteer coordinator who manages hosts and volunteer scheduling',  'sort_order' => 3],
             ['name' => 'host',       'description' => 'Event Host with check-in access',                                   'sort_order' => 4],
+            ['name' => 'librarian',  'description' => "Manages the club's board game library",                             'sort_order' => 6],
             ['name' => 'member',     'description' => 'Regular Club Member',                                               'sort_order' => 5],
         ];
 

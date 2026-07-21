@@ -22,6 +22,7 @@ final class PermissionsSeeder extends AbstractSeed
             ['name' => 'schedule events', 'description' => 'Create and edit calendar events'],
             ['name' => 'edit checkins', 'description' => 'Log and edit attendance check-ins'],
             ['name' => 'manage hosting', 'description' => 'Manage volunteer slots and credits for other members; assign the host role'],
+            ['name' => 'manage library', 'description' => 'Manage the board game library: add/edit/remove games and track member-loaned copies; syncs to BoardGameGeek'],
             ['name' => 'password resets', 'description' => 'Perform password resets for contacts'],
             ['name' => 'volunteer', 'description' => 'Sign up for volunteer slots at events'],
         ];

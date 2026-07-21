@@ -159,6 +159,12 @@ final class EmailTemplatesSeeder extends AbstractSeed
                 'body' => '<h2>Hello, {display_name},</h2><p><strong>{actor_name}</strong> removed you from the <strong>{slot_label}</strong> slot for <strong>{event_title}</strong> on <strong>{event_date}</strong>.</p><p>If you have questions, please reach out to a Hosting Manager.</p><p>Best regards,<br>TGG Club Team</p>',
                 'description' => 'Sent to a member when a manage-hosting user removes them from an already-confirmed volunteer slot.',
             ],
+            [
+                'template_key' => 'game_loan_thank_you',
+                'subject' => 'Thank You for Lending Us {game_name}!',
+                'body' => '<h2>Thank You, {display_name}!</h2><p>We\'ve recorded that you\'ve lent your copy of <strong>{game_name}</strong> to the club\'s board game library. We really appreciate you sharing it with the community!</p><p>If you\'d ever like it back, just let a librarian know.</p><p>Best regards,<br>TGG Club Team</p>',
+                'description' => 'Sent to a member when a librarian records that they\'ve lent a physical game copy to the club.',
+            ],
         ];
 
         $sql = 'INSERT INTO `tgg_email_templates` (`template_key`, `subject`, `body`, `description`)

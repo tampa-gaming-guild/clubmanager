@@ -135,6 +135,7 @@ $navAuthed = $navAdminArea || \App\Auth::check();
             <a href="<?php echo $navPrefix; ?>index.php" class="<?php echo $navActive === 'dashboard' ? 'active' : ''; ?>">Dashboard</a>
             <a href="<?php echo $navPrefix; ?>calendar.php" class="<?php echo $navActive === 'calendar' ? 'active' : ''; ?>">Calendar</a>
             <a href="<?php echo $navPrefix; ?>volunteers.php" class="<?php echo $navActive === 'volunteers' ? 'active' : ''; ?>">Volunteers</a>
+            <a href="<?php echo $navPrefix; ?>library.php" class="<?php echo $navActive === 'library' ? 'active' : ''; ?>">Library</a>
             <a href="<?php echo $navPrefix; ?>checkin.php" class="<?php echo $navActive === 'checkin' ? 'active' : ''; ?>">Check-In</a>
             <?php if ($navAdminArea || !empty($_SESSION['user']['permissions'] ?? [])): ?>
                 <a href="<?php echo $navAdminArea ? 'dashboard.php' : 'admin/dashboard.php'; ?>" class="<?php echo $navActive === 'admin' ? 'active' : ''; ?>">Admin</a>

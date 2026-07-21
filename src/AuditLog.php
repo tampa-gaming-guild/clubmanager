@@ -32,7 +32,7 @@ class AuditLog {
     /**
      * Record one audit event.
      *
-     * @param string $category Fixed category: security|roles|rates|volunteer_config|membership|import
+     * @param string $category Fixed category: security|roles|rates|volunteer_config|membership|import|library
      * @param string $action Event name, e.g. 'rate_updated', 'impersonation_start'
      * @param array $details Extra context, JSON-encoded. Never include secrets
      *                       (passwords, tokens, reset codes).

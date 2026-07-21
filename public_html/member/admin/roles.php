@@ -171,6 +171,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!$viewerIsSuperadmin) {
                     $canManageRoles   = has_permission('manage roles');
                     $canManageHosting = has_permission('manage hosting');
+                    $canManageLibrary = has_permission('manage library');
                     $rolesAdded   = array_diff($newRoles, $targetCurrentRoles);
                     $rolesRemoved = array_diff($targetCurrentRoles, $newRoles);
                     foreach (array_merge($rolesAdded, $rolesRemoved) as $changedRole) {
@@ -179,6 +180,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                         if ($changedRole === 'host' && !$canManageRoles && !$canManageHosting) {
                             throw new Exception("You do not have permission to modify the 'host' role.");
+                        }
+                        if ($changedRole === 'librarian' && !$canManageRoles && !$canManageLibrary) {
+                            throw new Exception("You do not have permission to modify the 'librarian' role.");
                         }
                     }
                 }

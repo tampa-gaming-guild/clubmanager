@@ -29,7 +29,7 @@ final class RolePermissionsSeeder extends AbstractSeed
                    OR (r.name = 'admin' AND p.name IN (
                           'admin panel', 'manage configuration', 'manage roles',
                           'process payments', 'schedule events', 'edit checkins',
-                          'manage hosting', 'password resets', 'volunteer'
+                          'manage hosting', 'manage library', 'password resets', 'volunteer'
                       ))
                    OR (r.name = 'majordomo' AND p.name IN (
                           'manage hosting', 'process payments', 'schedule events',
@@ -37,6 +37,7 @@ final class RolePermissionsSeeder extends AbstractSeed
                       ))
                    OR (r.name = 'host' AND p.name IN (
                           'process payments', 'edit checkins', 'volunteer'
-                      ))");
+                      ))
+                   OR (r.name = 'librarian' AND p.name = 'manage library')");
     }
 }

@@ -101,6 +101,8 @@
                                                 $disabled = 'disabled';
                                             } elseif ($rn === 'host' && !$viewerCanManageRoles && !$viewerCanManageHosting) {
                                                 $disabled = 'disabled';
+                                            } elseif ($rn === 'librarian' && !$viewerCanManageRoles && !has_permission('manage library')) {
+                                                $disabled = 'disabled';
                                             }
                                         }
 
