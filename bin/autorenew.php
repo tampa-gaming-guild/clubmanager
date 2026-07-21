@@ -2,13 +2,16 @@
 <?php
 /**
  * Daily auto-renewal cron job.
- * Sends 5-day-advance renewal reminders, then charges any subscription whose membership
- * period has ended and has auto-renew enabled using the Stripe card on file.
+ * Sends 5-day-advance renewal reminders, grants Membership Credits for hosting
+ * shifts that cleared their grace period, then charges any subscription whose
+ * membership period has ended and has auto-renew enabled using the Stripe card
+ * on file.
  */
 require_once dirname(__DIR__) . '/config/bootstrap.php';
 
 use App\Database;
 use App\BillingHelper;
+use App\MembershipCredits;
 
 if (PHP_SAPI !== 'cli') {
     http_response_code(403);
@@ -32,6 +35,15 @@ echo "[" . date('Y-m-d H:i:s') . "] [autorenew] Sent {$expiredNotices['sent']} e
 foreach ($expiredNotices['errors'] ?? [] as $err) {
     echo "[" . date('Y-m-d H:i:s') . "] [autorenew] $err\n";
 }
+
+$creditsResult = MembershipCredits::autoConfirmEligibleAttendance();
+foreach ($creditsResult['confirmed'] as $c) {
+    echo "[" . date('Y-m-d H:i:s') . "] [autorenew] slot_id={$c['slot_id']} contact_id={$c['contact_id']}: credit_confirmed - {$c['credits_earned']} credit(s) for \"{$c['slot_label']}\" ({$c['event_title']}).\n";
+}
+foreach ($creditsResult['failed'] as $err) {
+    echo "[" . date('Y-m-d H:i:s') . "] [autorenew] $err\n";
+}
+echo "[" . date('Y-m-d H:i:s') . "] [autorenew] Membership Credits: " . count($creditsResult['confirmed']) . " shift(s) confirmed, " . count($creditsResult['failed']) . " error(s).\n";
 
 $appDb = Database::getAppConnection();
 $stmt = $appDb->query("

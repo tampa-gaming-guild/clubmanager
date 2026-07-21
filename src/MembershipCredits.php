@@ -218,17 +218,23 @@ class MembershipCredits {
     }
 
     /**
-     * Grant Membership Credits for a shift that a Hosting Manager has confirmed
-     * was actually worked -- this is the ONLY way credits get earned. It never
-     * touches tgg_subscriptions or tgg_billing_ledger; spending is a fully
-     * separate step that only happens at renewal time.
+     * Grant Membership Credits for a shift a member signed up and was confirmed
+     * for -- this is the ONLY way credits get earned. It never touches
+     * tgg_subscriptions or tgg_billing_ledger; spending is a fully separate step
+     * that only happens at renewal time.
+     *
+     * Normally invoked automatically by bin/autorenew.php via
+     * autoConfirmEligibleAttendance() once a shift clears its grace period, with
+     * $actorContactId left null (recorded as the "System (auto-renew)" actor).
+     * Kept as a standalone building block in case a manual/support grant is ever
+     * needed again.
      *
      * @throws Exception if the slot/signup doesn't exist, isn't confirmed, the
      *                    event hasn't happened yet, or this shift was already
      *                    confirmed (a member can't be credited twice for the
      *                    same shift).
      */
-    public static function confirmAttendance(int $slotId, int $actorContactId): array {
+    public static function confirmAttendance(int $slotId, ?int $actorContactId = null): array {
         $appDb = Database::getAppConnection();
 
         $stmt = $appDb->prepare("
@@ -300,50 +306,37 @@ class MembershipCredits {
     }
 
     /**
-     * Past, confirmed signups within a date range that have no attendance
-     * confirmation (earn-transaction) yet -- the review checklist for the
-     * admin "Confirm Attendance" page. One row per shift.
+     * Grant Membership Credits for every confirmed signup whose shift happened
+     * at least $graceDays days ago and hasn't been credited yet. Called daily by
+     * bin/autorenew.php -- the grace period gives a Hosting Manager time to fix
+     * an incorrect volunteer list before credits go out.
      */
-    public static function getUnconfirmedShifts(string $startDate, string $endDate): array {
+    public static function autoConfirmEligibleAttendance(int $graceDays = 3): array {
         $appDb = Database::getAppConnection();
-        $configMap = self::getConfigMap();
 
         $stmt = $appDb->prepare("
-            SELECT s.slot_id, s.contact_id, c.display_name, sl.event_id, e.title AS event_title,
-                   e.start_time, sl.slot_label, sl.slot_type
+            SELECT s.slot_id
             FROM tgg_volunteer_signups s
             INNER JOIN tgg_event_slots sl ON sl.id = s.slot_id
             INNER JOIN tgg_events e ON e.id = sl.event_id
-            INNER JOIN tgg_contacts c ON c.id = s.contact_id
             LEFT JOIN tgg_volunteer_credit_transactions t ON t.slot_id = s.slot_id AND t.contact_id = s.contact_id
             WHERE s.status = 'confirmed'
-              AND e.start_time >= :start_time
-              AND e.start_time <= :end_time
-              AND e.start_time <= :now
+              AND e.start_time <= :cutoff
               AND t.id IS NULL
             ORDER BY e.start_time ASC, sl.sort_order ASC
         ");
-        $stmt->execute([
-            'start_time' => $startDate . ' 00:00:00',
-            'end_time' => $endDate . ' 23:59:59',
-            'now' => date('Y-m-d H:i:s'),
-        ]);
+        $stmt->execute(['cutoff' => date('Y-m-d H:i:s', strtotime("-{$graceDays} days"))]);
+        $slotIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
-        $rows = [];
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $key = EventSlot::creditKey($row['slot_type'], $row['start_time']);
-            $rows[] = [
-                'slot_id' => (int)$row['slot_id'],
-                'contact_id' => (int)$row['contact_id'],
-                'display_name' => $row['display_name'],
-                'event_id' => (int)$row['event_id'],
-                'event_title' => $row['event_title'],
-                'start_time' => $row['start_time'],
-                'slot_label' => $row['slot_label'],
-                'slot_type' => $row['slot_type'],
-                'credits' => (int)round((float)($configMap[$key] ?? 0)),
-            ];
+        $confirmed = [];
+        $failed = [];
+        foreach ($slotIds as $slotId) {
+            try {
+                $confirmed[] = self::confirmAttendance((int)$slotId, null);
+            } catch (Exception $e) {
+                $failed[] = "Slot #{$slotId}: " . $e->getMessage();
+            }
         }
-        return $rows;
+        return ['confirmed' => $confirmed, 'failed' => $failed];
     }
 }

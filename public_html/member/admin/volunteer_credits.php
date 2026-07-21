@@ -1,10 +1,11 @@
 <?php
 /**
- * Admin Membership Credits: Config, Attendance Confirmation & Manual Override
+ * Admin Membership Credits: Config & Manual Override
  * Lets a Hosting Manager configure the Membership Credits earned for specific
- * hosting shifts, confirm which signed-up members actually worked a past shift
- * (which is what grants the credit), and manually apply banked credits to
- * extend a member's subscription outside of normal renewal timing.
+ * hosting shifts, and manually apply banked credits to extend a member's
+ * subscription outside of normal renewal timing. Credits themselves are
+ * granted automatically by bin/autorenew.php once a worked shift clears its
+ * grace period -- see MembershipCredits::autoConfirmEligibleAttendance().
  */
 require_once dirname(dirname(dirname(__DIR__))) . '/config/bootstrap.php';
 
@@ -12,7 +13,6 @@ use App\Auth;
 use App\AuditLog;
 use App\BillingHelper;
 use App\Database;
-use App\MembershipCredits;
 use App\MembershipService;
 
 Auth::requirePermission('manage hosting');
@@ -22,7 +22,7 @@ $successMsg = null;
 
 $actorId = $_SESSION['user']['contact_id'] ?? null;
 
-// POST Handler: Update settings, confirm attendance, or apply credits now
+// POST Handler: Update settings, or apply credits now
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
         $errorMsg = "Invalid security token.";
@@ -69,31 +69,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $errorMsg = safe_err("Failed to update credits: ", $e);
         }
-    } elseif (isset($_POST['action_confirm_attendance'])) {
-        // B. Confirm attendance for selected shifts -- this is what grants the credit.
-        $slotIds = array_map('intval', $_POST['confirm_slots'] ?? []);
-        if (empty($slotIds)) {
-            $errorMsg = "No shifts selected to confirm.";
-        } else {
-            $confirmed = [];
-            $failed = [];
-            foreach ($slotIds as $slotId) {
-                try {
-                    $result = MembershipCredits::confirmAttendance($slotId, (int)$actorId);
-                    $confirmed[] = $result;
-                } catch (Exception $e) {
-                    $failed[] = "Slot #{$slotId}: " . $e->getMessage();
-                }
-            }
-            if (!empty($confirmed)) {
-                $successMsg = count($confirmed) . " shift(s) confirmed -- Membership Credits granted.";
-            }
-            if (!empty($failed)) {
-                $errorMsg = (empty($confirmed) ? '' : '') . implode(' | ', $failed);
-            }
-        }
     } elseif (isset($_POST['action_apply_credits'])) {
-        // C. Manual override: apply a member's banked Membership Credits now,
+        // B. Manual override: apply a member's banked Membership Credits now,
         // outside of normal renewal timing.
         $targetContactId = (int)($_POST['apply_contact_id'] ?? 0);
         $months = (int)($_POST['apply_months'] ?? 0);
@@ -124,25 +101,7 @@ try {
     $errorMsg = safe_err(($errorMsg ? $errorMsg . " | " : "") . "Unable to retrieve credits: ", $e);
 }
 
-// GET Handler: Load unconfirmed past shifts in the selected date range (Section 2)
-$startDate = isset($_GET['start_date']) ? $_GET['start_date'] : '';
-$endDate = isset($_GET['end_date']) ? $_GET['end_date'] : '';
-$eventsForConfirmation = [];
-
-if (!empty($startDate) && !empty($endDate)) {
-    try {
-        $unconfirmedShifts = MembershipCredits::getUnconfirmedShifts($startDate, $endDate);
-        foreach ($unconfirmedShifts as $shift) {
-            $eventsForConfirmation[$shift['event_id']]['event_title'] = $shift['event_title'];
-            $eventsForConfirmation[$shift['event_id']]['start_time'] = $shift['start_time'];
-            $eventsForConfirmation[$shift['event_id']]['shifts'][] = $shift;
-        }
-    } catch (Exception $e) {
-        $errorMsg = safe_err(($errorMsg ? $errorMsg . " | " : "") . "Error loading unconfirmed shifts: ", $e);
-    }
-}
-
-// Member picker list for Section 3 (manual override)
+// Member picker list for Section 2 (manual override)
 $allActiveMembers = [];
 try {
     $allActiveMembers = MembershipService::getMembersList();
@@ -218,25 +177,6 @@ try {
             line-height: 1;
             visibility: hidden;
         }
-        .confirm-event-group {
-            border: 1px solid var(--border-glass);
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 15px;
-            background: rgba(255, 255, 255, 0.02);
-        }
-        .confirm-event-group h4 {
-            margin: 0 0 10px 0;
-            color: #fff;
-            font-size: 0.95rem;
-        }
-        .confirm-shift-row {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 6px 0;
-            font-size: 0.85rem;
-        }
     </style>
 </head>
 <body>
@@ -311,61 +251,6 @@ try {
                     </form>
 
                     <hr style="border: none; border-bottom: 1px solid var(--border-glass); margin-bottom: 40px;">
-
-                    <h2>Confirm Attendance</h2>
-                    <p class="description-text" style="margin-bottom: 25px;">
-                        Select a date range, then check off which signed-up members actually worked their shift. Confirming a shift is what grants that member Membership Credits -- signing up alone does not.
-                    </p>
-
-                    <form action="volunteer_credits.php" method="GET" class="form-row">
-                        <div class="form-group">
-                            <label for="start-date">Start Date</label>
-                            <input type="date" id="start-date" name="start_date" class="date-input" value="<?php echo e($startDate ?: date('Y-m-01')); ?>" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="end-date">End Date</label>
-                            <input type="date" id="end-date" name="end_date" class="date-input" value="<?php echo e($endDate ?: date('Y-m-d')); ?>" required>
-                        </div>
-                        <div class="form-group-btn">
-                            <span class="btn-spacer">&nbsp;</span>
-                            <button type="submit" class="btn btn-primary" style="padding: 10px 20px;">Load Past Shifts</button>
-                        </div>
-                    </form>
-
-                    <?php if (!empty($startDate) && !empty($endDate)): ?>
-                        <form action="volunteer_credits.php" method="POST">
-                            <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
-                            <input type="hidden" name="action_confirm_attendance" value="1">
-
-                            <?php if (empty($eventsForConfirmation)): ?>
-                                <p class="private-locked-msg">No unconfirmed past shifts found for the selected date range.</p>
-                            <?php else: ?>
-                                <?php foreach ($eventsForConfirmation as $eventId => $event): ?>
-                                    <div class="confirm-event-group">
-                                        <h4>
-                                            <?php echo e($event['event_title'] ?: 'Volunteer Event'); ?>
-                                            <span style="font-weight: normal; color: var(--color-text-secondary); font-size: 0.85rem;">
-                                                (<?php echo date('M j, Y', strtotime($event['start_time'])); ?>)
-                                            </span>
-                                        </h4>
-                                        <?php foreach ($event['shifts'] as $shift): ?>
-                                            <label class="confirm-shift-row">
-                                                <input type="checkbox" name="confirm_slots[]" value="<?php echo (int)$shift['slot_id']; ?>">
-                                                <span style="color: #fff; font-weight: 600;"><?php echo e($shift['display_name']); ?></span>
-                                                <span style="color: var(--color-text-secondary);">&mdash; <?php echo e($shift['slot_label']); ?></span>
-                                                <span style="color: var(--color-primary); font-weight: bold; margin-left: auto;">+<?php echo (int)$shift['credits']; ?> credit<?php echo $shift['credits'] === 1 ? '' : 's'; ?></span>
-                                            </label>
-                                        <?php endforeach; ?>
-                                    </div>
-                                <?php endforeach; ?>
-                                <div style="text-align: left; margin-top: 10px;">
-                                    <button type="submit" class="btn btn-success" style="padding: 10px 24px;">Confirm Selected Shifts &amp; Grant Membership Credits</button>
-                                </div>
-                            <?php endif; ?>
-                        </form>
-                    <?php endif; ?>
-
-                    <hr style="border: none; border-bottom: 1px solid var(--border-glass); margin: 40px 0;">
 
                     <h2>Apply Membership Credits Now</h2>
                     <p class="description-text" style="margin-bottom: 25px;">
