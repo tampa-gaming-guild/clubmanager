@@ -163,6 +163,42 @@ class GameLibraryService {
         return ['game_id' => $gameId];
     }
 
+    /**
+     * A loaning member reclaiming their physical copy: unlike a plain owner
+     * change (see updateGame()), the game leaves the club's shelf entirely,
+     * so this soft-deletes it and pulls it from the BGG collection exactly
+     * like removeGame() -- but logs 'loan_returned' (with the lending member
+     * as the target) instead of 'game_removed', so the audit trail reflects
+     * why the game left.
+     * @throws Exception
+     */
+    public static function returnLoan(int $gameId, int $actorContactId): array {
+        $appDb = Database::getAppConnection();
+
+        $stmt = $appDb->prepare("SELECT name, bgg_id, owner_contact_id FROM tgg_games WHERE id = :id LIMIT 1");
+        $stmt->execute(['id' => $gameId]);
+        $game = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$game) {
+            throw new Exception("Game not found.");
+        }
+        if ($game['owner_contact_id'] === null) {
+            throw new Exception("This game isn't currently on loan from a member.");
+        }
+        $ownerContactId = (int)$game['owner_contact_id'];
+
+        $appDb->prepare("UPDATE tgg_games SET is_deleted = 1 WHERE id = :id")->execute(['id' => $gameId]);
+
+        AuditLog::log('library', 'loan_returned', [
+            'game_id' => $gameId,
+            'name' => $game['name'],
+        ], $ownerContactId, $actorContactId);
+
+        $result = BggCollectionSync::removeGame(['bgg_id' => (int)$game['bgg_id']]);
+        self::recordSyncResult($gameId, $result);
+
+        return ['success' => true];
+    }
+
     public static function removeGame(int $gameId, int $actorContactId): array {
         $appDb = Database::getAppConnection();
 

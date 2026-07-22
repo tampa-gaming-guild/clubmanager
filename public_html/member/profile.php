@@ -108,6 +108,7 @@ $isAdmin = has_permission('admin panel');
 $hasPrivateAccess = $isOwner || $isAdmin;
 $canViewBilling = $isOwner || has_permission('process payments');
 $canManageContact = $isOwner || $isAdmin || has_permission('process payments');
+$canManageLibrary = has_permission('manage library');
 
 // Fetch any pending (unexpired) email change request for display
 $pendingEmailChange = null;
@@ -255,6 +256,23 @@ if ($hasPrivateAccess && $appDb) {
         $attendanceRecords = $attStmt->fetchAll();
     } catch (Exception $e) {
         $errorMsg = safe_err(($errorMsg ? $errorMsg . " | " : "") . "Failed to load attendance records: ", $e);
+    }
+}
+
+// Fetch games this member has loaned to the club's library, for librarians
+$loanedGames = [];
+if ($canManageLibrary && $appDb) {
+    try {
+        $loanStmt = $appDb->prepare("
+            SELECT id, name, thumbnail_url, loan_started_at, bgg_sync_status
+            FROM tgg_games
+            WHERE owner_contact_id = :id AND is_deleted = 0
+            ORDER BY loan_started_at DESC
+        ");
+        $loanStmt->execute(['id' => $profileId]);
+        $loanedGames = $loanStmt->fetchAll();
+    } catch (Exception $e) {
+        $errorMsg = safe_err(($errorMsg ? $errorMsg . " | " : "") . "Failed to load library loans: ", $e);
     }
 }
 
@@ -829,7 +847,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                         </div>
                     </div>
 
-                    <?php if ($hasPrivateAccess || $canViewBilling): ?>
+                    <?php if ($hasPrivateAccess || $canViewBilling || $canManageLibrary): ?>
                         <div class="profile-tabs">
                             <?php if ($hasPrivateAccess): ?>
                                 <button class="tab-button active" onclick="switchTab('profile')">Profile</button>
@@ -838,6 +856,9 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                             <?php endif; ?>
                             <?php if ($canViewBilling): ?>
                                 <button class="tab-button <?php echo !$hasPrivateAccess ? 'active' : ''; ?>" onclick="switchTab('billing')">Payment History</button>
+                            <?php endif; ?>
+                            <?php if ($canManageLibrary): ?>
+                                <button class="tab-button <?php echo (!$hasPrivateAccess && !$canViewBilling) ? 'active' : ''; ?>" onclick="switchTab('library')">Library Loans</button>
                             <?php endif; ?>
                         </div>
                     <?php endif; ?>
@@ -1456,6 +1477,50 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                         </div>
                     </div>
                     <?php endif; ?>
+
+                    <?php if ($canManageLibrary): ?>
+                    <div id="tab-library" class="tab-content <?php echo (!$hasPrivateAccess && !$canViewBilling) ? 'active' : ''; ?>">
+                        <div class="detail-section private-detail-section full-width-section">
+                            <div class="section-header">
+                                <h3 class="section-title">Library Loans</h3>
+                                <span class="private-badge">🔒 Librarian Only</span>
+                            </div>
+                            <?php if (empty($loanedGames)): ?>
+                                <p class="private-locked-msg">This member hasn't loaned any games to the club.</p>
+                            <?php else: ?>
+                                <div class="admin-table-container">
+                                    <table class="admin-table" style="font-size: 0.85rem; width: 100%;">
+                                        <thead>
+                                            <tr>
+                                                <th style="padding: 8px 10px;">Game</th>
+                                                <th style="padding: 8px 10px;">Loaned Since</th>
+                                                <th style="padding: 8px 10px;">BGG Sync</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php foreach ($loanedGames as $lg): ?>
+                                                <?php
+                                                $syncBadgeClass = 'badge-free';
+                                                if ($lg['bgg_sync_status'] === 'synced') $syncBadgeClass = 'badge-active';
+                                                elseif ($lg['bgg_sync_status'] === 'failed') $syncBadgeClass = 'badge-expired';
+                                                ?>
+                                                <tr>
+                                                    <td style="padding: 8px 10px;"><strong><a href="library.php"><?php echo e($lg['name']); ?></a></strong></td>
+                                                    <td style="padding: 8px 10px;"><span class="table-datetime"><?php echo $lg['loan_started_at'] ? date('Y-m-d', strtotime($lg['loan_started_at'])) : '—'; ?></span></td>
+                                                    <td style="padding: 8px 10px;">
+                                                        <span class="badge <?php echo $syncBadgeClass; ?>" style="font-size: 0.75rem; padding: 2px 6px; display: inline-block;">
+                                                            <?php echo e(ucfirst($lg['bgg_sync_status'])); ?>
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            <?php endforeach; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
                 </div>
             <?php endif; ?>
         </main>
@@ -1472,6 +1537,10 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
         
         const btn = document.querySelector(`.tab-button[onclick*="'${tabId}'"]`);
         if (btn) btn.classList.add('active');
+    }
+
+    if (window.location.hash === '#tab-library') {
+        switchTab('library');
     }
 
     (function() {

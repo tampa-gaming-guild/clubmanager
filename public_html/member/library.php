@@ -140,8 +140,12 @@ $maxPlaytime = ($_GET['playtime'] ?? '') !== '' ? max(1, (int)$_GET['playtime'])
 $mechanism = trim($_GET['mechanism'] ?? '');
 $category = trim($_GET['category'] ?? '');
 $sort = $_GET['sort'] ?? 'name';
+$onLoanOnly = $canManageLibrary && ($_GET['on_loan'] ?? '') === '1';
 
-$games = array_values(array_filter($rows, function ($g) use ($playerCount, $maxPlaytime, $mechanism, $category) {
+$games = array_values(array_filter($rows, function ($g) use ($playerCount, $maxPlaytime, $mechanism, $category, $onLoanOnly) {
+    if ($onLoanOnly && $g['owner_contact_id'] === null) {
+        return false;
+    }
     if ($playerCount !== null) {
         $min = $g['min_players'] !== null ? (int)$g['min_players'] : null;
         $max = $g['max_players'] !== null ? (int)$g['max_players'] : null;
@@ -214,7 +218,7 @@ function syncBadgeClass(string $status): string {
     }
 }
 
-$hasFilters = $playerCount !== null || $maxPlaytime !== null || $mechanism !== '' || $category !== '' || $sort !== 'name';
+$hasFilters = $playerCount !== null || $maxPlaytime !== null || $mechanism !== '' || $category !== '' || $sort !== 'name' || $onLoanOnly;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -293,6 +297,15 @@ $hasFilters = $playerCount !== null || $maxPlaytime !== null || $mechanism !== '
                             <option value="playtime" <?php echo $sort === 'playtime' ? 'selected' : ''; ?>>Playtime (Short First)</option>
                         </select>
                     </div>
+                    <?php if ($canManageLibrary): ?>
+                        <div class="filter-field" style="justify-content: flex-end;">
+                            <label for="filter-on-loan">&nbsp;</label>
+                            <label style="display: flex; align-items: center; gap: 6px; font-weight: normal;">
+                                <input type="checkbox" id="filter-on-loan" name="on_loan" value="1" <?php echo $onLoanOnly ? 'checked' : ''; ?>>
+                                On loan only
+                            </label>
+                        </div>
+                    <?php endif; ?>
                     <button type="submit" class="btn btn-primary" style="padding: 9px 20px;">Filter</button>
                     <?php if ($hasFilters): ?>
                         <a href="library.php" class="btn btn-secondary" style="padding: 9px 15px; display: flex; align-items: center; justify-content: center;">Clear</a>
@@ -307,6 +320,7 @@ $hasFilters = $playerCount !== null || $maxPlaytime !== null || $mechanism !== '
                             <button type="button" class="view-toggle-btn" data-view="list" title="List view">☰ List</button>
                         </div>
                         <?php if ($canManageLibrary): ?>
+                            <a href="library-loans.php" class="btn btn-secondary">📋 Loaning Members</a>
                             <button type="button" class="btn btn-primary" id="add-game-btn">+ Add Game</button>
                         <?php endif; ?>
                     </div>
@@ -365,7 +379,7 @@ $hasFilters = $playerCount !== null || $maxPlaytime !== null || $mechanism !== '
                                         <div class="game-card-librarian-status">
                                             <span class="badge <?php echo syncBadgeClass($game['bgg_sync_status']); ?>" title="<?php echo e($game['bgg_last_sync_error'] ?? ''); ?>">BGG: <?php echo e(ucfirst($game['bgg_sync_status'])); ?></span>
                                             <?php if ($ownerName): ?>
-                                                <span class="badge badge-volunteer">On loan from <?php echo e($ownerName); ?></span>
+                                                <a class="badge badge-volunteer" href="library-loans.php#member-<?php echo (int)$game['owner_contact_id']; ?>">On loan from <?php echo e($ownerName); ?></a>
                                             <?php endif; ?>
                                         </div>
                                         <div class="game-card-librarian-actions">

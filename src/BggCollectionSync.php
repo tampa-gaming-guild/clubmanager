@@ -189,7 +189,8 @@ class BggCollectionSync {
         // it sets session cookies and returns no body. The real success signal
         // is the presence of session cookies below, not the status code alone.
         if ($httpCode !== 200 && $httpCode !== 204) {
-            throw new Exception("login returned HTTP {$httpCode}");
+            $body = trim(substr($response, $headerSize));
+            throw new Exception("login returned HTTP {$httpCode}" . ($body !== '' ? ': ' . substr($body, 0, 300) : ''));
         }
 
         $headers = substr($response, 0, $headerSize);
