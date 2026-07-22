@@ -6,6 +6,8 @@
  *   $navAdminArea    bool    True when included from a page inside admin/ (default false)
  *   $navKiosk        bool    True for the unauthenticated check-in kiosk nav used by checkin.php (default false)
  *   $navGuestCheckin bool    Whether the logged-out nav includes a Check-In link (default true)
+ * The Check-In link (outside kiosk mode) additionally hides itself whenever no
+ * session's check-in window (1hr before start through end time) is currently open.
  */
 $navActive = $navActive ?? '';
 $navAdminArea = $navAdminArea ?? false;
@@ -13,6 +15,9 @@ $navKiosk = $navKiosk ?? false;
 $navGuestCheckin = $navGuestCheckin ?? true;
 $navPrefix = $navAdminArea ? '../' : '';
 $navAuthed = $navAdminArea || \App\Auth::check();
+$navCheckinOpen = (!$navKiosk && ($navAuthed || $navGuestCheckin))
+    ? \App\Event::isCheckinWindowOpen()
+    : true;
 ?>
 <header class="navbar">
     <div class="logo">Tampa Gaming Guild</div>
@@ -136,7 +141,9 @@ $navAuthed = $navAdminArea || \App\Auth::check();
             <a href="<?php echo $navPrefix; ?>calendar.php" class="<?php echo $navActive === 'calendar' ? 'active' : ''; ?>">Calendar</a>
             <a href="<?php echo $navPrefix; ?>volunteers.php" class="<?php echo $navActive === 'volunteers' ? 'active' : ''; ?>">Volunteers</a>
             <a href="<?php echo $navPrefix; ?>library.php" class="<?php echo $navActive === 'library' ? 'active' : ''; ?>">Library</a>
-            <a href="<?php echo $navPrefix; ?>checkin.php" class="<?php echo $navActive === 'checkin' ? 'active' : ''; ?>">Check-In</a>
+            <?php if ($navCheckinOpen): ?>
+                <a href="<?php echo $navPrefix; ?>checkin.php" class="<?php echo $navActive === 'checkin' ? 'active' : ''; ?>">Check-In</a>
+            <?php endif; ?>
             <?php if ($navAdminArea || !empty($_SESSION['user']['permissions'] ?? [])): ?>
                 <a href="<?php echo $navAdminArea ? 'dashboard.php' : 'admin/dashboard.php'; ?>" class="<?php echo $navActive === 'admin' ? 'active' : ''; ?>">Admin</a>
             <?php endif; ?>
@@ -147,7 +154,7 @@ $navAuthed = $navAdminArea || \App\Auth::check();
             <a href="join.php" class="<?php echo $navActive === 'join' ? 'active' : ''; ?>" title="Join or renew your membership">Join</a>
             <a href="library.php" class="<?php echo $navActive === 'library' ? 'active' : ''; ?>">Library</a>
             <a href="calendar.php" class="<?php echo $navActive === 'calendar' ? 'active' : ''; ?>">Calendar</a>
-            <?php if ($navGuestCheckin): ?>
+            <?php if ($navGuestCheckin && $navCheckinOpen): ?>
                 <a href="checkin.php">Check-In</a>
             <?php endif; ?>
             <a href="index.php?action=login" class="<?php echo $navActive === 'login' ? 'active' : ''; ?>">Login</a>

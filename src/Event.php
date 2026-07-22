@@ -191,6 +191,22 @@ class Event {
     }
 
     /**
+     * Whether check-in is currently allowed: a session is scheduled today and
+     * NOW() is within 1hr before its start_time through its end_time.
+     */
+    public static function isCheckinWindowOpen(): bool {
+        $appDb = Database::getAppConnection();
+        $stmt = $appDb->prepare("
+            SELECT COUNT(*) FROM tgg_events
+            WHERE DATE(start_time) = CURDATE()
+              AND NOW() >= DATE_SUB(start_time, INTERVAL 1 HOUR)
+              AND NOW() <= end_time
+        ");
+        $stmt->execute();
+        return (int)$stmt->fetchColumn() > 0;
+    }
+
+    /**
      * Get today's check-ins (same shape/order as the admin check-in list) for hosting dashboard widgets.
      */
     public static function getTodaysCheckins(): array {
