@@ -14,7 +14,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
             <li><a href="scheduler.php" class="<?php echo ($current_page === 'scheduler.php') ? 'active' : ''; ?>">Event Scheduler</a></li>
         <?php endif; ?>
         
-        <?php if (has_permission('manage hosting')): ?>
+        <?php if (has_permission('manage hosting') || has_permission('admin panel')): ?>
             <li><a href="volunteer_credits.php" class="<?php echo ($current_page === 'volunteer_credits.php') ? 'active' : ''; ?>">Membership Credits</a></li>
         <?php endif; ?>
         

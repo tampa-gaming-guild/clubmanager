@@ -306,6 +306,53 @@ class MembershipCredits {
     }
 
     /**
+     * Manually grant Membership Credits to a member for an admin-specified
+     * reason -- either one of the configured credit types or an ad hoc
+     * description (e.g. "Saturday Cleanup"). For support cases outside the
+     * normal hosting-attendance earning flow. Recorded on the same ledger and
+     * audited the same way as an automatic grant, so it's indistinguishable
+     * in the member's credit history apart from the reason text.
+     *
+     * @throws Exception if $credits isn't positive or $reason is blank.
+     */
+    public static function grantManualCredits(int $contactId, int $credits, string $reason): array {
+        if ($credits <= 0) {
+            throw new Exception("Credits to grant must be a positive number.");
+        }
+        $reason = trim($reason);
+        if ($reason === '') {
+            throw new Exception("A reason is required.");
+        }
+
+        $appDb = Database::getAppConnection();
+        $actorCols = AuditLog::actorColumns();
+        $insert = $appDb->prepare("
+            INSERT INTO tgg_volunteer_credit_transactions
+                (contact_id, event_id, slot_id, volunteer_date, shift, credits_earned, credits_applied, created_by, impersonator_id, source)
+            VALUES
+                (:contact_id, NULL, NULL, :volunteer_date, :shift, :credits_earned, 0, :created_by, :impersonator_id, :source)
+        ");
+        $insert->execute([
+            'contact_id' => $contactId,
+            'volunteer_date' => date('Y-m-d'),
+            'shift' => substr($reason, 0, 50),
+            'credits_earned' => $credits,
+            'created_by' => $actorCols['created_by'],
+            'impersonator_id' => $actorCols['impersonator_id'],
+            'source' => $actorCols['source'],
+        ]);
+
+        self::getCreditSummary($contactId); // refresh cached totals
+
+        AuditLog::log('volunteer_config', 'membership_credits_granted', [
+            'reason' => $reason,
+            'credits_earned' => $credits,
+        ], $contactId);
+
+        return ['contact_id' => $contactId, 'credits_earned' => $credits, 'reason' => $reason];
+    }
+
+    /**
      * Grant Membership Credits for every confirmed signup whose shift happened
      * at least $graceDays days ago and hasn't been credited yet. Called daily by
      * bin/autorenew.php -- the grace period gives a Hosting Manager time to fix
