@@ -9,6 +9,7 @@ require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 use App\Database;
 use App\MembershipService;
 use App\BillingHelper;
+use App\CheckinService;
 
 /**
  * Calculate physical distance between two GPS coordinates using Haversine formula
@@ -123,18 +124,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $identifier = trim($_POST['identifier'] ?? '');
     $notes = trim($_POST['notes'] ?? 'Regular Visit');
-    $guestNames = [];
-    if (isset($_POST['guest_names']) && is_array($_POST['guest_names'])) {
-        foreach ($_POST['guest_names'] as $guestName) {
-            $guestName = trim(mb_substr((string)$guestName, 0, 100));
-            if ($guestName !== '') {
-                $guestNames[] = $guestName;
-            }
-            if (count($guestNames) >= 10) {
-                break;
-            }
-        }
-    }
+    $rawGuestNames = isset($_POST['guest_names']) && is_array($_POST['guest_names']) ? $_POST['guest_names'] : [];
+    $guestNames = CheckinService::sanitizeGuestNames($rawGuestNames);
     $isAjax = isset($_POST['ajax']) || (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && $_SERVER['HTTP_X_REQUESTED_WITH'] === 'XMLHttpRequest');
 
     if (empty($identifier)) {
@@ -211,91 +202,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $errorMsg = "Member not found. Please check your email, phone number, or member ID.";
                     }
                 } else {
-                    // 2. Fetch Contact Name and Expiry Date
-                    $contactStmt = $appDb->prepare("SELECT display_name FROM tgg_contacts WHERE id = :id AND is_deleted = 0 LIMIT 1");
-                    $contactStmt->execute(['id' => $contactId]);
-                    $contactRow = $contactStmt->fetch();
+                    $result = CheckinService::checkIn($contactId, $notes, $guestNames, suppressRedirectIfPendingPayment: true);
 
-                    if (!$contactRow) {
-                        $errorMsg = "Member not found in database.";
+                    if ($result['redirect_reason']) {
+                        $redirectUrl = 'pay-entrance.php?contact_id=' . $contactId . '&reason=' . $result['redirect_reason'] . '&return=checkin.php';
+                    } elseif ($result['error']) {
+                        $errorMsg = $result['error'];
                     } else {
-                        $contactName = MembershipService::getFormattedName($contactId);
-
-                        // 2b. Prevent double check-in on the same day (guest visits don't count toward this)
-                        $dupCheckStmt = $appDb->prepare("SELECT COUNT(*) FROM tgg_checkins WHERE contact_id = :contact_id AND guest_name IS NULL AND DATE(checked_in_at) = CURDATE()");
-                        $dupCheckStmt->execute(['contact_id' => $contactId]);
-                        $hasCheckedInToday = (int)$dupCheckStmt->fetchColumn() > 0;
-
-                        if ($hasCheckedInToday && empty($guestNames)) {
-                            $errorMsg = "Check-in Denied: {$contactName} has already checked in today.";
-                        } else {
-                            // 3. Verify Active Membership
-                            $membership = MembershipService::getMemberMembershipDetails($contactId);
-
-                            // Before redirecting to pay-entrance, check whether this member already
-                            // has a pending cash payment waiting on the host. If so, telling them to
-                            // pay again would create a duplicate -- direct them to the host instead.
-                            $pendingStmt = $appDb->prepare("SELECT COUNT(*) FROM tgg_pending_payments WHERE contact_id = :contact_id AND status = 'pending'");
-                            $pendingStmt->execute(['contact_id' => $contactId]);
-                            $hasPendingPayment = (int)$pendingStmt->fetchColumn() > 0;
-
-                            if (!$membership || !$membership['is_active']) {
-                                if ($hasPendingPayment) {
-                                    $errorMsg = "You already have a pending payment with the host. Please see the host to complete your check-in.";
-                                } else {
-                                    // Expired/inactive membership: send them to renew (Card or Cash) instead of a flat denial.
-                                    $redirectUrl = 'pay-entrance.php?contact_id=' . $contactId . '&reason=renewal&return=checkin.php';
-                                }
-                            } elseif (BillingHelper::entranceFeeOwed($membership)) {
-                                if ($hasPendingPayment) {
-                                    $errorMsg = "You already have a pending payment with the host. Please see the host to complete your check-in.";
-                                } else {
-                                    // Session-plan member's 2nd+ check-in since their last dues payment: pay the entrance fee first.
-                                    $redirectUrl = 'pay-entrance.php?contact_id=' . $contactId . '&reason=entrance_fee&return=checkin.php';
-                                }
-                            } else {
-                                // 3b. Enforce the monthly guest pass allowance before logging anything
-                                $guestLimitExceeded = false;
-                                if (!empty($guestNames)) {
-                                    $passes = BillingHelper::getGuestPassesRemaining($contactId, $membership);
-                                    if (count($guestNames) > $passes['remaining']) {
-                                        $guestLimitExceeded = true;
-                                        $errorMsg = "Only {$passes['remaining']} guest pass(es) remaining this month for {$contactName}.";
-                                    }
-                                }
-
-                                if (!$guestLimitExceeded) {
-                                    // 4. Log the check-in (and any guests)
-                                    if (!$hasCheckedInToday) {
-                                        $insertStmt = $appDb->prepare("INSERT INTO tgg_checkins (contact_id, checked_in_at, notes) VALUES (:contact_id, NOW(), :notes)");
-                                        $insertStmt->execute([
-                                            'contact_id' => $contactId,
-                                            'notes' => $notes
-                                        ]);
-                                    }
-
-                                    if (!empty($guestNames)) {
-                                        $insertGuestStmt = $appDb->prepare("INSERT INTO tgg_checkins (contact_id, checked_in_at, guest_name) VALUES (:contact_id, NOW(), :guest_name)");
-                                        foreach ($guestNames as $guestName) {
-                                            $insertGuestStmt->execute([
-                                                'contact_id' => $contactId,
-                                                'guest_name' => $guestName
-                                            ]);
-                                        }
-                                    }
-
-                                    $successMsg = "Check-In Successful! Welcome, {$contactName}.";
-                                    if (!empty($guestNames)) {
-                                        $successMsg .= " Checked in with " . count($guestNames) . " guest(s).";
-                                    }
-                                    $memberDetails = [
-                                        'name' => $contactName,
-                                        'membership' => $membership['membership_name'],
-                                        'expires' => date('M d, Y', strtotime($membership['end_date']))
-                                    ];
-                                }
-                            }
-                        }
+                        $successMsg = $result['message'];
+                        $memberDetails = $result['details'];
                     }
                 }
             }

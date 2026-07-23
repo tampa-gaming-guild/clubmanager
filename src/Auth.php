@@ -18,6 +18,31 @@ class Auth {
      * @throws Exception
      */
     public static function login(string $email, string $password): array|bool {
+        $user = self::authenticate($email, $password);
+        if ($user === false) {
+            return false;
+        }
+
+        $_SESSION['user'] = $user;
+
+        // Regenerate session ID to prevent session fixation attacks
+        session_regenerate_id(true);
+
+        // Rotate CSRF token on successful login to prevent pre-auth token hijacking
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+
+        return $_SESSION['user'];
+    }
+
+    /**
+     * Verify credentials and resolve the account's identity/roles/permissions,
+     * without touching any session state. Shared by the web session login
+     * above and ApiAuth's token login, so the lockout/roles/permissions logic
+     * (security-sensitive) can't drift between the two entry points.
+     * @return array|bool The resolved user array on success, false on failure
+     * @throws Exception On a locked account (code 423)
+     */
+    public static function authenticate(string $email, string $password): array|bool {
         $email = trim(strtolower($email));
         if (empty($email) || empty($password)) {
             return false;
@@ -100,20 +125,40 @@ class Auth {
         // 4. Fetch the user's display name according to privacy preferences
         $displayName = MembershipService::getFormattedName($contactId);
 
-        // Fetch all roles assigned to this contact
+        $rolesAndPermissions = self::loadRolesAndPermissions($contactId, $authRow['role']);
+
+        return [
+            'contact_id' => $contactId,
+            'email' => $email,
+            'display_name' => $displayName,
+            'roles' => $rolesAndPermissions['roles'],
+            'role' => $rolesAndPermissions['role'], // for legacy string compatibility
+            'permissions' => $rolesAndPermissions['permissions']
+        ];
+    }
+
+    /**
+     * Load roles + the union of their permissions for a contact, in the shape
+     * shared by authenticate(), refreshPermissions(), and ApiAuth's token
+     * refresh -- kept in one place so this security-sensitive lookup can't
+     * drift between the session and token auth paths.
+     * @return array{roles: array, role: ?string, permissions: array}
+     */
+    public static function loadRolesAndPermissions(int $contactId, ?string $legacyRole = null): array {
+        $appDb = Database::getAppConnection();
+
         $rolesStmt = $appDb->prepare("SELECT role_name FROM tgg_member_roles WHERE contact_id = :contact_id");
         $rolesStmt->execute(['contact_id' => $contactId]);
         $roles = $rolesStmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
-        if (empty($roles)) {
-            $roles = [$authRow['role']];
+        if (empty($roles) && $legacyRole !== null) {
+            $roles = [$legacyRole];
         }
 
-        // Fetch permissions for these roles (union of permissions)
         $permissions = [];
         if (!empty($roles)) {
             $placeholders = implode(',', array_fill(0, count($roles), '?'));
             $permStmt = $appDb->prepare("
-                SELECT DISTINCT p.name 
+                SELECT DISTINCT p.name
                 FROM tgg_permissions p
                 JOIN tgg_role_permissions rp ON rp.permission_id = p.id
                 JOIN tgg_roles r ON r.id = rp.role_id
@@ -123,23 +168,7 @@ class Auth {
             $permissions = $permStmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
         }
 
-        // 5. Store in Session
-        $_SESSION['user'] = [
-            'contact_id' => $contactId,
-            'email' => $email,
-            'display_name' => $displayName,
-            'roles' => $roles,
-            'role' => $roles[0] ?? $authRow['role'], // for legacy string compatibility
-            'permissions' => $permissions
-        ];
-
-        // Regenerate session ID to prevent session fixation attacks
-        session_regenerate_id(true);
-
-        // Rotate CSRF token on successful login to prevent pre-auth token hijacking
-        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-
-        return $_SESSION['user'];
+        return ['roles' => $roles, 'role' => $roles[0] ?? $legacyRole, 'permissions' => $permissions];
     }
 
     /**
@@ -304,36 +333,15 @@ class Auth {
         }
         $contactId = (int)$_SESSION['user']['contact_id'];
         $appDb = Database::getAppConnection();
-        
+
         $stmt = $appDb->prepare("SELECT role FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1");
         $stmt->execute(['contact_id' => $contactId]);
         $row = $stmt->fetch();
         if ($row) {
-            // Fetch multiple roles
-            $rolesStmt = $appDb->prepare("SELECT role_name FROM tgg_member_roles WHERE contact_id = :contact_id");
-            $rolesStmt->execute(['contact_id' => $contactId]);
-            $roles = $rolesStmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
-            if (empty($roles)) {
-                $roles = [$row['role']];
-            }
-
-            $_SESSION['user']['roles'] = $roles;
-            $_SESSION['user']['role'] = $roles[0] ?? $row['role']; // for legacy string compatibility
-
-            $permissions = [];
-            if (!empty($roles)) {
-                $placeholders = implode(',', array_fill(0, count($roles), '?'));
-                $permStmt = $appDb->prepare("
-                    SELECT DISTINCT p.name 
-                    FROM tgg_permissions p
-                    JOIN tgg_role_permissions rp ON rp.permission_id = p.id
-                    JOIN tgg_roles r ON r.id = rp.role_id
-                    WHERE r.name IN ($placeholders)
-                ");
-                $permStmt->execute($roles);
-                $permissions = $permStmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
-            }
-            $_SESSION['user']['permissions'] = $permissions;
+            $rolesAndPermissions = self::loadRolesAndPermissions($contactId, $row['role']);
+            $_SESSION['user']['roles'] = $rolesAndPermissions['roles'];
+            $_SESSION['user']['role'] = $rolesAndPermissions['role']; // for legacy string compatibility
+            $_SESSION['user']['permissions'] = $rolesAndPermissions['permissions'];
         }
     }
 

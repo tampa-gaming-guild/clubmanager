@@ -10,6 +10,7 @@ use App\Database;
 use App\MembershipService;
 use App\Event;
 use App\BillingHelper;
+use App\CheckinService;
 
 // Enforce permission
 Auth::requirePermission('edit checkins');
@@ -87,18 +88,8 @@ if (!function_exists('get_distance_meters')) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $contactId = (int)($_POST['contact_id'] ?? 0);
     $notes = trim($_POST['notes'] ?? 'Checked in by Host');
-    $guestNames = [];
-    if (isset($_POST['guest_names']) && is_array($_POST['guest_names'])) {
-        foreach ($_POST['guest_names'] as $guestName) {
-            $guestName = trim(mb_substr((string)$guestName, 0, 100));
-            if ($guestName !== '') {
-                $guestNames[] = $guestName;
-            }
-            if (count($guestNames) >= 10) {
-                break;
-            }
-        }
-    }
+    $rawGuestNames = isset($_POST['guest_names']) && is_array($_POST['guest_names']) ? $_POST['guest_names'] : [];
+    $guestNames = CheckinService::sanitizeGuestNames($rawGuestNames);
     $isAjax = isset($_POST['ajax']) || (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && $_SERVER['HTTP_X_REQUESTED_WITH'] === 'XMLHttpRequest');
 
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
@@ -134,100 +125,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             
             if ($geoValid) {
-                // Session Check (same rule as the standard member checkin.php)
-                $activeSession = Event::getActiveSession();
-                $sessionOpen = $activeSession !== null;
-                
+                // Session Check: hosts get a wider 2hr setup window than self-service
+                // checkin.php -- see Event::getActiveSession() vs isCheckinWindowOpen().
+                $sessionOpen = Event::getActiveSession() !== null;
+
                 if (!$sessionOpen) {
                     $errorMsg = "Check-in Denied: There is no session open for check-in right now.";
                 } else {
-                    // Load contact details
-                    $contactStmt = $appDb->prepare("SELECT display_name FROM tgg_contacts WHERE id = :id AND is_deleted = 0 LIMIT 1");
+                    $contactStmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE id = :id AND is_deleted = 0 LIMIT 1");
                     $contactStmt->execute(['id' => $contactId]);
-                    $contactName = $contactStmt->fetchColumn();
-                    
-                    if (!$contactName) {
+
+                    if (!$contactStmt->fetch()) {
                         $errorMsg = "Member not found.";
                     } else {
-                        // Double check-in prevention (guest visits don't count toward this)
-                        $dupCheck = $appDb->prepare("SELECT COUNT(*) FROM tgg_checkins WHERE contact_id = :contact_id AND guest_name IS NULL AND DATE(checked_in_at) = CURDATE()");
-                        $dupCheck->execute(['contact_id' => $contactId]);
-                        $hasCheckedInToday = (int)$dupCheck->fetchColumn() > 0;
+                        $contactName = MembershipService::getFormattedName($contactId);
 
-                        if ($hasCheckedInToday && empty($guestNames)) {
+                        if (CheckinService::hasCheckedInToday($contactId) && empty($guestNames)) {
                             $errorMsg = "Check-in Denied: {$contactName} has already checked in today.";
                         } else {
-                            // Active membership verification
-                            $membership = MembershipService::getMemberMembershipDetails($contactId);
+                            // Host-only: a member with no active membership may have a pending
+                            // online Trial registration awaiting email verification. Checking
+                            // them in now satisfies that verification, so offer to activate it
+                            // in person instead of diverting straight to payment (pay-entrance.php's
+                            // renewal picker doesn't even offer the Trial plan, since it's a
+                            // one-time non-renewable offer).
                             $trialActivationNote = '';
-                            $needsTrialConfirmation = false;
-
+                            $membership = MembershipService::getMemberMembershipDetails($contactId);
                             if (!$membership || !$membership['is_active']) {
                                 $pendingTrialPlanId = BillingHelper::getPendingTrialPlanId($contactId);
-
                                 if ($pendingTrialPlanId && !empty($_POST['confirm_trial_activation'])) {
-                                    // Host explicitly confirmed activating this member's pending online
-                                    // Trial registration in person -- checking them in now satisfies the
-                                    // verification an emailed link would have, so activate instead of
-                                    // diverting to payment (pay-entrance.php's renewal picker doesn't even
-                                    // offer the Trial plan, since it's a one-time non-renewable offer).
+                                    // Host explicitly confirmed activating this member's Trial in person.
                                     BillingHelper::activatePendingTrialInPerson($contactId, $_SESSION['user']['contact_id'] ?? null);
                                     $trialActivationNote = ' Their Trial membership was activated.';
-                                    $membership = MembershipService::getMemberMembershipDetails($contactId);
                                 } elseif ($pendingTrialPlanId) {
                                     // Ask the host to explicitly confirm before activating anything.
                                     $needsTrialConfirmation = true;
                                 }
                             }
 
-                            if ($needsTrialConfirmation) {
-                                // handled in the AJAX/redirect response section below
-                            } elseif (!$membership || !$membership['is_active']) {
-                                // Expired/inactive membership: send to renew (Card or Cash) instead of a flat denial.
-                                $redirectUrl = 'pay-entrance.php?contact_id=' . $contactId . '&reason=renewal&return=host_checkin.php';
-                            } elseif (BillingHelper::entranceFeeOwed($membership)) {
-                                // Session-plan member's 2nd+ check-in since their last dues payment: pay the entrance fee first.
-                                $redirectUrl = 'pay-entrance.php?contact_id=' . $contactId . '&reason=entrance_fee&return=host_checkin.php';
-                            } else {
-                                // Enforce the monthly guest pass allowance before logging anything
-                                $guestLimitExceeded = false;
-                                if (!empty($guestNames)) {
-                                    $passes = BillingHelper::getGuestPassesRemaining($contactId, $membership);
-                                    if (count($guestNames) > $passes['remaining']) {
-                                        $guestLimitExceeded = true;
-                                        $errorMsg = "Only {$passes['remaining']} guest pass(es) remaining this month for {$contactName}.";
-                                    }
-                                }
+                            if (!$needsTrialConfirmation) {
+                                // Host check-ins don't suppress the redirect for a pending cash
+                                // payment (that message is meant for an unaccompanied kiosk
+                                // visitor) -- the host is already handling this member in person.
+                                $result = CheckinService::checkIn($contactId, $notes, $guestNames);
 
-                                if (!$guestLimitExceeded) {
-                                    // Log the check-in (and any guests)
-                                    if (!$hasCheckedInToday) {
-                                        $insert = $appDb->prepare("INSERT INTO tgg_checkins (contact_id, checked_in_at, notes) VALUES (:contact_id, NOW(), :notes)");
-                                        $insert->execute([
-                                            'contact_id' => $contactId,
-                                            'notes' => $notes
-                                        ]);
-                                    }
-
-                                    if (!empty($guestNames)) {
-                                        $insertGuest = $appDb->prepare("INSERT INTO tgg_checkins (contact_id, checked_in_at, guest_name) VALUES (:contact_id, NOW(), :guest_name)");
-                                        foreach ($guestNames as $guestName) {
-                                            $insertGuest->execute([
-                                                'contact_id' => $contactId,
-                                                'guest_name' => $guestName
-                                            ]);
-                                        }
-                                    }
-
-                                    $successMsg = "Check-In Successful! Welcome, {$contactName}." . $trialActivationNote;
-                                    if (!empty($guestNames)) {
-                                        $successMsg .= " Checked in with " . count($guestNames) . " guest(s).";
-                                    }
-                                    $memberDetails = [
-                                        'name' => $contactName,
-                                        'membership' => $membership['membership_name'],
-                                        'expires' => date('M d, Y', strtotime($membership['end_date']))
-                                    ];
+                                if ($result['redirect_reason']) {
+                                    $redirectUrl = 'pay-entrance.php?contact_id=' . $contactId . '&reason=' . $result['redirect_reason'] . '&return=host_checkin.php';
+                                } elseif ($result['error']) {
+                                    $errorMsg = $result['error'];
+                                } else {
+                                    $successMsg = $result['message'] . $trialActivationNote;
+                                    $memberDetails = $result['details'];
                                 }
                             }
                         }
