@@ -51,12 +51,15 @@ function handleGet(PDO $appDb, int $contactId, array $user): void {
     $pendingStmt->execute(['id' => $contactId]);
     $pendingEmailChange = $pendingStmt->fetch() ?: null;
 
+    // Home only shows a short teaser of each -- the full, pageable history
+    // lives behind its own screen backed by attendance-history.php /
+    // payment-history.php.
     $attendanceStmt = $appDb->prepare("
         SELECT checked_in_at, notes, guest_name
         FROM tgg_checkins
         WHERE contact_id = :contact_id
         ORDER BY checked_in_at DESC
-        LIMIT 20
+        LIMIT 3
     ");
     $attendanceStmt->execute(['contact_id' => $contactId]);
 
@@ -66,7 +69,7 @@ function handleGet(PDO $appDb, int $contactId, array $user): void {
         INNER JOIN tgg_subscription_plans p ON l.plan_id = p.id
         WHERE l.contact_id = :contact_id
         ORDER BY l.created_at DESC
-        LIMIT 20
+        LIMIT 3
     ");
     $ledgerStmt->execute(['contact_id' => $contactId]);
 
@@ -86,7 +89,9 @@ function handleGet(PDO $appDb, int $contactId, array $user): void {
         'auto_apply_credits' => (bool)$settings['auto_apply_credits'],
         'pending_email_change' => $pendingEmailChange,
         'credits' => MembershipCredits::getCreditSummary($contactId),
-        'credit_grants' => MembershipCredits::getTransactionHistory($contactId),
+        // Home only shows a short teaser -- the full, pageable list lives
+        // behind its own screen backed by credits-history.php.
+        'credit_grants' => array_slice(MembershipCredits::getTransactionHistory($contactId), 0, 3),
         'recent_attendance' => $attendanceStmt->fetchAll(),
         'payment_history' => $ledgerStmt->fetchAll(),
     ]);
