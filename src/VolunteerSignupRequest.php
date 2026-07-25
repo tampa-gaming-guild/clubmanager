@@ -189,6 +189,17 @@ class VolunteerSignupRequest {
     }
 
     /**
+     * Public entry point for notifySignup(), used by the mobile API's
+     * self-signup endpoint (api/volunteer/signup.php) -- that endpoint has no
+     * CSRF/session-based POST to route through like volunteers.php does, so
+     * it calls Event::signupVolunteer() directly and then this, to send the
+     * same pending/confirmed emails the web path sends.
+     */
+    public static function notifySelfSignup(array $slot, int $contactId, string $status): void {
+        self::notifySignup([$slot], $contactId, $contactId, $status);
+    }
+
+    /**
      * Sends the appropriate email(s) after a signup: to the volunteer + every
      * majordomo when pending, or to the volunteer alone when a manage-hosting
      * user assigned someone else (and that assignment is auto-confirmed).
