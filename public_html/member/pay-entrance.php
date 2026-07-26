@@ -166,6 +166,8 @@ if ($contactId <= 0) {
     }
 } elseif ($status === 'cancelled') {
     $errorMsg = "Payment was cancelled. No charge was made and you have not been checked in.";
+} elseif ($status === 'cash_pending') {
+    $cashPendingMsg = "See the Host to pay in cash. Your check-in will be completed once they confirm payment.";
 } elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!origin_is_valid()) {
         http_response_code(403);
@@ -234,15 +236,14 @@ if ($contactId <= 0) {
                 $appDb = Database::getAppConnection();
                 $dupStmt = $appDb->prepare("SELECT COUNT(*) FROM tgg_pending_payments WHERE contact_id = :contact_id AND status = 'pending'");
                 $dupStmt->execute(['contact_id' => $contactId]);
-                if ((int)$dupStmt->fetchColumn() > 0) {
-                    $cashPendingMsg = "You already have a pending payment with the host. Please see the host to complete your check-in.";
-                } else {
+                if ((int)$dupStmt->fetchColumn() === 0) {
                     BillingHelper::createPendingPayment($contactId, $type, $context['plan_id'], $context['amount']);
-                    $cashPendingMsg = sprintf(
-                        "See the Host to pay $%s in cash. Your check-in will be completed once they confirm payment.",
-                        number_format($context['amount'], 2)
-                    );
                 }
+                // PRG (and gives an in-app-webview client, e.g. the mobile app, a
+                // distinct URL to watch for) rather than re-rendering the same page --
+                // the duplicate-pending case reaches the exact same landing message.
+                header("Location: pay-entrance.php?contact_id=" . $contactId . "&reason=" . $reason . "&return=" . urlencode($returnPage) . "&status=cash_pending");
+                exit;
             } catch (Exception $e) {
                 $errorMsg = safe_err("Failed to record cash payment request: ", $e);
             }
