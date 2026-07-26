@@ -16,6 +16,7 @@ $errorMsg = null;
 $successMsg = null;
 $membership = null;
 $tiers = [];
+$hasCardOnFile = false;
 
 // 1. Handle Successful Redirect from Stripe (Run BEFORE Auth check as fallback)
 if (isset($_GET['status']) && $_GET['status'] === 'success' && isset($_GET['session_id'])) {
@@ -41,6 +42,16 @@ if (isset($_GET['status']) && $_GET['status'] === 'success' && isset($_GET['sess
 
 // 2. Handle Cancelled Redirect from Stripe
 if (isset($_GET['status']) && $_GET['status'] === 'cancelled') {
+    if (!Auth::check()) {
+        // An in-app webview (mobile) has no PHP session at all -- there's
+        // nothing to verify/process for a cancellation, so render a minimal
+        // standalone page instead of falling through to the auth gate below,
+        // mirroring the success block's own no-session fallback. Staying on
+        // this same status=cancelled URL (rather than redirecting) is also
+        // what the mobile webview watches for to know the flow is done.
+        echo '<!DOCTYPE html><html><body><p>Renewal cancelled. No changes were made. You can close this window.</p></body></html>';
+        exit;
+    }
     $errorMsg = "Renewal process cancelled. No changes have been made.";
 }
 
@@ -51,6 +62,11 @@ $isAdmin = has_permission('edit checkins');
 if ($isAdmin && isset($_GET['contact_id'])) {
     $contactId = (int)$_GET['contact_id'];
 }
+// Card on file / Cash are host-renewing-someone-else options only -- an
+// edit-checkins holder renewing their OWN membership (no ?contact_id=
+// override, or one that just points back at themselves) still only gets
+// Stripe/Credits, same as any other member.
+$isSelfRenewal = ((int)$contactId === (int)$_SESSION['user']['contact_id']);
 
 $contactName = null;
 $contactEmail = null;
@@ -71,6 +87,13 @@ try {
     $tiers = array_values(array_filter(BillingHelper::getSubscriptionPlans(true), function ($tier) {
         return !BillingHelper::isTrialPlan($tier);
     }));
+
+    // Drives whether the host section offers "Charge Card on File" -- see
+    // BillingHelper::processOfflineRenewal()'s 'card_on_file' payment method.
+    $billingStmt = $appDb->prepare("SELECT stripe_customer_id, stripe_payment_method_id FROM tgg_subscriptions WHERE contact_id = :id LIMIT 1");
+    $billingStmt->execute(['id' => $contactId]);
+    $billingRow = $billingStmt->fetch();
+    $hasCardOnFile = !empty($billingRow['stripe_customer_id']) && !empty($billingRow['stripe_payment_method_id']);
 } catch (Exception $e) {
     $errorMsg = safe_err("Unable to fetch membership details: ", $e);
 }
@@ -82,65 +105,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
     } else {
         $paymentFlow = $_POST['payment_flow'] ?? 'stripe';
 
-        if ($paymentFlow === 'offline' && has_permission('edit checkins')) {
-            $paymentMethod = $_POST['payment_method'] ?? '';
-            $durationMode = $_POST['duration_mode'] ?? 'standard';
-            $levelChangeMode = $_POST['level_change_mode'] ?? 'extend_current';
-            $customExpiryDate = $_POST['custom_expiry_date'] ?? null;
-            $amountReceivedInput = $_POST['amount_received'] ?? '';
-            $customAmount = ($amountReceivedInput !== '') ? (float)$amountReceivedInput : null;
-            
-            $tierId = ($durationMode === 'standard') ? (int)($_POST['tier_id'] ?? 0) : (int)($membership['membership_id'] ?? ($tiers[0]['id'] ?? 0));
+        if (($paymentFlow === 'card_on_file' || $paymentFlow === 'offline_cash') && $isAdmin && !$isSelfRenewal) {
+            $paymentMethod = ($paymentFlow === 'card_on_file') ? 'card_on_file' : 'cash';
+            $tierId = (int)($_POST['tier_id'] ?? 0);
 
             if (empty($tierId)) {
                 $errorMsg = "Please select a membership level.";
             } else {
                 try {
-                    // Find chosen tier info
                     $tierIndex = array_search($tierId, array_column($tiers, 'id'));
                     if ($tierIndex === false) {
                         throw new Exception("Invalid membership tier selected.");
                     }
-                    $tier = $tiers[$tierIndex];
-                    $tierName = $tier['name'];
+                    $tierName = $tiers[$tierIndex]['name'];
 
-                    BillingHelper::processOfflineRenewal(
-                        $contactId,
-                        $tierId,
-                        $paymentMethod,
-                        'renew',
-                        $levelChangeMode,
-                        $durationMode,
-                        $customExpiryDate,
-                        $customAmount
-                    );
+                    // 'change_level' (not 'extend_current') so the selected tier always takes
+                    // effect -- same "whatever tier you pick is what you get" behavior as the
+                    // Stripe flow below, now that there's no separate duration/level-change UI.
+                    BillingHelper::processOfflineRenewal($contactId, $tierId, $paymentMethod, 'renew', 'change_level', 'standard');
 
-                    // Load updated membership details
-                    $updatedMembership = BillingHelper::getMemberSubscriptionDetails($contactId);
-                    if (!$updatedMembership) {
-                        $updatedMembership = MembershipService::getMemberMembershipDetails($contactId);
+                    $membership = BillingHelper::getMemberSubscriptionDetails($contactId);
+                    if (!$membership) {
+                        $membership = MembershipService::getMemberMembershipDetails($contactId);
                     }
+                    $expiresLabel = $membership ? date('F j, Y', strtotime($membership['end_date'])) : '';
 
-                    $extendedLevelName = ($updatedMembership && isset($updatedMembership['membership_name'])) ? $updatedMembership['membership_name'] : $tierName;
-
-                    if ($durationMode === 'custom_date') {
-                        $successMsg = "Offline renewal processed successfully! Expiration date set to " . date('F j, Y', strtotime($customExpiryDate)) . " via " . htmlspecialchars(ucwords($paymentMethod)) . ".";
-                    } elseif ($durationMode === '1_month') {
-                        $successMsg = "Offline renewal processed successfully! Membership extended by 1 month via " . htmlspecialchars(ucwords($paymentMethod)) . ".";
-                    } elseif ($durationMode === '1_year') {
-                        $successMsg = "Offline renewal processed successfully! Membership extended by 1 year via " . htmlspecialchars(ucwords($paymentMethod)) . ".";
-                    } else {
-                        if ($levelChangeMode === 'extend_current' && $membership) {
-                            $successMsg = "Offline renewal processed successfully! Membership level " . htmlspecialchars($extendedLevelName) . " extended via " . htmlspecialchars(ucwords($paymentMethod)) . " (added time based on " . htmlspecialchars($tierName) . ").";
-                        } else {
-                            $successMsg = "Offline renewal processed successfully! Membership changed to " . htmlspecialchars($extendedLevelName) . " via " . htmlspecialchars(ucwords($paymentMethod)) . ".";
-                        }
-                    }
+                    $methodLabel = ($paymentFlow === 'card_on_file') ? 'card on file' : 'cash';
+                    $successMsg = "Renewed to " . htmlspecialchars($tierName) . " via {$methodLabel}, through " . htmlspecialchars($expiresLabel) . ".";
                     $successMsg .= ' <a href="profile.php?id=' . $contactId . '" class="btn btn-secondary btn-small" style="display: inline-block; margin-left: 15px; padding: 4px 10px; font-size: 0.8rem; vertical-align: middle; background: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.25); color: #fff;">Back to Profile</a>';
-
-                    $membership = $updatedMembership;
                 } catch (Exception $e) {
-                    $errorMsg = safe_err("Failed to process offline renewal: ", $e);
+                    $errorMsg = safe_err("Failed to process renewal: ", $e);
                 }
             }
         } elseif ($paymentFlow === 'credits') {
@@ -284,23 +278,22 @@ try {
                 </div>
 
                 <!-- Renewal Forms -->
-                <?php if (has_permission('edit checkins')): ?>
+                <?php if ($isAdmin && !$isSelfRenewal): ?>
                     <div class="renewal-sections-container" style="display: flex; flex-direction: column; gap: 25px; margin-top: 20px;">
                         
-                        <!-- SECTION 1: STANDARD RENEWAL (STRIPE) -->
+                        <!-- SECTION 1: RENEW MEMBERSHIP (Card on File / Stripe Checkout / Cash) -->
                         <div class="renewal-section-card" style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 20px; text-align: left;">
                             <h3 style="margin-top: 0; margin-bottom: 15px; color: var(--color-primary); display: flex; align-items: center; gap: 8px; font-size: 1.1rem;">
-                                <span>💳</span> Standard Renewal via Stripe
+                                <span>💳</span> Renew Membership
                             </h3>
-                            <form action="renew.php?contact_id=<?php echo $contactId; ?>" method="POST" class="auth-form">
+                            <form action="renew.php?contact_id=<?php echo $contactId; ?>" method="POST" class="auth-form" data-confirm="Process this renewal for the selected level?" style="display: flex; flex-direction: column; gap: 12px;">
                                 <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
-                                <input type="hidden" name="payment_flow" value="stripe">
-                                
+
                                 <div class="form-group">
                                     <label for="stripe_tier_id">Select Renewal Level</label>
                                     <select id="stripe_tier_id" name="tier_id" required>
                                         <option value="" disabled selected>-- Select a Level --</option>
-                                        <?php foreach ($tiers as $tier): 
+                                        <?php foreach ($tiers as $tier):
                                             $dispFee = $tier['minimum_fee'];
                                             $dispInterval = $tier['duration_interval'];
                                             $dispUnit = $tier['duration_unit'];
@@ -314,19 +307,19 @@ try {
                                             elseif ($unitText === 'month') $unitText = 'monthly';
                                             elseif ($unitText === 'day') $unitText = 'daily';
                                         ?>
-                                            <option value="<?php echo (int)$tier['id']; ?>" 
+                                            <option value="<?php echo (int)$tier['id']; ?>"
                                                 <?php echo ($membership && $membership['membership_name'] === $tier['name']) ? 'selected' : ''; ?>>
                                                 <?php echo e($tier['name']); ?> - $<?php echo number_format($dispFee, 2); ?> / <?php echo e($unitText); ?>
                                             </option>
                                         <?php endforeach; ?>
                                     </select>
                                 </div>
-                                
-                                <div class="info-block mt-10" style="margin-bottom: 15px;">
-                                    <p><strong>Note:</strong> Pressing "Pay Dues via Stripe" will redirect you to Stripe Checkout to securely process the credit card payment.</p>
-                                </div>
-                                
-                                <button type="submit" class="btn btn-primary btn-block">Pay Dues via Stripe</button>
+
+                                <?php if ($hasCardOnFile): ?>
+                                    <button type="submit" name="payment_flow" value="card_on_file" class="btn btn-primary btn-block">Charge Card on File</button>
+                                <?php endif; ?>
+                                <button type="submit" name="payment_flow" value="stripe" class="btn btn-secondary btn-block">Pay with Card via Checkout</button>
+                                <button type="submit" name="payment_flow" value="offline_cash" class="btn btn-warning btn-block">Pay Cash</button>
                             </form>
                         </div>
 
@@ -357,339 +350,8 @@ try {
                             </form>
                         </div>
                         <?php endif; ?>
-
-                        <!-- SECTION 3: OFFLINE PAYMENT (ADMIN DIRECT ENTRY) -->
-                        <div class="renewal-section-card" style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 20px; text-align: left;">
-                            <h3 style="margin-top: 0; margin-bottom: 15px; color: var(--color-warning); display: flex; align-items: center; gap: 8px; font-size: 1.1rem;">
-                                <span>📝</span> Record Offline Payment (Direct Entry)
-                            </h3>
-                            <form action="renew.php?contact_id=<?php echo $contactId; ?>" method="POST" class="auth-form" onsubmit="return validateOfflineForm(event)">
-                                <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
-                                <input type="hidden" name="payment_flow" value="offline">
-                                
-                                <div class="form-group">
-                                    <label for="offline_payment_method">Offline Payment Method</label>
-                                    <select id="offline_payment_method" name="payment_method" required>
-                                        <option value="cash">Cash</option>
-                                        <option value="check">Check</option>
-                                        <option value="complimentary">Complimentary</option>
-                                        <option value="volunteer credit">Volunteer Credit</option>
-                                    </select>
-                                </div>
-                                
-                                <div class="form-group mt-15">
-                                    <label style="display: block; margin-bottom: 8px; font-weight: bold; font-size: 0.9rem;">Select Duration Option</label>
-                                    <div style="display: flex; flex-direction: column; gap: 12px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 15px;">
-                                        
-                                        <!-- Option 1: Standard Membership Levels & Periods -->
-                                        <div style="display: flex; flex-direction: column; gap: 5px;">
-                                            <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; font-size: 0.85rem; cursor: pointer;">
-                                                <input type="radio" name="duration_mode" value="standard" checked onchange="toggleDurationOptions()">
-                                                <span><strong>Standard Membership Levels & Periods</strong></span>
-                                            </label>
-                                            <div id="standard_tier_select_wrapper" style="margin-left: 24px; margin-top: 5px;">
-                                                <select id="offline_tier_id" name="tier_id" style="width: 100%;">
-                                                    <option value="" disabled selected>-- Select a Level --</option>
-                                                    <?php foreach ($tiers as $tier): 
-                                                        $dispFee = $tier['minimum_fee'];
-                                                        $dispInterval = $tier['duration_interval'];
-                                                        $dispUnit = $tier['duration_unit'];
-                                                        if ($membership && (int)$membership['membership_id'] === (int)$tier['id']) {
-                                                            $dispFee = $membership['minimum_fee'];
-                                                            $dispInterval = $membership['duration_interval'];
-                                                            $dispUnit = $membership['duration_unit'];
-                                                        }
-                                                        $unitText = strtolower($dispUnit);
-                                                        if ($unitText === 'year') $unitText = 'annual';
-                                                        elseif ($unitText === 'month') $unitText = 'monthly';
-                                                        elseif ($unitText === 'day') $unitText = 'daily';
-                                                    ?>
-                                                        <option value="<?php echo (int)$tier['id']; ?>" 
-                                                            data-interval="<?php echo (int)$dispInterval; ?>"
-                                                            data-unit="<?php echo e(strtolower($dispUnit)); ?>"
-                                                            data-price="<?php echo (float)$dispFee; ?>"
-                                                            data-name="<?php echo e($tier['name']); ?>"
-                                                            <?php echo ($membership && $membership['membership_name'] === $tier['name']) ? 'selected' : ''; ?>>
-                                                            <?php echo e($tier['name']); ?> - $<?php echo number_format($dispFee, 2); ?> / <?php echo e($unitText); ?>
-                                                        </option>
-                                                    <?php endforeach; ?>
-                                                </select>
-                                            </div>
-                                        </div>
-                                        
-                                        <!-- Option 2: Add One Month -->
-                                        <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; font-size: 0.85rem; cursor: pointer;">
-                                            <input type="radio" name="duration_mode" value="1_month" onchange="toggleDurationOptions()">
-                                            <span>Add One Month</span>
-                                        </label>
-                                        
-                                        <!-- Option 3: Add One Year -->
-                                        <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; font-size: 0.85rem; cursor: pointer;">
-                                            <input type="radio" name="duration_mode" value="1_year" onchange="toggleDurationOptions()">
-                                            <span>Add One Year</span>
-                                        </label>
-                                        
-                                        <!-- Option 4: Set Specific Expiration Date -->
-                                        <div style="display: flex; flex-direction: column; gap: 5px;">
-                                            <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; font-size: 0.85rem; cursor: pointer;">
-                                                <input type="radio" name="duration_mode" value="custom_date" onchange="toggleDurationOptions()">
-                                                <span>Set Specific Expiration Date</span>
-                                            </label>
-                                            <div id="custom_date_wrapper" style="margin-left: 24px; margin-top: 5px; display: none;">
-                                                <div style="font-size: 0.8rem; color: var(--color-text-secondary); margin-bottom: 5px;">
-                                                    Current Expiration: <strong><?php echo $membership ? date('F j, Y', strtotime($membership['end_date'])) : 'None'; ?></strong>
-                                                </div>
-                                                <input type="date" id="custom_expiry_date" name="custom_expiry_date" style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; color: #fff;">
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <div class="form-group mt-15">
-                                    <label for="amount_received">Amount Received ($)</label>
-                                    <input type="number" step="0.01" min="0" id="amount_received" name="amount_received" placeholder="Leave empty for level default or $0.00" style="width: 100%;">
-                                </div>
-
-                                <?php if ($membership): ?>
-                                <div class="form-group mt-15" id="offline_level_change_group">
-                                    <label style="display: block; margin-bottom: 5px; font-weight: bold; font-size: 0.9rem;">Level Change Option</label>
-                                    <div style="display: flex; flex-direction: column; gap: 8px;">
-                                         <label style="display: flex; align-items: flex-start; gap: 8px; font-weight: normal; font-size: 0.85rem; cursor: pointer;">
-                                            <input type="radio" name="level_change_mode" value="extend_current" style="margin-top: 3px;" checked>
-                                            <span>Add time without changing the current membership level (default)</span>
-                                         </label>
-                                         <label style="display: flex; align-items: flex-start; gap: 8px; font-weight: normal; font-size: 0.85rem; cursor: pointer;">
-                                            <input type="radio" name="level_change_mode" value="change_level" style="margin-top: 3px;">
-                                            <span>Change the current membership level to the new one</span>
-                                         </label>
-                                    </div>
-                                </div>
-                                <?php endif; ?>
-                                
-                                <button type="submit" class="btn btn-warning btn-block mt-20">Record Offline Renewal</button>
-                            </form>
-                        </div>
                     </div>
-                    
-                    <script>
-                        function toggleDurationOptions() {
-                            const modes = document.getElementsByName('duration_mode');
-                            let selectedMode = 'standard';
-                            for (const mode of modes) {
-                                if (mode.checked) {
-                                    selectedMode = mode.value;
-                                    break;
-                                }
-                            }
-                            
-                            const tierSelectWrapper = document.getElementById('standard_tier_select_wrapper');
-                            const dateWrapper = document.getElementById('custom_date_wrapper');
-                            const levelChangeGroup = document.getElementById('offline_level_change_group');
-                            const tierSelect = document.getElementById('offline_tier_id');
-                            const dateInput = document.getElementById('custom_expiry_date');
-                            
-                            if (selectedMode === 'standard') {
-                                tierSelectWrapper.style.display = 'block';
-                                dateWrapper.style.display = 'none';
-                                if (levelChangeGroup) levelChangeGroup.style.display = 'block';
-                                if (tierSelect) tierSelect.setAttribute('required', 'required');
-                                if (dateInput) dateInput.removeAttribute('required');
-                            } else if (selectedMode === 'custom_date') {
-                                tierSelectWrapper.style.display = 'none';
-                                dateWrapper.style.display = 'block';
-                                if (levelChangeGroup) levelChangeGroup.style.display = 'none';
-                                if (tierSelect) tierSelect.removeAttribute('required');
-                                if (dateInput) dateInput.setAttribute('required', 'required');
-                            } else {
-                                tierSelectWrapper.style.display = 'none';
-                                dateWrapper.style.display = 'none';
-                                if (levelChangeGroup) levelChangeGroup.style.display = 'none';
-                                if (tierSelect) tierSelect.removeAttribute('required');
-                                if (dateInput) dateInput.removeAttribute('required');
-                            }
-                        }
-                        
-                        // Adds N months (or N*12 for years) to a date -- mirrors
-                        // BillingHelper::addPeriodMinusOneDay() on the backend so this preview
-                        // always matches what actually gets saved. If `date` is itself the last
-                        // calendar day of its month (e.g. Jan 31), anchors to the last day of the
-                        // target month instead (Jan 31 -> Feb 28 -> Mar 31 -> ...) so a short month
-                        // like February doesn't permanently lock the renewal day onto a smaller
-                        // number forever after.
-                        function addPeriodMinusOneDay(date, interval, unit) {
-                            const months = (unit === 'year') ? interval * 12 : interval;
-                            const day = date.getDate();
-                            const daysInStartMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-                            const isLastDayOfStartMonth = (day === daysInStartMonth);
 
-                            const result = new Date(date.getFullYear(), date.getMonth(), 1);
-                            result.setMonth(result.getMonth() + months);
-                            const daysInTargetMonth = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
-
-                            if (isLastDayOfStartMonth) {
-                                result.setDate(daysInTargetMonth);
-                                return result;
-                            }
-
-                            result.setDate(Math.min(day, daysInTargetMonth));
-                            result.setDate(result.getDate() - 1);
-                            return result;
-                        }
-
-                        function calculateNewExpiration() {
-                            const todayStr = "<?php echo date('Y-m-d'); ?>";
-                            const currentExpiryStr = "<?php echo $membership ? $membership['end_date'] : ''; ?>";
-
-                            let startDate = new Date(todayStr + 'T00:00:00');
-                            if (currentExpiryStr) {
-                                const today = new Date(todayStr + 'T00:00:00');
-                                const currentExpiry = new Date(currentExpiryStr + 'T00:00:00');
-                                // Extend from the old expiry if still active, or lapsed by 30 days or
-                                // less (grace period). Beyond that, start fresh from today instead.
-                                const daysSinceExpiry = (today.getTime() - currentExpiry.getTime()) / 86400000;
-                                if (daysSinceExpiry <= 30) {
-                                    startDate = new Date(currentExpiry.getTime());
-                                    startDate.setDate(startDate.getDate() + 1);
-                                }
-                            }
-
-                            const modes = document.getElementsByName('duration_mode');
-                            let selectedMode = 'standard';
-                            for (const mode of modes) {
-                                if (mode.checked) {
-                                    selectedMode = mode.value;
-                                    break;
-                                }
-                            }
-
-                            let newExpiry = new Date(startDate.getTime());
-                            let durationLabel = '';
-                            let amountLabel = '';
-
-                            // Amount Received
-                            const amountInput = document.getElementById('amount_received').value;
-
-                            if (selectedMode === '1_month') {
-                                newExpiry = addPeriodMinusOneDay(startDate, 1, 'month');
-                                durationLabel = "1 Month";
-                                amountLabel = amountInput !== '' ? '$' + parseFloat(amountInput).toFixed(2) : '$0.00';
-                            } else if (selectedMode === '1_year') {
-                                newExpiry = addPeriodMinusOneDay(startDate, 1, 'year');
-                                durationLabel = "1 Year";
-                                amountLabel = amountInput !== '' ? '$' + parseFloat(amountInput).toFixed(2) : '$0.00';
-                            } else if (selectedMode === 'custom_date') {
-                                const dateInput = document.getElementById('custom_expiry_date').value;
-                                if (dateInput) {
-                                    newExpiry = new Date(dateInput + 'T00:00:00');
-                                }
-                                durationLabel = "Custom Expiration Date";
-                                amountLabel = amountInput !== '' ? '$' + parseFloat(amountInput).toFixed(2) : '$0.00';
-                            } else {
-                                // standard plan
-                                const tierSelect = document.getElementById('offline_tier_id');
-                                const selectedOpt = tierSelect.options[tierSelect.selectedIndex];
-                                if (selectedOpt && selectedOpt.value !== "") {
-                                    const interval = parseInt(selectedOpt.getAttribute('data-interval'));
-                                    const unit = selectedOpt.getAttribute('data-unit');
-                                    const price = parseFloat(selectedOpt.getAttribute('data-price'));
-                                    const name = selectedOpt.getAttribute('data-name');
-
-                                    if (unit === 'day') {
-                                         // Daily payment should never change the expiration date
-                                         if (currentExpiryStr) {
-                                             newExpiry = new Date(currentExpiryStr + 'T00:00:00');
-                                         } else {
-                                             newExpiry = new Date(todayStr + 'T00:00:00');
-                                         }
-                                     } else {
-                                        newExpiry = addPeriodMinusOneDay(startDate, interval, unit);
-                                    }
-                                    durationLabel = `${name} (${interval} ${unit}(s))`;
-                                    amountLabel = amountInput !== '' ? '$' + parseFloat(amountInput).toFixed(2) : '$' + price.toFixed(2);
-                                }
-                            }
-                            
-                            return {
-                                expiryDate: newExpiry,
-                                expiryLabel: newExpiry.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
-                                duration: durationLabel,
-                                amount: amountLabel
-                            };
-                        }
-
-                        function validateOfflineForm(event) {
-                            const form = event.target;
-
-                            // Second pass after the modal was confirmed: let the submit through.
-                            if (form.dataset.confirmed === '1') {
-                                return true;
-                            }
-
-                            const modes = document.getElementsByName('duration_mode');
-                            let selectedMode = 'standard';
-                            for (const mode of modes) {
-                                if (mode.checked) {
-                                    selectedMode = mode.value;
-                                    break;
-                                }
-                            }
-
-                            // If standard mode, check that a tier is selected
-                            if (selectedMode === 'standard') {
-                                const tierSelect = document.getElementById('offline_tier_id');
-                                if (!tierSelect.value) {
-                                    confirmDialog("Please select a standard membership level.", { alertOnly: true });
-                                    event.preventDefault();
-                                    return false;
-                                }
-                            } else if (selectedMode === 'custom_date') {
-                                const dateInput = document.getElementById('custom_expiry_date');
-                                if (!dateInput.value) {
-                                    confirmDialog("Please select a specific expiration date.", { alertOnly: true });
-                                    event.preventDefault();
-                                    return false;
-                                }
-                            }
-
-                            // Calculate new expiration details
-                            const details = calculateNewExpiration();
-
-                            // Expiry warnings
-                            const currentExpiryStr = "<?php echo $membership ? $membership['end_date'] : ''; ?>";
-                            let warningPrefix = "";
-                            if (selectedMode === 'custom_date' && currentExpiryStr) {
-                                const dateInput = document.getElementById('custom_expiry_date').value;
-                                if (dateInput) {
-                                    const selectedDate = new Date(dateInput + 'T00:00:00');
-                                    const currentExpiry = new Date(currentExpiryStr + 'T00:00:00');
-                                    if (selectedDate < currentExpiry) {
-                                        warningPrefix = "WARNING: The selected expiration date is prior to the current expiration date. This will shorten the member's active membership.\n\n";
-                                    }
-                                }
-                            }
-
-                            // Always prompt for confirmation
-                            const message = `${warningPrefix}Are you sure you want to record this offline payment?\n\n` +
-                                            `- Selected Duration: ${details.duration}\n` +
-                                            `- New Expiration Date: ${details.expiryLabel}\n` +
-                                            `- Amount Received: ${details.amount}`;
-
-                            event.preventDefault();
-                            confirmDialog(message, { confirmText: 'Record Payment' }).then((ok) => {
-                                if (ok) {
-                                    form.dataset.confirmed = '1';
-                                    form.requestSubmit();
-                                }
-                            });
-                            return false;
-                        }
-
-                        // Initialize on load
-                        if (document.getElementsByName('duration_mode').length > 0) {
-                            toggleDurationOptions();
-                        }
-                    </script>
-                    
                     <a href="profile.php?id=<?php echo $contactId; ?>" class="btn btn-secondary btn-block mt-15" style="text-align: center; justify-content: center; align-items: center;">Back to Profile</a>
 
                 <?php else: ?>

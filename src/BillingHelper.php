@@ -1296,8 +1296,11 @@ class BillingHelper {
     ): bool {
         $appDb = Database::getAppConnection();
 
-        // Validate payment method
-        $validMethods = ['cash', 'check', 'complimentary', 'volunteer credit'];
+        // Validate payment method. 'card_on_file' charges the member's stored Stripe
+        // customer/payment method directly (StripeHelper::chargeOffSession()) instead of
+        // trusting that payment already happened out-of-band like the other methods do --
+        // see the charge step right before the ledger insert below.
+        $validMethods = ['cash', 'check', 'complimentary', 'volunteer credit', 'card_on_file'];
         if (!in_array(strtolower($paymentMethod), $validMethods)) {
             throw new Exception("Invalid offline payment method: " . htmlspecialchars($paymentMethod));
         }
@@ -1317,8 +1320,9 @@ class BillingHelper {
 
         // Query existing local subscription up front (a plain read, no need to wait for the
         // transaction) so grace-period and plan-change status can be determined before deciding
-        // whether the member's existing rate (if any) still applies.
-        $subStmt = $appDb->prepare("SELECT plan_id, join_date, start_date, end_date, rate_id FROM tgg_subscriptions WHERE contact_id = :contact_id LIMIT 1");
+        // whether the member's existing rate (if any) still applies. stripe_customer_id/
+        // stripe_payment_method_id are only used by the 'card_on_file' method below.
+        $subStmt = $appDb->prepare("SELECT plan_id, join_date, start_date, end_date, rate_id, stripe_customer_id, stripe_payment_method_id FROM tgg_subscriptions WHERE contact_id = :contact_id LIMIT 1");
         $subStmt->execute(['contact_id' => $contactId]);
         $existingSub = $subStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -1380,6 +1384,30 @@ class BillingHelper {
             $amountTotal = 0.00;
         }
         $currency = 'usd';
+
+        // 'card_on_file' actually charges the member's stored Stripe customer/payment method
+        // here, before anything is written -- a decline throws and nothing gets recorded,
+        // unlike the other methods, which all assume payment already happened out-of-band.
+        // Success replaces the synthetic offline id with the real Stripe PaymentIntent id, so
+        // this transaction is traceable back to an actual charge like any other card payment.
+        if (strtolower($paymentMethod) === 'card_on_file') {
+            if (empty($existingSub['stripe_customer_id']) || empty($existingSub['stripe_payment_method_id'])) {
+                throw new Exception("This member has no card on file.", 423);
+            }
+            $charge = StripeHelper::chargeOffSession(
+                $existingSub['stripe_customer_id'],
+                $existingSub['stripe_payment_method_id'],
+                $amountTotal,
+                $currency,
+                "Renewal: {$plan['name']}",
+                ['contact_id' => $contactId, 'plan_id' => $finalPlanId]
+            );
+            if (!$charge['success']) {
+                throw new Exception($charge['message'] ?? 'Card on file was declined.', 423);
+            }
+            $uniqueId = $charge['payment_intent_id'];
+            $paymentIntentId = $charge['payment_intent_id'];
+        }
 
         $appDb->beginTransaction();
 
