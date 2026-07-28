@@ -1,1 +1,5 @@
 *.sh text eol=lf
+# Apache reads .htaccess a line at a time, and a trailing CR from a Windows
+# checkout can land inside a directive's value -- notably the SetEnvIf capture
+# in the mobile API's file. Keep these LF regardless of core.autocrlf.
+.htaccess text eol=lf

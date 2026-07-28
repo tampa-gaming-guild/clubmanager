@@ -148,10 +148,18 @@ class ApiAuth {
      * $_SERVER by default (it's reserved for Basic/Digest auth handling), so
      * $_SERVER['HTTP_AUTHORIZATION'] is unreliable -- getallheaders() (built
      * into PHP for every SAPI since 7.3) is the portable way to read it.
+     *
+     * Under FPM/CGI even getallheaders() comes up empty, because the header is
+     * dropped before PHP is invoked at all. The .htaccess in
+     * public_html/member/api/ puts it back, and depending on which mechanism
+     * fires there it lands in HTTP_AUTHORIZATION or, when a rewrite was
+     * involved, REDIRECT_HTTP_AUTHORIZATION -- so check both before giving up.
      */
     private static function authorizationHeader(): string {
-        if (!empty($_SERVER['HTTP_AUTHORIZATION'])) {
-            return $_SERVER['HTTP_AUTHORIZATION'];
+        foreach (['HTTP_AUTHORIZATION', 'REDIRECT_HTTP_AUTHORIZATION'] as $key) {
+            if (!empty($_SERVER[$key])) {
+                return $_SERVER[$key];
+            }
         }
         if (function_exists('getallheaders')) {
             foreach (getallheaders() as $name => $value) {

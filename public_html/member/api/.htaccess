@@ -1,0 +1,24 @@
+# Make the Authorization header visible to PHP.
+#
+# Apache and LiteSpeed do not pass Authorization through to PHP when it runs as
+# FPM/CGI -- the header is dropped before the script sees it, so $_SERVER has no
+# HTTP_AUTHORIZATION and getallheaders() never reports one. Every Bearer-gated
+# endpoint under this directory then returns 401 "Missing or malformed
+# Authorization header" for a request that did in fact carry a perfectly good
+# token, which is a genuinely confusing failure to debug from the client side.
+#
+# Verified on the test server 2026-07-28: a request WITH a well-formed Bearer
+# header and a request with no header at all produced byte-identical 401s.
+#
+# Both mechanisms below do the same job; whichever module is present wins, and
+# each is guarded so a host missing one does not 500 the whole API.
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+</IfModule>
+
+<IfModule mod_setenvif.c>
+    SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+</IfModule>

@@ -38,8 +38,11 @@ start-proxy.bat
 *.log
 error_log
 
-# Server-side Basic Auth gates (host-specific paths, e.g. /home/tgg/.htpasswds/...;
-# not portable app config -- these protect pre-launch/test deployments)
-.htaccess
+# .htaccess used to be ignored wholesale, because the only ones in play were
+# host-specific Basic Auth gates gating pre-launch deployments. Those are gone
+# as of 2026-07-28, and the ones that remain are portable app config that has to
+# ship with the code -- so they are tracked now. Keep host-specific paths and
+# credentials out of them; .htpasswd files stay untracked below.
+.htpasswd
 *.bak
 
