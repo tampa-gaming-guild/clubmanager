@@ -24,7 +24,18 @@ $user = ApiAuth::requireAuth();
 $contactId = (int)$user['contact_id'];
 
 if (!Event::isCheckinWindowOpen()) {
-    json_response(['success' => false, 'error' => 'There is no session open for check-in right now. Check-in opens 1 hour before a scheduled session begins.'], 409);
+    // 'code' is what the mobile app keys on, and it matters more than it looks:
+    // this is the one refusal here that stops being true on its own. Every other
+    // outcome is settled for the day, but a member who arrives before the window
+    // opens should still be checked in automatically once it does, so the app
+    // must be able to tell this apart from a real rejection without matching on
+    // the English text below. Do not drop or rename it -- see
+    // BeaconBackground.runCheckIn() in the tgg-mobile repo.
+    json_response([
+        'success' => false,
+        'code' => 'no_session_open',
+        'error' => 'There is no session open for check-in right now. Check-in opens 1 hour before a scheduled session begins.',
+    ], 409);
 }
 
 $body = json_decode(file_get_contents('php://input') ?: '', true) ?: [];
