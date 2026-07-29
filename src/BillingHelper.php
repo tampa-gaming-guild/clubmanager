@@ -1997,6 +1997,8 @@ class BillingHelper {
      * Send a "your membership expires soon" reminder 5 days before expiry to members
      * who do not have auto-renew enabled, once per renewal cycle (deduped via
      * renewal_reminder_sent_for). Mirrors sendAutoRenewalReminders() for manual-pay members.
+     * Session-based (per-visit) plans are excluded: their expiration is only ever
+     * resolved reactively at the member's next paid check-in, not by renewing ahead of time.
      * @return array ['sent' => int]
      */
     public static function sendManualRenewalReminders(): array {
@@ -2013,6 +2015,7 @@ class BillingHelper {
               AND s.end_date >= CURRENT_DATE() + INTERVAL 1 DAY
               AND s.end_date <= CURRENT_DATE() + INTERVAL 5 DAY
               AND LOWER(p.name) NOT LIKE '%trial%'
+              AND p.duration_unit <> 'session'
               AND (s.renewal_reminder_sent_for IS NULL OR s.renewal_reminder_sent_for <> s.end_date)
         ");
         $stmt->execute();
@@ -2049,6 +2052,8 @@ class BillingHelper {
      * members who never renewed, deduped via expired_notice_sent_for. Only fires for
      * subscriptions still in 'active' status — members whose auto-renew failed 3 times
      * already have status='expired' and received auto_renew_expired instead.
+     * Session-based (per-visit) plans are excluded: they never truly "expire" while
+     * status stays active, they just sit until the member's next paid check-in extends them.
      * @return array ['sent' => int]
      */
     public static function sendExpiredNotices(): array {
@@ -2065,6 +2070,7 @@ class BillingHelper {
             WHERE s.status = 'active'
               AND s.end_date < CURDATE() - INTERVAL :grace_days DAY
               AND LOWER(p.name) NOT LIKE '%trial%'
+              AND p.duration_unit <> 'session'
               AND (s.expired_notice_sent_for IS NULL OR s.expired_notice_sent_for <> s.end_date)
         ");
         $stmt->execute(['grace_days' => $graceDays]);
