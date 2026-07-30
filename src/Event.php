@@ -171,8 +171,10 @@ class Event {
     /**
      * Get the currently active session event, if any.
      * "Active" = today's event where NOW() is within 2hrs before start_time
-     * through end_time -- hosts need to set up and members start arriving
-     * well before the official start time.
+     * through 2hrs after end_time -- hosts need to set up and members start
+     * arriving well before the official start time, and hosts commonly need
+     * to finish check-ins, settle a last pending payment, or review the
+     * day's log for a while after the official end time too.
      */
     public static function getActiveSession(): ?array {
         $appDb = Database::getAppConnection();
@@ -181,7 +183,7 @@ class Event {
             FROM tgg_events
             WHERE DATE(start_time) = CURDATE()
               AND NOW() >= DATE_SUB(start_time, INTERVAL 2 HOUR)
-              AND NOW() <= end_time
+              AND NOW() <= DATE_ADD(end_time, INTERVAL 2 HOUR)
             ORDER BY start_time ASC
             LIMIT 1
         ");
@@ -192,7 +194,9 @@ class Event {
 
     /**
      * Whether check-in is currently allowed: a session is scheduled today and
-     * NOW() is within 1hr before its start_time through its end_time.
+     * NOW() is within 1hr before its start_time through its end_time (no
+     * trailing window here -- unlike getActiveSession()'s hosting window,
+     * self-service check-in intentionally cuts off right at end_time).
      */
     public static function isCheckinWindowOpen(): bool {
         $appDb = Database::getAppConnection();
