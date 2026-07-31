@@ -14,17 +14,24 @@
                 </div>
             </div>
             <div class="hero-actions">
-                <a href="index.php?action=login" class="btn hero-btn-login">
-                    <img src="assets/images/red-meeple.png" alt="" class="meeple-icon-img" loading="lazy">
-                    <span>Login</span>
-                </a>
-                <a href="join.php" class="btn btn-primary hero-btn-primary">Join the Club &rarr;</a>
+                <?php if (\App\Auth::check()): ?>
+                    <a href="index.php" class="btn btn-primary hero-btn-primary">Portal &rarr;</a>
+                <?php else: ?>
+                    <a href="index.php?action=login" class="btn hero-btn-login">
+                        <img src="assets/images/red-meeple.png" alt="" class="meeple-icon-img" loading="lazy">
+                        <span>Login</span>
+                    </a>
+                    <a href="join.php" class="btn btn-primary hero-btn-primary">Join the Club &rarr;</a>
+                <?php endif; ?>
             </div>
         </div>
     </section>
 
     <!-- Fixed Header Menu Bar below Banner -->
     <nav class="clean-menu-bar" aria-label="Page Navigation Menu">
+        <?php if (!\App\Auth::check()): ?>
+            <a href="index.php" class="clean-menu-link">Home</a>
+        <?php endif; ?>
         <a href="#section-about" class="clean-menu-link">About Us</a>
         <a href="#section-schedule" class="clean-menu-link">Meeting Times</a>
         <a href="#section-pricing" class="clean-menu-link">Membership</a>

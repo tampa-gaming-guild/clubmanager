@@ -15,14 +15,21 @@
                 </div>
             </div>
             <div class="hero-actions">
-                <a href="join.php" class="btn btn-primary hero-btn-primary">Join the Club &rarr;</a>
-                <a href="calendar.php" class="btn btn-secondary hero-btn-secondary">View Schedule</a>
+                <?php if (\App\Auth::check()): ?>
+                    <a href="index.php" class="btn btn-primary hero-btn-primary">Portal &rarr;</a>
+                <?php else: ?>
+                    <a href="join.php" class="btn btn-primary hero-btn-primary">Join the Club &rarr;</a>
+                    <a href="calendar.php" class="btn btn-secondary hero-btn-secondary">View Schedule</a>
+                <?php endif; ?>
             </div>
         </div>
     </section>
 
     <!-- Quick Navigation to Sections -->
     <nav class="marketing-section-nav" aria-label="Page Sections Navigation">
+        <?php if (!\App\Auth::check()): ?>
+            <a href="index.php" class="section-nav-link">Home</a>
+        <?php endif; ?>
         <a href="#section-about" class="section-nav-link">About Us</a>
         <a href="#section-schedule" class="section-nav-link">Meeting Times</a>
         <a href="#section-pricing" class="section-nav-link">Membership</a>
