@@ -85,6 +85,16 @@ if ($selectedRaw !== null && (int)date('n', strtotime($selectedRaw)) === $month 
     $selectedDay = $selectedRaw;
 }
 
+// Combo view: default the initial (no ?selected=, no ?full=1) load to today,
+// so the page opens already filtered the same way clicking today's cell
+// would leave it, instead of showing the whole month first. ?full=1 is the
+// explicit opt-out used by the "Show Full Month" link/deselect toggle.
+if ($view === 'combo' && $selectedDay === null && !isset($_GET['selected']) && !isset($_GET['full'])) {
+    if ((int)date('n') === $month && (int)date('Y') === $year) {
+        $selectedDay = date('Y-m-d');
+    }
+}
+
 // Always fetched -- used by the desktop List view (when active) and by the
 // mobile fallback list, which shows the flat list regardless of the active
 // desktop $view (see the mobile-list-view markup below).
@@ -187,7 +197,7 @@ $renderComboListPanel = function () use ($comboHeading, $comboListEvents, $slots
     ?>
     <h3 style="margin-top: 0;"><?php echo e($comboHeading); ?></h3>
     <?php if ($selectedDay): ?>
-        <a href="<?php echo e($buildUrl(['selected' => null])); ?>" class="btn btn-secondary btn-small" style="margin-bottom: 16px; display: inline-block;">&times; Show Full Month</a>
+        <a href="<?php echo e($buildUrl(['selected' => null, 'full' => 1])); ?>" class="btn btn-secondary btn-small" style="margin-bottom: 16px; display: inline-block;">&times; Show Full Month</a>
     <?php endif; ?>
     <?php
         $vsEvents = $comboListEvents;
@@ -215,7 +225,9 @@ $cgNextHref = $buildUrl(['month' => $nextMonth, 'year' => $nextYear, 'selected' 
 $cgEventsByDay = $eventsByDay;
 $cgSelectedDay = $selectedDay;
 $cgDayHref = function (string $dateStr, bool $isSelected) use ($buildUrl) {
-    return $buildUrl(['selected' => $isSelected ? null : $dateStr]);
+    return $isSelected
+        ? $buildUrl(['selected' => null, 'full' => 1])
+        : $buildUrl(['selected' => $dateStr, 'full' => null]);
 };
 $cgDayContent = function (int $day, array $eventsForDay) use ($slotsByEvent, $volunteerBySlot) {
     // One row per volunteer slot per event. Slot type drives the color;
