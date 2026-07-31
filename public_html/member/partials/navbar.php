@@ -129,7 +129,7 @@ $navCheckinOpen = (!$navKiosk && ($navAuthed || $navGuestCheckin))
     <nav class="nav-links" id="navLinks">
         <?php if ($navKiosk): ?>
             <?php if ($navAuthed): ?>
-                <a href="index.php" class="<?php echo $navActive === 'dashboard' ? 'active' : ''; ?>">Dashboard</a>
+                <a href="index.php" class="<?php echo ($navActive === 'home' || $navActive === 'dashboard') ? 'active' : ''; ?>">Home</a>
             <?php else: ?>
                 <a href="index.php" class="<?php echo $navActive === 'login' ? 'active' : ''; ?>">Login</a>
                 <a href="join.php" class="<?php echo $navActive === 'join' ? 'active' : ''; ?>" title="Join or renew your membership">Join</a>
