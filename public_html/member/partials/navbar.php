@@ -137,7 +137,7 @@ $navCheckinOpen = (!$navKiosk && ($navAuthed || $navGuestCheckin))
             <a href="calendar.php" class="<?php echo $navActive === 'calendar' ? 'active' : ''; ?>">Calendar</a>
             <a href="checkin.php" class="<?php echo $navActive === 'checkin' ? 'active' : ''; ?>">Check-In</a>
         <?php elseif ($navAuthed): ?>
-            <a href="<?php echo $navPrefix; ?>index.php" class="<?php echo $navActive === 'dashboard' ? 'active' : ''; ?>">Dashboard</a>
+            <a href="<?php echo $navPrefix; ?>index.php" class="<?php echo ($navActive === 'home' || $navActive === 'dashboard') ? 'active' : ''; ?>">Home</a>
             <a href="<?php echo $navPrefix; ?>calendar.php" class="<?php echo $navActive === 'calendar' ? 'active' : ''; ?>">Calendar</a>
             <a href="<?php echo $navPrefix; ?>volunteers.php" class="<?php echo $navActive === 'volunteers' ? 'active' : ''; ?>">Volunteers</a>
             <a href="<?php echo $navPrefix; ?>library.php" class="<?php echo $navActive === 'library' ? 'active' : ''; ?>">Library</a>
