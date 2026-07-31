@@ -1,0 +1,261 @@
+/* ==========================================================================
+   Clean Page Variant Stylesheet (index_clean.php ONLY)
+   ========================================================================== */
+body.frameless-page {
+    background: #f8fafc;
+    color: #334155;
+    margin: 0;
+    padding: 0;
+}
+
+.frameless-wrapper {
+    width: 100%;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 24px 16px 40px;
+    box-sizing: border-box;
+}
+
+/* --- Clean Frame Card Container & Continuous Border --- */
+.clean-page-card {
+    position: relative;
+    width: 100%;
+    background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 40%, #e2e8f0 100%);
+    color: #334155;
+    border: 2px solid #2563eb;
+    border-radius: 22px;
+    box-shadow: 0 16px 40px -8px rgba(15, 23, 42, 0.08);
+    overflow: hidden;
+}
+
+/* --- Clean Header Menu Bar (below hero banner) --- */
+.clean-menu-bar {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: #ffffff;
+    border-bottom: 2px solid #cbd5e1;
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+    padding: 0 10px;
+    flex-wrap: wrap;
+}
+
+.clean-menu-link {
+    display: inline-flex;
+    align-items: center;
+    padding: 14px 26px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #334155;
+    text-decoration: none;
+    border-bottom: 3px solid transparent;
+    transition: all 0.2s ease;
+}
+
+.clean-menu-link:hover {
+    color: #2563eb;
+    background: #f0f9ff;
+    border-bottom-color: #2563eb;
+}
+
+.clean-page-body {
+    padding: 24px 24px 10px;
+}
+
+/* --- Cheery Section Card Overrides for Clean Page --- */
+.clean-page-card h1,
+.clean-page-card h2,
+.clean-page-card h3,
+.clean-page-card h4,
+.clean-page-card h5,
+.clean-page-card h6 {
+    color: #0f172a;
+}
+
+.clean-page-card p,
+.clean-page-card .section-intro {
+    color: #475569;
+}
+
+.clean-page-card .marketing-section {
+    position: relative;
+    scroll-margin-top: 90px;
+    margin: 0 auto 40px;
+    max-width: 1100px;
+    padding: 36px 32px;
+    background: #ffffff;
+    border-radius: 20px;
+    border: 1px solid rgba(226, 232, 240, 0.9);
+    box-shadow: 0 8px 24px -4px rgba(15, 23, 42, 0.04);
+}
+
+.clean-page-card .marketing-section:nth-of-type(even) {
+    background: #f1f5f9;
+    border-color: rgba(203, 213, 225, 0.8);
+}
+
+.clean-page-card .free-sundays-banner {
+    background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+    border: 2px solid #2563eb;
+    border-radius: 18px;
+    padding: 24px 20px;
+    box-shadow: 0 10px 25px -5px rgba(37, 99, 235, 0.15);
+}
+
+.clean-page-card .free-sundays-banner h2 {
+    color: #dc2626;
+    font-weight: 800;
+}
+
+.clean-page-card .free-sundays-banner p {
+    color: #1e293b;
+    font-weight: 500;
+}
+
+.clean-page-card .glass-panel,
+.clean-page-card .overlap-card,
+.clean-page-card .schedule-item {
+    background: #ffffff;
+    border: 1px solid rgba(203, 213, 225, 0.8);
+    box-shadow: 0 10px 30px -5px rgba(15, 23, 42, 0.06);
+}
+
+.clean-page-card .eyebrow {
+    color: #2563eb;
+}
+
+.clean-page-card a {
+    color: #2563eb;
+    font-weight: 600;
+}
+
+.clean-page-card a:hover {
+    color: #1d4ed8;
+}
+
+/* --- High-Contrast Hero Action Buttons --- */
+.clean-page-card .hero-btn-primary {
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
+    color: #ffffff !important;
+    border: none !important;
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35) !important;
+    font-weight: 700 !important;
+    padding: 12px 24px;
+    border-radius: 10px;
+    text-decoration: none;
+    transition: all 0.2s ease;
+}
+
+.clean-page-card .hero-btn-primary:hover {
+    background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%) !important;
+    box-shadow: 0 6px 20px rgba(37, 99, 235, 0.45) !important;
+    transform: translateY(-1px);
+}
+
+.clean-page-card .hero-btn-login {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px 24px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #0f172a !important;
+    background: #ffffff !important;
+    border: 2px solid #cbd5e1 !important;
+    border-radius: 10px;
+    text-decoration: none;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.clean-page-card .hero-btn-login:hover {
+    background: #f8fafc !important;
+    border-color: #dc2626 !important;
+    color: #dc2626 !important;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(220, 38, 38, 0.18);
+}
+
+.meeple-icon-img {
+    height: 22px;
+    width: auto;
+    object-fit: contain;
+    margin-right: 8px;
+    vertical-align: middle;
+}
+
+.clean-page-card .hero-colored-logo {
+    height: 120px;
+    width: auto;
+    max-width: 100%;
+    object-fit: contain;
+    display: block;
+    margin: 0 auto 6px;
+    filter: drop-shadow(0 2px 10px rgba(15, 23, 42, 0.15));
+}
+
+.clean-page-card .hero-tagline {
+    text-align: center !important;
+    color: #1e3a8a !important;
+    font-size: 1.1rem !important;
+    font-weight: 700 !important;
+    margin: 4px auto 12px !important;
+    display: block !important;
+}
+
+/* --- Tighten Hero Logo Box Width & Margins --- */
+.clean-page-card .hero-banner-left {
+    padding: 14px 18px !important;
+    max-width: fit-content !important;
+    margin-right: auto !important;
+}
+
+.clean-page-card .hero-banner-content {
+    gap: 16px !important;
+    padding: 0 8px !important;
+}
+
+/* --- Membership Pricing Tier Button Styles --- */
+.clean-page-card .btn-primary {
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
+    color: #ffffff !important;
+    border: none !important;
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35) !important;
+    font-weight: 700 !important;
+    text-decoration: none;
+    transition: all 0.2s ease;
+}
+
+.clean-page-card .btn-primary:hover {
+    background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%) !important;
+    box-shadow: 0 6px 20px rgba(37, 99, 235, 0.45) !important;
+    transform: translateY(-1px);
+}
+
+/* --- Image Rounded Corners & Smaller BOTC Logo (matching index.php) --- */
+.clean-page-card .bleed-image img,
+.clean-page-card .overlap-image img,
+.clean-page-card .library-display-item img {
+    border-radius: 16px !important;
+    border: 1px solid #cbd5e1 !important;
+    box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.08) !important;
+}
+
+.clean-page-card .event-logo {
+    display: block;
+    max-height: 140px !important;
+    width: auto;
+    margin-top: 0;
+    margin-bottom: 16px;
+    border-radius: 12px !important;
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12) !important;
+}
+
+.bleed-section.bleed-right {
+    padding-left: 20px;
+    gap: 40px;
+}
