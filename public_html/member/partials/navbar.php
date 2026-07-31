@@ -137,7 +137,8 @@ $navCheckinOpen = (!$navKiosk && ($navAuthed || $navGuestCheckin))
             <a href="calendar.php" class="<?php echo $navActive === 'calendar' ? 'active' : ''; ?>">Calendar</a>
             <a href="checkin.php" class="<?php echo $navActive === 'checkin' ? 'active' : ''; ?>">Check-In</a>
         <?php elseif ($navAuthed): ?>
-            <a href="<?php echo $navPrefix; ?>index.php" class="<?php echo ($navActive === 'home' || $navActive === 'dashboard') ? 'active' : ''; ?>">Home</a>
+            <a href="<?php echo $navPrefix; ?>index.php" class="<?php echo $navActive === 'home' ? 'active' : ''; ?>">Home</a>
+            <a href="<?php echo $navPrefix; ?>portal.php" class="<?php echo ($navActive === 'dashboard' || $navActive === 'portal') ? 'active' : ''; ?>">Dashboard</a>
             <a href="<?php echo $navPrefix; ?>calendar.php" class="<?php echo $navActive === 'calendar' ? 'active' : ''; ?>">Calendar</a>
             <a href="<?php echo $navPrefix; ?>volunteers.php" class="<?php echo $navActive === 'volunteers' ? 'active' : ''; ?>">Volunteers</a>
             <a href="<?php echo $navPrefix; ?>library.php" class="<?php echo $navActive === 'library' ? 'active' : ''; ?>">Library</a>
@@ -147,7 +148,7 @@ $navCheckinOpen = (!$navKiosk && ($navAuthed || $navGuestCheckin))
             <?php if ($navAdminArea || !empty($_SESSION['user']['permissions'] ?? [])): ?>
                 <a href="<?php echo $navAdminArea ? 'dashboard.php' : 'admin/dashboard.php'; ?>" class="<?php echo $navActive === 'admin' ? 'active' : ''; ?>">Admin</a>
             <?php endif; ?>
-            <a href="<?php echo $navPrefix; ?>index.php?action=logout&amp;csrf_token=<?php echo e(get_csrf_token()); ?>" class="btn-logout">Logout</a>
+            <a href="<?php echo $navPrefix; ?>portal.php?action=logout&amp;csrf_token=<?php echo e(get_csrf_token()); ?>" class="btn-logout">Logout</a>
         <?php else: ?>
             <a href="index.php" class="<?php echo $navActive === 'home' ? 'active' : ''; ?>">Home</a>
             <a href="about.php" class="<?php echo $navActive === 'about' ? 'active' : ''; ?>">About</a>
@@ -157,7 +158,7 @@ $navCheckinOpen = (!$navKiosk && ($navAuthed || $navGuestCheckin))
             <?php if ($navGuestCheckin && $navCheckinOpen): ?>
                 <a href="checkin.php">Check-In</a>
             <?php endif; ?>
-            <a href="index.php?action=login" class="<?php echo $navActive === 'login' ? 'active' : ''; ?>">Login</a>
+            <a href="portal.php?action=login" class="<?php echo $navActive === 'login' ? 'active' : ''; ?>">Login</a>
         <?php endif; ?>
     </nav>
 </header>

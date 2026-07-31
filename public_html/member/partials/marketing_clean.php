@@ -15,9 +15,9 @@
             </div>
             <div class="hero-actions">
                 <?php if (\App\Auth::check()): ?>
-                    <a href="index.php" class="btn btn-primary hero-btn-primary">Portal &rarr;</a>
+                    <a href="portal.php" class="btn btn-primary hero-btn-primary">Portal &rarr;</a>
                 <?php else: ?>
-                    <a href="index.php?action=login" class="btn hero-btn-login">
+                    <a href="portal.php?action=login" class="btn hero-btn-login">
                         <img src="assets/images/red-meeple.png" alt="" class="meeple-icon-img" loading="lazy">
                         <span>Login</span>
                     </a>

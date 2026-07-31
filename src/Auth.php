@@ -286,7 +286,7 @@ class Auth {
     public static function requireAuth(): void {
         if (!self::check()) {
             $_SESSION['redirect_after_login'] = $_SERVER['REQUEST_URI'];
-            redirect('index.php?action=login');
+            redirect('portal.php?action=login');
         }
     }
 
@@ -298,7 +298,7 @@ class Auth {
     public static function requireStaff(): void {
         self::requireAuth();
         if (empty($_SESSION['user']['permissions'] ?? [])) {
-            redirect('index.php?error=unauthorized');
+            redirect('portal.php?error=unauthorized');
         }
     }
 
@@ -310,7 +310,7 @@ class Auth {
     public static function requireAdmin(): void {
         self::requireAuth();
         if (!has_permission('admin panel')) {
-            redirect('index.php?error=unauthorized');
+            redirect('portal.php?error=unauthorized');
         }
     }
 
@@ -320,7 +320,7 @@ class Auth {
     public static function requirePermission(string $permission): void {
         self::requireAuth();
         if (!has_permission($permission)) {
-            redirect('index.php?error=unauthorized');
+            redirect('portal.php?error=unauthorized');
         }
     }
 

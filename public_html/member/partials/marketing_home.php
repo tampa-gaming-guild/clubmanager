@@ -16,7 +16,7 @@
             </div>
             <div class="hero-actions">
                 <?php if (\App\Auth::check()): ?>
-                    <a href="index.php" class="btn btn-primary hero-btn-primary">Portal &rarr;</a>
+                    <a href="portal.php" class="btn btn-primary hero-btn-primary">Portal &rarr;</a>
                 <?php else: ?>
                     <a href="join.php" class="btn btn-primary hero-btn-primary">Join the Club &rarr;</a>
                     <a href="calendar.php" class="btn btn-secondary hero-btn-secondary">View Schedule</a>
