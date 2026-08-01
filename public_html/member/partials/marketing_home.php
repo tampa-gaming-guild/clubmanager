@@ -27,7 +27,6 @@
 
     <!-- Quick Navigation to Sections -->
     <nav class="marketing-section-nav" aria-label="Page Sections Navigation">
-        <a href="index.php" class="section-nav-link">Home</a>
         <a href="#section-about" class="section-nav-link">About Us</a>
         <a href="#section-schedule" class="section-nav-link">Meeting Times</a>
         <a href="#section-pricing" class="section-nav-link">Membership</a>

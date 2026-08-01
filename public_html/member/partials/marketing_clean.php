@@ -29,7 +29,6 @@
 
     <!-- Fixed Header Menu Bar below Banner -->
     <nav class="clean-menu-bar" aria-label="Page Navigation Menu">
-        <a href="index.php" class="clean-menu-link">Home</a>
         <a href="#section-about" class="clean-menu-link">About Us</a>
         <a href="#section-schedule" class="clean-menu-link">Meeting Times</a>
         <a href="#section-pricing" class="clean-menu-link">Membership</a>

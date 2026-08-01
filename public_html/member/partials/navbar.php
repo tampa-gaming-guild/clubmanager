@@ -20,7 +20,7 @@ $navCheckinOpen = (!$navKiosk && ($navAuthed || $navGuestCheckin))
     : true;
 ?>
 <header class="navbar">
-    <div class="logo">Tampa Gaming Guild</div>
+    <div class="logo"><a href="<?php echo $navPrefix; ?>index.php" style="color: inherit; text-decoration: none;">Tampa Gaming Guild</a></div>
     <button type="button" class="navbar-toggle" id="navbarToggle" aria-label="Toggle navigation menu" aria-expanded="false" aria-controls="navLinks">
         <span class="navbar-toggle-bar"></span>
         <span class="navbar-toggle-bar"></span>
@@ -128,16 +128,13 @@ $navCheckinOpen = (!$navKiosk && ($navAuthed || $navGuestCheckin))
     <?php endif; ?>
     <nav class="nav-links" id="navLinks">
         <?php if ($navKiosk): ?>
-            <?php if ($navAuthed): ?>
-                <a href="index.php" class="<?php echo ($navActive === 'home' || $navActive === 'dashboard') ? 'active' : ''; ?>">Home</a>
-            <?php else: ?>
-                <a href="index.php" class="<?php echo $navActive === 'login' ? 'active' : ''; ?>">Login</a>
+            <?php if (!$navAuthed): ?>
+                <a href="portal.php?action=login" class="<?php echo $navActive === 'login' ? 'active' : ''; ?>">Login</a>
                 <a href="join.php" class="<?php echo $navActive === 'join' ? 'active' : ''; ?>" title="Join or renew your membership">Join</a>
             <?php endif; ?>
             <a href="calendar.php" class="<?php echo $navActive === 'calendar' ? 'active' : ''; ?>">Calendar</a>
             <a href="checkin.php" class="<?php echo $navActive === 'checkin' ? 'active' : ''; ?>">Check-In</a>
         <?php elseif ($navAuthed): ?>
-            <a href="<?php echo $navPrefix; ?>index.php" class="<?php echo $navActive === 'home' ? 'active' : ''; ?>">Home</a>
             <a href="<?php echo $navPrefix; ?>portal.php" class="<?php echo ($navActive === 'dashboard' || $navActive === 'portal') ? 'active' : ''; ?>">Dashboard</a>
             <a href="<?php echo $navPrefix; ?>calendar.php" class="<?php echo $navActive === 'calendar' ? 'active' : ''; ?>">Calendar</a>
             <a href="<?php echo $navPrefix; ?>volunteers.php" class="<?php echo $navActive === 'volunteers' ? 'active' : ''; ?>">Volunteers</a>
@@ -150,7 +147,6 @@ $navCheckinOpen = (!$navKiosk && ($navAuthed || $navGuestCheckin))
             <?php endif; ?>
             <a href="<?php echo $navPrefix; ?>portal.php?action=logout&amp;csrf_token=<?php echo e(get_csrf_token()); ?>" class="btn-logout">Logout</a>
         <?php else: ?>
-            <a href="index.php" class="<?php echo $navActive === 'home' ? 'active' : ''; ?>">Home</a>
             <a href="about.php" class="<?php echo $navActive === 'about' ? 'active' : ''; ?>">About</a>
             <a href="join.php" class="<?php echo $navActive === 'join' ? 'active' : ''; ?>" title="Join or renew your membership">Join</a>
             <a href="library.php" class="<?php echo $navActive === 'library' ? 'active' : ''; ?>">Library</a>
