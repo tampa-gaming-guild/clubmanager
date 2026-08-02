@@ -2,7 +2,7 @@
 /**
  * Public Marketing Homepage
  * URL: https://tgg.test/member/index.php
- * Renders the public marketing page for visitors and logged-in members.
+ * Renders the clean frameless marketing homepage.
  */
 require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 ?>
@@ -19,16 +19,11 @@ require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
     <link rel="manifest" href="manifest.json">
     <link rel="stylesheet" href="assets/css/style.css<?php echo asset_version('assets/css/style.css'); ?>">
     <link rel="stylesheet" href="assets/css/marketing.css<?php echo asset_version('assets/css/marketing.css'); ?>">
+    <link rel="stylesheet" href="assets/css/marketing_clean.css<?php echo asset_version('assets/css/marketing_clean.css'); ?>">
 </head>
-<body>
-    <div class="app-container">
-        <?php $navActive = 'home'; include __DIR__ . '/partials/navbar.php'; ?>
-
-        <main class="main-content">
-            <?php include __DIR__ . '/partials/marketing_home.php'; ?>
-        </main>
-
-        <?php include __DIR__ . '/partials/footer.php'; ?>
+<body class="frameless-page">
+    <div class="frameless-wrapper">
+        <?php include __DIR__ . '/partials/marketing_clean.php'; ?>
     </div>
 </body>
 </html>
