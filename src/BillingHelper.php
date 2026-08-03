@@ -570,10 +570,14 @@ class BillingHelper {
             return true;
         }
 
+        // tgg_trial_verifications also holds pending Session-plan joins (see
+        // send_join_verification_email() in join.php) -- restrict to Trial rows here so a
+        // pending Session verification doesn't falsely block a later Trial signup.
         $stmt = $appDb->prepare("
             SELECT 1 FROM tgg_trial_verifications v
+            INNER JOIN tgg_subscription_plans p ON p.id = v.plan_id
             INNER JOIN tgg_contacts c ON c.id = v.contact_id
-            WHERE LOWER(c.email) = :email AND v.expires_at >= NOW()
+            WHERE LOWER(p.name) LIKE '%trial%' AND LOWER(c.email) = :email AND v.expires_at >= NOW()
             LIMIT 1
         ");
         $stmt->execute(['email' => $email]);
@@ -656,10 +660,11 @@ class BillingHelper {
 
     /**
      * Free join or renewal of a Session-billed plan: no charge, always extends exactly one
-     * year, and never enables auto-renew. Only ever reached from a staff-mediated flow --
-     * pay-entrance.php's tier picker (first-time activation of a walk-in) or join.php's renew
-     * branch (an existing member choosing this plan again) -- never a brand-new self-service
-     * signup, so there's no email-verification step to worry about here.
+     * year, and never enables auto-renew. Reached from a staff-mediated flow -- pay-entrance.php's
+     * tier picker (first-time activation of a walk-in) or join.php's renew branch (an existing
+     * member choosing this plan again) -- or from join.php's self-service Join flow, after the
+     * new contact has clicked their emailed verification link (verify-trial.php), mirroring how
+     * Trial signups are gated.
      * @param int $contactId
      * @param int $planId
      * @param string $action 'join' or 'renew' (ledger action_type)

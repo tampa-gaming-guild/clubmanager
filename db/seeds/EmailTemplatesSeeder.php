@@ -58,6 +58,12 @@ final class EmailTemplatesSeeder extends AbstractSeed
                 'description' => 'Sent when a member confirms their email and their one-time Trial membership is activated. Doubles as their welcome email since Trial members never set a password at signup.',
             ],
             [
+                'template_key' => 'session_verification',
+                'subject' => 'Confirm Your TGG Club Membership',
+                'body' => '<h2>Hello, {display_name}!</h2><p>Thanks for requesting a <strong>{tier_name}</strong> membership with TGG Club. This membership isn\'t charged now -- you\'ll pay a per-visit fee at check-in instead -- but we do need to confirm your email address before it activates.</p><p>Click the link below to activate your membership:</p><p><a href="{verify_link}">{verify_link}</a></p><p>This link will expire in <strong>{expires_in}</strong>.</p><p>If you did not request this, you can safely ignore this email.</p><p>Best regards,<br>TGG Club Team</p>',
+                'description' => 'Sent when a new member registers for a Session-billed (pay-per-visit) membership like Associate, asking them to verify their email before it activates.',
+            ],
+            [
                 'template_key' => 'auto_renew_upcoming',
                 'subject' => 'Your TGG Membership Will Auto-Renew Soon',
                 'body' => '<h2>Hello, {display_name}!</h2><p>Your <strong>{tier_name}</strong> membership is set to automatically renew on <strong>{renew_date}</strong> for <strong>${amount}</strong> using the card we have on file.</p><p>No action is needed if you\'d like this to happen automatically. If you\'d like to turn off auto-renew or update your payment method, visit your profile: <a href="{manage_url}">{manage_url}</a></p><p>Best regards,<br>TGG Club Team</p>',

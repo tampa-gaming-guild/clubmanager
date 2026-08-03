@@ -1,7 +1,9 @@
 <?php
 /**
- * Trial Membership Verification Page
- * Validates the emailed verification token and activates the one-time 30-day Trial membership.
+ * Free Membership Verification Page
+ * Validates the emailed verification token and activates the membership it was issued for --
+ * either the one-time 30-day Trial, or a Session-billed plan (e.g. Associate), which joins for
+ * free and is charged per-visit at check-in instead.
  */
 require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
 
@@ -27,12 +29,16 @@ if (empty($rawToken)) {
         if (!$verification) {
             $errorMsg = "Invalid or already-used verification link.";
         } elseif (strtotime($verification['expires_at']) < time()) {
-            $errorMsg = "This verification link has expired. Please register again to request a new Trial membership.";
+            $errorMsg = "This verification link has expired. Please register again to request a new membership.";
             $cleanup = $appDb->prepare("DELETE FROM tgg_trial_verifications WHERE contact_id = :contact_id");
             $cleanup->execute(['contact_id' => $verification['contact_id']]);
         } else {
             $contactId = (int)$verification['contact_id'];
             $planId = (int)$verification['plan_id'];
+
+            $planStmt = $appDb->prepare("SELECT * FROM tgg_subscription_plans WHERE id = :id LIMIT 1");
+            $planStmt->execute(['id' => $planId]);
+            $plan = $planStmt->fetch();
 
             $nameStmt = $appDb->prepare("SELECT display_name, email FROM tgg_contacts WHERE id = :id LIMIT 1");
             $nameStmt->execute(['id' => $contactId]);
@@ -40,20 +46,26 @@ if (empty($rawToken)) {
             $displayName = $contact['display_name'] ?? 'Member';
             $email = $contact['email'] ?? '';
 
-            $activation = BillingHelper::activateTrial($contactId, $planId);
+            if ($plan && BillingHelper::isSessionPlan($plan)) {
+                // Emails (payment_received + signup, both $0.00) are sent from within
+                // activateSessionMembership() itself -- no separate "activated" email needed here.
+                $activation = BillingHelper::activateSessionMembership($contactId, $planId, 'join');
+                $successMsg = "Your " . $plan['name'] . " membership is now active! It runs through " . date('F j, Y', strtotime($activation['end_date'])) . ". Check your email for a receipt and a link to set up portal access if you'd like it.";
+            } else {
+                $activation = BillingHelper::activateTrial($contactId, $planId);
+                $successMsg = "Your 30-day Trial membership is now active! It runs through " . date('F j, Y', strtotime($activation['end_date'])) . ". Check your email for a link to set up portal access if you'd like it.";
+
+                // Trial members never set a password at signup either, so the activation email
+                // doubles as their welcome email, with a link to set one up if they ever want
+                // portal access -- it's optional, not required.
+                BillingHelper::sendTrialActivatedEmail($contactId, $displayName, $email, $activation, null);
+            }
 
             $deleteToken = $appDb->prepare("DELETE FROM tgg_trial_verifications WHERE contact_id = :contact_id");
             $deleteToken->execute(['contact_id' => $contactId]);
-
-            $successMsg = "Your 30-day Trial membership is now active! It runs through " . date('F j, Y', strtotime($activation['end_date'])) . ". Check your email for a link to set up portal access if you'd like it.";
-
-            // Trial members never set a password at signup either, so the activation email
-            // doubles as their welcome email, with a link to set one up if they ever want
-            // portal access -- it's optional, not required.
-            BillingHelper::sendTrialActivatedEmail($contactId, $displayName, $email, $activation, null);
         }
     } catch (Exception $e) {
-        $errorMsg = safe_err("Could not verify your Trial membership: ", $e);
+        $errorMsg = safe_err("Could not verify your membership: ", $e);
     }
 }
 ?>
@@ -62,7 +74,7 @@ if (empty($rawToken)) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Verify Trial Membership - TGG Member Portal</title>
+    <title>Verify Membership - TGG Member Portal</title>
     <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
     <link rel="icon" type="image/png" href="favicon.png">
     <link rel="apple-touch-icon" href="favicon.png">
@@ -75,7 +87,7 @@ if (empty($rawToken)) {
 
         <main class="main-content centered-content">
             <div class="auth-panel glass-panel">
-                <h2>Trial Membership Verification</h2>
+                <h2>Membership Verification</h2>
 
                 <?php if ($errorMsg): ?>
                     <div class="alert alert-danger"><?php echo e($errorMsg); ?></div>

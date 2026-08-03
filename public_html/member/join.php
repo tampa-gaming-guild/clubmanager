@@ -15,7 +15,12 @@ use App\Auth;
 use App\BillingHelper;
 use App\MailHelper;
 
-function send_trial_verification_email($appDb, int $contactId, int $planId, string $email, string $displayName): void {
+/**
+ * Send the emailed verification link that gates a free (uncharged) Join signup -- Trial and
+ * Session-billed plans (e.g. Associate) both join for free, so both route through here instead
+ * of Stripe, sharing the tgg_trial_verifications table keyed by contact_id.
+ */
+function send_join_verification_email($appDb, int $contactId, int $planId, string $email, string $displayName, string $tierName, string $templateKey): void {
     $rawToken = bin2hex(random_bytes(32));
     $hashedToken = hash('sha256', $rawToken);
     $expiresAt = date('Y-m-d H:i:s', strtotime('+24 hours'));
@@ -36,8 +41,9 @@ function send_trial_verification_email($appDb, int $contactId, int $planId, stri
     ]);
 
     $verifyLink = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/verify-trial.php?token=' . $rawToken;
-    MailHelper::sendTemplate($email, 'trial_verification', [
+    MailHelper::sendTemplate($email, $templateKey, [
         'display_name' => $displayName,
+        'tier_name' => $tierName,
         'verify_link' => $verifyLink,
         'expires_in' => '24 hours'
     ], $contactId, null);
@@ -252,13 +258,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status']) && !$isAjax
                     throw new Exception("This email address has already used its one-time Trial membership and is not eligible for another.");
                 }
 
-                if ($isSessionPlan) {
-                    // Defense in depth: the tier dropdown already excludes Session plans for a
-                    // brand-new signup (see $displayTiers below) -- this guards against a
-                    // hand-crafted/tampered POST picking one directly.
-                    throw new Exception("This membership level is only available as a renewal.");
-                }
-
                 $appDb->beginTransaction();
 
                 try {
@@ -289,11 +288,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status']) && !$isAjax
 
                     $appDb->commit();
 
-                    if ($isTrial) {
-                        // Trial membership is free and skips Stripe entirely; it doesn't
-                        // activate until the user clicks the emailed verification link.
-                        send_trial_verification_email($appDb, $contactId, $tierId, $email, $displayName);
-                        $successMsg = "Thanks for registering! We've sent a verification link to {$email}. Click it to activate your one-time 30-day Trial membership.";
+                    if ($isTrial || $isSessionPlan) {
+                        // Trial and Session-billed plans are both free at join time (Trial is a
+                        // one-time promo; Session plans charge per-visit at check-in instead), so
+                        // there's no Stripe payment to confirm the email address -- an emailed
+                        // verification link stands in for that instead, and activation is deferred
+                        // until the member clicks it (see verify-trial.php).
+                        send_join_verification_email($appDb, $contactId, $tierId, $email, $displayName, $tierName, $isTrial ? 'trial_verification' : 'session_verification');
+                        $successMsg = "Thanks for registering! We've sent a verification link to {$email}. Click it to activate your {$tierName} membership.";
                     } else {
                         // D. Create Stripe Session and Redirect
                         $session = StripeHelper::createCheckoutSession($contactId, $tierId, $civicrmTypeId, $tierName, $fee, 'join', $email, $displayName);
@@ -342,11 +344,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['email']) && !isset($
 }
 $isRenewMode = $prefillExisting && $prefillExisting['exists'];
 // Renew mode: everything except Trial (a one-time offer, never a renewal choice).
-// Join mode (the common case -- no prefill yet): everything except Session plans, which are
-// never a brand-new self-service signup, only ever a renewal or a staff-mediated activation.
+// Join mode (the common case -- no prefill yet): every tier, including Session plans -- those
+// join for free (charged per-visit at check-in instead) and go through the same emailed
+// verification gate as Trial (see $isTrial || $isSessionPlan above).
 $displayTiers = $isRenewMode
     ? array_values(array_filter($tiers, function ($tier) { return !BillingHelper::isTrialPlan($tier); }))
-    : array_values(array_filter($tiers, function ($tier) { return !BillingHelper::isSessionPlan($tier); }));
+    : $tiers;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -506,6 +509,9 @@ $displayTiers = $isRenewMode
 
                             if (isTrial) {
                                 infoBlock.innerHTML = '<p><strong>Verify Your Email:</strong> No payment is required. After you register, we\'ll email you a verification link &mdash; click it to activate your one-time 30-day Trial membership.</p>';
+                                button.textContent = 'Send Verification Email';
+                            } else if (isSession && !isRenew) {
+                                infoBlock.innerHTML = '<p><strong>Verify Your Email:</strong> No payment is required now &mdash; you\'ll pay a per-visit fee at check-in instead. After you register, we\'ll email you a verification link &mdash; click it to activate your membership.</p>';
                                 button.textContent = 'Send Verification Email';
                             } else if (isSession) {
                                 infoBlock.innerHTML = '<p><strong>No Payment Required:</strong> This membership isn\'t charged at renewal &mdash; it renews immediately for one year, and you\'ll pay the per-visit fee at check-in.</p>';
