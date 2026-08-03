@@ -428,124 +428,219 @@ if (Auth::check() && has_permission('admin panel')) {
                             <div class="dashboard-card status-card">
                                 <h3>Membership Status</h3>
                                 <?php if ($membership): ?>
-                                     <div class="status-summary" style="display: flex; flex-direction: column; align-items: flex-start; gap: 5px;">
-                                         <span class="membership-level" style="font-size: 0.9rem;">
-                                             <?php
-                                             echo e($membership['membership_name']);
-                                             if (isset($membership['minimum_fee'])) {
-                                                 $formattedPrice = '$' . number_format($membership['minimum_fee'], 2);
-                                                 $intervalText = '';
-                                                 if (isset($membership['billing_interval'])) {
-                                                     $intervalText = '/' . e($membership['billing_interval']);
-                                                 }
-                                                 echo ' (' . $formattedPrice . $intervalText . ')';
-                                             }
-                                             ?>
-                                         </span>
-                                         <span class="badge badge-<?php echo e(strtolower($membership['status_name'] ?? 'inactive')); ?>">
-                                             <?php echo e($membership['status_name'] ?? 'Inactive'); ?>
-                                         </span>
+                                    <div class="status-summary" style="display: flex; flex-direction: column; align-items: flex-start; gap: 5px;">
+                                        <span class="membership-level" style="font-size: 0.9rem;">
+                                            <?php
+                                            echo e($membership['membership_name']);
+                                            if (isset($membership['minimum_fee'])) {
+                                                $formattedPrice = '$' . number_format($membership['minimum_fee'], 2);
+                                                $intervalText = '';
+                                                if (isset($membership['duration_unit'])) {
+                                                    $unit = strtolower($membership['duration_unit']);
+                                                    if ($unit === 'year') $unit = 'annual';
+                                                    elseif ($unit === 'month') $unit = 'monthly';
+                                                    elseif ($unit === 'day') $unit = 'daily';
 
-                                         <?php if (isset($membership['expires_at']) && $membership['expires_at']): ?>
-                                             <small style="margin-top: 5px; color: var(--color-text-secondary); display: block;">
-                                                 <?php
-                                                 $expDate = new DateTime($membership['expires_at']);
-                                                 $now = new DateTime();
-                                                 if ($expDate < $now) {
-                                                     echo "Expired on " . $expDate->format('M j, Y');
-                                                 } else {
-                                                     echo "Expires on " . $expDate->format('M j, Y');
-                                                 }
-                                                 ?>
-                                             </small>
-                                         <?php endif; ?>
-                                     </div>
+                                                    $intervalText = ' / ' . $unit;
+                                                }
+                                                echo ' <span style="color: var(--color-text-muted); font-size: 0.9em; font-weight: normal;">' . e("({$formattedPrice}{$intervalText})") . '</span>';
+                                            }
+                                            ?>
+                                        </span>
+                                        <span class="badge badge-status <?php echo $membership['is_active'] ? 'badge-active' : 'badge-expired'; ?>">
+                                            <?php echo e($membership['status_label']); ?>
+                                        </span>
+                                    </div>
+                                    <div class="status-dates">
+                                        <p>Joined: <span><?php echo date('M d, Y', strtotime($membership['join_date'])); ?></span></p>
+                                        <p>Expires: <span class="<?php echo strtotime($membership['end_date']) < time() ? 'text-danger' : ''; ?>"><?php echo date('M d, Y', strtotime($membership['end_date'])); ?></span></p>
+                                    </div>
+                                    <?php if (!$membership['is_active'] || strtotime($membership['end_date']) < strtotime('+30 days')): ?>
+                                        <a href="renew.php" class="btn btn-warning btn-block mt-10">Renew Membership Now</a>
+                                    <?php endif; ?>
                                 <?php else: ?>
-                                     <p>No active membership record found.</p>
+                                    <div class="status-summary">
+                                        <span class="membership-level">No Active Membership</span>
+                                    </div>
+                                    <p class="description-text">Sign up for a membership tier to access member benefits.</p>
+                                    <a href="renew.php" class="btn btn-primary btn-block mt-10">Purchase Membership</a>
                                 <?php endif; ?>
-
-                                <a href="profile.php" class="card-link" style="margin-top: 15px; display: inline-block;">Manage Subscription &rarr;</a>
                             </div>
 
-                            <div class="dashboard-card action-card">
+                            <!-- Core Navigation Actions -->
+                            <div class="dashboard-card actions-card">
                                 <h3>Quick Actions</h3>
-                                <div class="action-buttons">
-                                    <a href="calendar.php" class="btn btn-secondary">View Calendar</a>
-                                    <a href="library.php" class="btn btn-secondary">Game Library</a>
-                                    <a href="profile.php" class="btn btn-secondary">Edit Profile</a>
-                                    <?php if ($canSwitchToHosting): ?>
-                                        <a href="portal.php?view=hosting" class="btn btn-primary" style="margin-top: 6px;">Switch to Hosting View &rarr;</a>
+                                <div class="action-buttons-list">
+                                    <a href="profile.php?id=<?php echo (int)$_SESSION['user']['contact_id']; ?>" class="action-btn">
+                                        <span class="icon">👤</span>
+                                        <div class="btn-text">
+                                            <strong>My Profile</strong>
+                                            <span>Manage privacy & contact details</span>
+                                        </div>
+                                    </a>
+                                    <a href="calendar.php" class="action-btn">
+                                        <span class="icon">📅</span>
+                                        <div class="btn-text">
+                                            <strong>Club Calendar</strong>
+                                            <span>Schedule of events & volunteer signups</span>
+                                        </div>
+                                    </a>
+                                    <a href="library.php" class="action-btn">
+                                        <span class="icon">🎲</span>
+                                        <div class="btn-text">
+                                            <strong>Game Library</strong>
+                                            <span>Browse the club's board game collection</span>
+                                        </div>
+                                    </a>
+                                    <a href="checkin.php" class="action-btn">
+                                        <span class="icon">🎟️</span>
+                                        <div class="btn-text">
+                                            <strong>Check-In</strong>
+                                            <span>Record a club visit or attendance</span>
+                                        </div>
+                                    </a>
+                                    <?php if (has_permission('edit checkins') && $activeSession): ?>
+                                        <a href="host_checkin.php" class="action-btn">
+                                            <span class="icon">🧑‍🤝‍🧑</span>
+                                            <div class="btn-text">
+                                                <strong>Host Check-In</strong>
+                                                <span>Check in another member</span>
+                                            </div>
+                                        </a>
                                     <?php endif; ?>
                                 </div>
                             </div>
                         </div>
+                    <?php endif; ?>
 
-                        <?php if (Auth::check() && has_permission('admin panel')): ?>
-                            <!-- ADMIN SNAPSHOT -->
-                            <div class="admin-snapshot-section" style="margin-top: 28px;">
-                                <div class="admin-snapshot-header">
-                                    <h3>Admin Snapshot</h3>
-                                    <a href="admin/dashboard.php" class="card-link">Open Full Admin Console &rarr;</a>
-                                </div>
+                    <?php if (($isHostingNow || $canSwitchToHosting) && !$showHostingView): ?>
+                        <div style="margin-top: 15px;">
+                            <a href="portal.php?view=hosting" class="card-link">Hosting Dashboard &rarr;</a>
+                        </div>
+                    <?php endif; ?>
 
-                                <div class="stat-cards-grid">
-                                    <div class="stat-card glass-panel border-left-blue">
-                                        <span class="stat-icon">👥</span>
-                                        <div class="stat-vals">
-                                            <strong><?php echo $totalContacts; ?></strong>
-                                            <span>Total Members</span>
-                                        </div>
-                                    </div>
-                                    <div class="stat-card glass-panel border-left-green">
+                    <?php if (has_permission('admin panel') && !$showHostingView): ?>
+                        <!-- ADMIN SNAPSHOT -->
+                        <div class="dashboard-card" style="margin-top: 20px;">
+                            <h3>Admin Snapshot</h3>
+                            <div class="stats-panel-grid">
+                                <?php if ($hasEventToday && has_permission('edit checkins')): ?>
+                                    <div class="stat-card glass-panel border-left-orange">
                                         <span class="stat-icon">🎟️</span>
                                         <div class="stat-vals">
                                             <strong><?php echo $checkinsToday; ?></strong>
                                             <span>Check-Ins Today</span>
+                                            <a href="admin/checkins.php" class="card-link" style="font-size: 0.7rem; color: var(--color-primary); text-decoration: none; margin-top: 5px; display: inline-block;">View Check-In Log &rarr;</a>
                                         </div>
                                     </div>
-                                    <?php if (has_permission('process payments')): ?>
-                                        <div class="stat-card glass-panel border-left-gold">
-                                            <span class="stat-icon">💵</span>
-                                            <div class="stat-vals">
-                                                <strong>$<?php echo number_format($monthRevenue, 2); ?></strong>
-                                                <span>This Month Revenue</span>
-                                            </div>
-                                        </div>
-                                    <?php endif; ?>
+                                <?php endif; ?>
+
+                                <div class="stat-card glass-panel border-left-blue">
+                                    <span class="stat-icon">👥</span>
+                                    <div class="stat-vals">
+                                        <strong><?php echo $totalContacts; ?></strong>
+                                        <span>Total Contacts</span>
+                                    </div>
                                 </div>
 
-                                <?php if (!empty($matrix)): ?>
-                                    <div class="table-card glass-panel" style="margin-top: 16px;">
-                                        <h4 style="padding: 15px 15px 0; margin: 0; font-size: 0.95rem;">Members Matrix</h4>
-                                        <div class="table-responsive" style="padding: 12px 15px 15px;">
-                                            <table class="data-table compact-table" style="width: 100%; font-size: 0.82rem;">
-                                                <thead>
-                                                    <tr>
-                                                        <th>Plan</th>
-                                                        <?php foreach ($statuses as $st): ?>
-                                                            <th style="text-align: center;"><?php echo e($st['label']); ?></th>
-                                                        <?php endforeach; ?>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    <?php foreach ($matrix as $lvlName => $statRow): ?>
-                                                        <tr>
-                                                            <td><strong><?php echo e($lvlName); ?></strong></td>
-                                                            <?php foreach ($statuses as $st): ?>
-                                                                <?php $count = $statRow[$st['label']] ?? 0; ?>
-                                                                <td style="text-align: center; <?php echo $count > 0 ? 'font-weight:700;' : 'opacity:0.4;'; ?>">
-                                                                    <?php echo $count; ?>
-                                                                </td>
-                                                            <?php endforeach; ?>
-                                                        </tr>
-                                                    <?php endforeach; ?>
-                                                </tbody>
-                                            </table>
+                                <?php if (has_permission('process payments')): ?>
+                                    <div class="stat-card glass-panel border-left-yellow">
+                                        <span class="stat-icon">💲</span>
+                                        <div class="stat-vals">
+                                            <strong>$<?php echo number_format($monthRevenue, 2); ?></strong>
+                                            <span>Revenue (Month)</span>
+                                            <a href="admin/reports.php#payments-report-table" class="card-link" style="font-size: 0.7rem; color: var(--color-primary); text-decoration: none; margin-top: 5px; display: inline-block;">View Payments Log &rarr;</a>
                                         </div>
                                     </div>
                                 <?php endif; ?>
                             </div>
-                        <?php endif; ?>
+
+                            <!-- Members by Level & Status -->
+                            <?php if (!empty($matrix)): ?>
+                                <div style="margin-top: 20px;">
+                                    <span style="font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary); margin-bottom: 15px; display: block;">Members by Level & Status</span>
+                                    <div style="overflow-x: auto; font-size: 0.8rem;">
+                                        <table style="width: 100%; border-collapse: collapse; text-align: left; min-width: 600px;">
+                                            <thead>
+                                                <tr style="border-bottom: 1px solid rgba(255,255,255,0.08); color: var(--color-text-secondary);">
+                                                    <th style="padding: 6px 8px;">Membership Level</th>
+                                                    <?php foreach ($statuses as $stat): ?>
+                                                        <th style="padding: 6px 8px; text-align: right; white-space: nowrap;"><?php echo e($stat['label']); ?></th>
+                                                    <?php endforeach; ?>
+                                                    <th style="padding: 6px 8px; text-align: right; white-space: nowrap;">Total</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <?php
+                                                $colTotals = [];
+                                                $grandTotal = 0;
+                                                foreach ($statuses as $stat) {
+                                                    $colTotals[$stat['label']] = 0;
+                                                }
+
+                                                foreach ($matrix as $lvl => $stats):
+                                                    $rowTotal = 0;
+                                                ?>
+                                                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
+                                                        <td style="padding: 6px 8px; font-weight: 500; color: #fff; white-space: nowrap;"><a href="admin/dashboard.php?level=<?php echo urlencode($lvl); ?>" style="color: var(--color-primary); text-decoration: none; font-weight: 600;"><?php echo e($lvl); ?></a></td>
+                                                        <?php foreach ($statuses as $stat):
+                                                            $count = $stats[$stat['label']] ?? 0;
+                                                            if ($stat['is_active']) {
+                                                                $rowTotal += $count;
+                                                            }
+                                                            $colTotals[$stat['label']] += $count;
+                                                            $color = $count > 0 ? ($stat['label'] === 'Current' || $stat['label'] === 'New' ? 'var(--color-success)' : ($stat['label'] === 'Expired' ? 'var(--color-danger)' : '#fff')) : 'rgba(255,255,255,0.15)';
+                                                            $weight = $count > 0 ? '700' : '400';
+                                                        ?>
+                                                            <td style="padding: 6px 8px; text-align: right; font-weight: <?php echo $weight; ?>; color: <?php echo $color; ?>;">
+                                                                <?php if ($count > 0): ?>
+                                                                    <a href="admin/dashboard.php?level=<?php echo urlencode($lvl); ?>&status=<?php echo urlencode($stat['label']); ?>" style="color: inherit; text-decoration: none;"><?php echo $count; ?></a>
+                                                                <?php else: ?>
+                                                                    <?php echo $count; ?>
+                                                                <?php endif; ?>
+                                                            </td>
+                                                        <?php endforeach; ?>
+                                                        <td style="padding: 6px 8px; text-align: right; font-weight: 700; color: #fff;">
+                                                            <?php if ($rowTotal > 0): ?>
+                                                                <a href="admin/dashboard.php?level=<?php echo urlencode($lvl); ?>&status=" style="color: inherit; text-decoration: none;"><?php echo $rowTotal; ?></a>
+                                                            <?php else: ?>
+                                                                <?php echo $rowTotal; ?>
+                                                            <?php endif; ?>
+                                                            <?php $grandTotal += $rowTotal; ?>
+                                                        </td>
+                                                    </tr>
+                                                <?php endforeach; ?>
+                                            </tbody>
+                                            <tfoot>
+                                                <tr style="border-top: 2px solid rgba(255,255,255,0.15); font-weight: 700; color: #fff;">
+                                                    <td style="padding: 8px; font-weight: 700;">Total</td>
+                                                    <?php foreach ($statuses as $stat):
+                                                        $colVal = $colTotals[$stat['label']];
+                                                    ?>
+                                                        <td style="padding: 8px; text-align: right; font-weight: 700;">
+                                                            <?php if ($colVal > 0): ?>
+                                                                <a href="admin/dashboard.php?level=&status=<?php echo urlencode($stat['label']); ?>" style="color: inherit; text-decoration: none;"><?php echo $colVal; ?></a>
+                                                            <?php else: ?>
+                                                                <?php echo $colVal; ?>
+                                                            <?php endif; ?>
+                                                        </td>
+                                                    <?php endforeach; ?>
+                                                    <td style="padding: 8px; text-align: right; font-weight: 700;">
+                                                        <?php if ($grandTotal > 0): ?>
+                                                            <a href="admin/dashboard.php?level=&status=" style="color: inherit; text-decoration: none;"><?php echo $grandTotal; ?></a>
+                                                        <?php else: ?>
+                                                            <?php echo $grandTotal; ?>
+                                                        <?php endif; ?>
+                                                    </td>
+                                                </tr>
+                                            </tfoot>
+                                        </table>
+                                    </div>
+                                </div>
+                            <?php endif; ?>
+
+                            <a href="admin/dashboard.php" class="card-link" style="margin-top: 15px; display: inline-block;">Full Admin Dashboard &rarr;</a>
+                        </div>
                     <?php endif; ?>
                 </div>
 
