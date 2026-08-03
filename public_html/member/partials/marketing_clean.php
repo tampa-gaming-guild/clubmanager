@@ -8,7 +8,7 @@
                     <p class="hero-tagline">Board gaming and RPG club</p>
                     <div class="hero-badges">
                         <span class="hero-badge">🎮 400+ Game Library</span>
-                        <span class="hero-badge hero-badge--accent">🎉 Free Sundays</span>
+                        <span class="hero-badge hero-badge--accent">🎉 Donation Sundays</span>
                         <span class="hero-badge">📅 Weekly Sessions</span>
                     </div>
                 </div>
@@ -39,8 +39,8 @@
     <div class="clean-page-body">
         <section class="marketing-section" id="section-announcements" style="margin-top: 24px;">
             <div class="free-sundays-banner">
-                <h2>Free Sundays!</h2>
-                <p>Sundays are now free. No membership or commitment is required. Just come and have fun! <strong>1st &amp; 3rd Sundays, 1:00pm &ndash; 11:00pm</strong>.</p>
+                <h2>Donation Sundays!</h2>
+                <p>Come play and pitch in what you can &mdash; no pressure, just good games. First time? Just <a href="join.php?tier=trial">register with us</a> when you arrive (or online beforehand) to check in.<br><strong>1st &amp; 3rd Sundays, 1:00pm &ndash; 11:00pm</strong>.</p>
             </div>
         </section>
 
@@ -84,7 +84,7 @@
                             <p>5:30 pm &ndash; 11:00 pm</p>
                         </div>
                         <div class="schedule-item schedule-item--free">
-                            <span class="schedule-tag schedule-tag--free">Free Sundays</span>
+                            <span class="schedule-tag schedule-tag--free">Donation Sundays</span>
                             <h5>1st &amp; 3rd Sunday</h5>
                             <p>1:00 pm &ndash; 11:00 pm</p>
                         </div>
