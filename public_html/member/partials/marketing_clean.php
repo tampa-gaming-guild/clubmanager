@@ -113,10 +113,11 @@
                         <li>✔ Access to 400+ game library</li>
                         <li>✔ Single-use per member</li>
                     </ul>
-                    <a href="join.php" class="btn btn-secondary btn-block">Get Started Free</a>
+                    <a href="join.php?tier=trial" class="btn btn-secondary btn-block">Get Started Free</a>
                 </div>
 
                 <div class="glass-panel tier-card tier-regular tier-featured">
+                    <span class="featured-ribbon">Most Popular</span>
                     <div class="tier-header">
                         <h3>Regular Membership</h3>
                         <div class="tier-price">$30 <span>/ month</span></div>
@@ -127,7 +128,7 @@
                         <li>✔ 1 guest day pass per month (2/mo on annual)</li>
                         <li>✔ Full voting rights for board elections</li>
                     </ul>
-                    <a href="join.php" class="btn btn-primary btn-block">Join as Regular Member</a>
+                    <a href="join.php?tier=regular" class="btn btn-primary btn-block">Join as Regular Member</a>
                 </div>
 
                 <div class="glass-panel tier-card tier-associate">
@@ -140,7 +141,7 @@
                         <li>✔ Access to 400+ game library</li>
                         <li>✔ No monthly recurring fee</li>
                     </ul>
-                    <a href="join.php" class="btn btn-secondary btn-block">Join as Associate</a>
+                    <a href="join.php?tier=associate" class="btn btn-secondary btn-block">Join as Associate</a>
                 </div>
             </div>
         </section>

@@ -114,6 +114,16 @@ try {
     $errorMsg = "System Connection Error: Unable to fetch membership tiers.";
 }
 
+// Lets marketing links (e.g. the homepage's "Join as Associate" button) preselect a tier via
+// join.php?tier=<slug>, by name rather than a hardcoded DB id so the link keeps working even if
+// a tier's row id ever changes.
+$tierSlugMap = [
+    'trial' => '30 Day Trial',
+    'regular' => 'Regular Annual',
+    'associate' => 'Associate',
+];
+$preselectTierName = (isset($_GET['tier'], $tierSlugMap[$_GET['tier']])) ? $tierSlugMap[$_GET['tier']] : null;
+
 $isAjax = isset($_POST['ajax']) || (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && $_SERVER['HTTP_X_REQUESTED_WITH'] === 'XMLHttpRequest');
 
 // 0. Live Email Lookup (AJAX) -- toggles the form between Join and Renew mode client-side
@@ -445,7 +455,10 @@ $displayTiers = $isRenewMode
                                     <?php
                                         $optionSelected = $isRenewMode
                                             ? ((int)$tier['id'] === (int)($prefillExisting['current_plan_id'] ?? 0))
-                                            : (isset($_POST['tier_id']) && $_POST['tier_id'] == $tier['id']);
+                                            : (
+                                                (isset($_POST['tier_id']) && $_POST['tier_id'] == $tier['id'])
+                                                || (!isset($_POST['tier_id']) && $preselectTierName !== null && $tier['name'] === $preselectTierName)
+                                              );
                                     ?>
                                     <option value="<?php echo (int)$tier['id']; ?>" data-trial="<?php echo BillingHelper::isTrialPlan($tier) ? '1' : '0'; ?>" data-session="<?php echo BillingHelper::isSessionPlan($tier) ? '1' : '0'; ?>" data-duration-interval="<?php echo (int)$tier['duration_interval']; ?>" data-duration-unit="<?php echo e(strtolower($tier['duration_unit'])); ?>" <?php echo $optionSelected ? 'selected' : ''; ?>>
                                         <?php if (BillingHelper::isSessionPlan($tier)): ?>
