@@ -7,7 +7,17 @@
  * page content, just watches the return URL and closes the webview.
  * api/payment-checkout-session.php is the self-service equivalent.
  */
-require_once dirname(dirname(dirname(dirname(__DIR__)))) . '/config/bootstrap.php';
+require_once (function() {
+    $dir = dirname(dirname(dirname(dirname(__DIR__))));
+    if (file_exists($dir . '/.env') && $lines = @file($dir . '/.env')) {
+        foreach ($lines as $line) {
+            if (preg_match('/^\s*BOOTSTRAP_PATH\s*=\s*["\']?(.*?)["\']?\s*$/', $line, $m)) {
+                return $m[1];
+            }
+        }
+    }
+    return $dir . '/config/bootstrap.php';
+})();
 
 use App\ApiAuth;
 use App\Database;

@@ -3,7 +3,17 @@
  * Mobile API: the caller's full attendance history, paginated for infinite
  * scroll -- the "View All" screen behind profile.php's 3-row teaser.
  */
-require_once dirname(dirname(dirname(__DIR__))) . '/config/bootstrap.php';
+require_once (function() {
+    $dir = dirname(dirname(dirname(__DIR__)));
+    if (file_exists($dir . '/.env') && $lines = @file($dir . '/.env')) {
+        foreach ($lines as $line) {
+            if (preg_match('/^\s*BOOTSTRAP_PATH\s*=\s*["\']?(.*?)["\']?\s*$/', $line, $m)) {
+                return $m[1];
+            }
+        }
+    }
+    return $dir . '/config/bootstrap.php';
+})();
 
 use App\ApiAuth;
 use App\Database;

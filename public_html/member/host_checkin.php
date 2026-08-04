@@ -3,7 +3,17 @@
  * Host Check-In Page
  * Allows hosts and admins to search by name and check in other members.
  */
-require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
+require_once (function() {
+    $dir = dirname(dirname(__DIR__));
+    if (file_exists($dir . '/.env') && $lines = @file($dir . '/.env')) {
+        foreach ($lines as $line) {
+            if (preg_match('/^\s*BOOTSTRAP_PATH\s*=\s*["\']?(.*?)["\']?\s*$/', $line, $m)) {
+                return $m[1];
+            }
+        }
+    }
+    return $dir . '/config/bootstrap.php';
+})();
 
 use App\Auth;
 use App\Database;

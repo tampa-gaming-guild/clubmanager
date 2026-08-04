@@ -4,7 +4,17 @@
  * Displays a searchable, paginated log of all outgoing transactional emails,
  * including date sent, sender member ID, and recipient member ID.
  */
-require_once dirname(dirname(dirname(__DIR__))) . '/config/bootstrap.php';
+require_once (function() {
+    $dir = dirname(dirname(dirname(__DIR__)));
+    if (file_exists($dir . '/.env') && $lines = @file($dir . '/.env')) {
+        foreach ($lines as $line) {
+            if (preg_match('/^\s*BOOTSTRAP_PATH\s*=\s*["\']?(.*?)["\']?\s*$/', $line, $m)) {
+                return $m[1];
+            }
+        }
+    }
+    return $dir . '/config/bootstrap.php';
+})();
 
 use App\Auth;
 use App\Database;

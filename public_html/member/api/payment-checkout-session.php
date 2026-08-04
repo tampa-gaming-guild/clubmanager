@@ -9,7 +9,17 @@
  * activates that membership for free and returns pivoted_to_entrance_fee
  * instead of a checkout_url (see PaymentFlow::resolveRenewalCharge).
  */
-require_once dirname(dirname(dirname(__DIR__))) . '/config/bootstrap.php';
+require_once (function() {
+    $dir = dirname(dirname(dirname(__DIR__)));
+    if (file_exists($dir . '/.env') && $lines = @file($dir . '/.env')) {
+        foreach ($lines as $line) {
+            if (preg_match('/^\s*BOOTSTRAP_PATH\s*=\s*["\']?(.*?)["\']?\s*$/', $line, $m)) {
+                return $m[1];
+            }
+        }
+    }
+    return $dir . '/config/bootstrap.php';
+})();
 
 use App\ApiAuth;
 use App\Database;

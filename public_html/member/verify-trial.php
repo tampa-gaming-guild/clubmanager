@@ -5,7 +5,17 @@
  * either the one-time 30-day Trial, or a Session-billed plan (e.g. Associate), which joins for
  * free and is charged per-visit at check-in instead.
  */
-require_once dirname(dirname(__DIR__)) . '/config/bootstrap.php';
+require_once (function() {
+    $dir = dirname(dirname(__DIR__));
+    if (file_exists($dir . '/.env') && $lines = @file($dir . '/.env')) {
+        foreach ($lines as $line) {
+            if (preg_match('/^\s*BOOTSTRAP_PATH\s*=\s*["\']?(.*?)["\']?\s*$/', $line, $m)) {
+                return $m[1];
+            }
+        }
+    }
+    return $dir . '/config/bootstrap.php';
+})();
 
 use App\Database;
 use App\BillingHelper;
