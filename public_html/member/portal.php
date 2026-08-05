@@ -674,6 +674,11 @@ if (Auth::check() && has_permission('admin panel')) {
                         <p style="color: var(--color-text-secondary); margin-bottom: 6px;">Don&rsquo;t have an account yet?</p>
                         <a href="join.php" class="card-link">Join the Club &rarr;</a>
                     </div>
+                    <div style="margin-top: 12px; text-align: center; font-size: 0.85rem;">
+                        <a href="forgot-password.php" class="card-link">Forgot your password?</a>
+                        &nbsp;|&nbsp;
+                        <a href="checkin.php" class="card-link">Check-In Portal &rarr;</a>
+                    </div>
                 </div>
             <?php endif; ?>
         </main>
