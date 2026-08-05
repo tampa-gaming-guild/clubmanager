@@ -677,7 +677,7 @@ if (Auth::check() && has_permission('admin panel')) {
                     <div style="margin-top: 12px; text-align: center; font-size: 0.85rem;">
                         <a href="forgot-password.php" class="card-link">Forgot your password?</a>
                         &nbsp;|&nbsp;
-                        <a href="checkin.php" class="card-link">Check-In Portal &rarr;</a>
+                        <a href="checkin.php" class="card-link">Check-In &rarr;</a>
                     </div>
                 </div>
             <?php endif; ?>
