@@ -179,7 +179,7 @@ function format_phone(string $digits): string {
  * $relativePath is relative to public_html/member/ regardless of the URL prefix used to reach it.
  */
 function asset_version(string $relativePath): string {
-    $memberDir = $_ENV['MEMBER_DIR'] ?? '';
+    $memberDir = $_ENV['MEMBER_DIR'] ?? 'member';
     $fullPath = dirname(__DIR__) . '/public_html/' . ($memberDir ? $memberDir . '/' : '') . $relativePath;
     $mtime = file_exists($fullPath) ? filemtime($fullPath) : time();
     return '?v=' . $mtime;
