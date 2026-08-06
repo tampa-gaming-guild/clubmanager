@@ -1,6 +1,6 @@
 <?php
 /**
- * Retired: Host Portal functionality merged into index.php (Hosting View).
+ * Retired: Host Portal functionality merged into portal.php (Hosting View).
  * Kept as a redirect so old bookmarks/links don't 404.
  */
 require_once (function() {
@@ -15,4 +15,4 @@ require_once (function() {
     return $dir . '/config/bootstrap.php';
 })();
 
-redirect('index.php');
+redirect('portal.php');

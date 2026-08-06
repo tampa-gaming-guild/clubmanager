@@ -735,6 +735,130 @@ if (Auth::check() && has_permission('admin panel')) {
         document.addEventListener('DOMContentLoaded', openAddMemberModal);
         <?php endif; ?>
     </script>
+
+    <script>
+        (function () {
+            const csrfToken = <?php echo json_encode(get_csrf_token()); ?>;
+            const enableBtn = document.getElementById('enable-alerts-btn');
+            const sectionEl = document.getElementById('pending-payments-section');
+            const listEl = document.getElementById('pending-payments-list');
+            const badgeEl = document.getElementById('pending-count-badge');
+            let knownIds = new Set();
+            let firstPoll = true;
+
+            if ('Notification' in window) {
+                if (Notification.permission === 'default') {
+                    enableBtn.style.display = 'inline-block';
+                }
+                enableBtn.addEventListener('click', () => {
+                    Notification.requestPermission().then(() => {
+                        enableBtn.style.display = (Notification.permission === 'default') ? 'inline-block' : 'none';
+                    });
+                });
+            }
+
+            function escapeHtml(str) {
+                return String(str || '')
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+            }
+
+            function typeLabel(type) {
+                return type === 'entrance_fee' ? 'Entrance Fee' : 'Membership Renewal';
+            }
+
+            function renderList(pending) {
+                badgeEl.textContent = pending.length > 0 ? `(${pending.length})` : '';
+
+                if (pending.length === 0) {
+                    sectionEl.style.display = 'none';
+                    listEl.innerHTML = '';
+                    return;
+                }
+
+                sectionEl.style.display = '';
+
+                listEl.innerHTML = '';
+                pending.forEach((p) => {
+                    const row = document.createElement('div');
+                    row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.08); flex-wrap: wrap;';
+                    row.innerHTML = `
+                        <div>
+                            <strong>${escapeHtml(p.display_name)}</strong>
+                            <div style="font-size: 0.85rem; color: var(--color-text-secondary);">${escapeHtml(typeLabel(p.type))} &mdash; $${escapeHtml(p.amount)} cash</div>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <button type="button" class="btn btn-primary btn-small approve-btn" data-id="${p.id}">Approve</button>
+                            <button type="button" class="btn btn-secondary btn-small deny-btn" data-id="${p.id}">Deny</button>
+                        </div>
+                    `;
+                    listEl.appendChild(row);
+                });
+
+                listEl.querySelectorAll('.approve-btn').forEach((btn) => {
+                    btn.addEventListener('click', () => resolvePending(btn.getAttribute('data-id'), 'approve', btn));
+                });
+                listEl.querySelectorAll('.deny-btn').forEach((btn) => {
+                    btn.addEventListener('click', () => resolvePending(btn.getAttribute('data-id'), 'deny', btn));
+                });
+            }
+
+            function resolvePending(pendingId, action, btn) {
+                btn.disabled = true;
+                const data = new URLSearchParams();
+                data.append('pending_id', pendingId);
+                data.append('action', action);
+                data.append('csrf_token', csrfToken);
+
+                fetch('pending-payments.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: data
+                })
+                    .then((res) => res.json())
+                    .then(() => poll())
+                    .catch(() => { btn.disabled = false; });
+            }
+
+            function poll() {
+                fetch('pending-payments.php')
+                    .then((res) => res.json())
+                    .then((data) => {
+                        if (!data.success) return;
+                        const pending = data.pending || [];
+
+                        if (!firstPoll) {
+                            const newOnes = pending.filter((p) => !knownIds.has(p.id));
+                            if (newOnes.length > 0 && 'Notification' in window && Notification.permission === 'granted') {
+                                newOnes.forEach((p) => {
+                                    new Notification('Payment Pending', {
+                                        body: `${p.display_name} owes $${p.amount} cash (${typeLabel(p.type)})`
+                                    });
+                                });
+                            }
+                        }
+                        firstPoll = false;
+                        knownIds = new Set(pending.map((p) => p.id));
+
+                        renderList(pending);
+                    })
+                    .catch(() => {});
+            }
+
+            poll();
+            setInterval(poll, 12000);
+        })();
+    </script>
     <?php endif; ?>
+
+    <script>
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('sw.js')
+                .then(reg => console.log('Service Worker registered'))
+                .catch(err => console.error('Service Worker registration failed', err));
+        });
+    }
+    </script>
 </body>
 </html>
