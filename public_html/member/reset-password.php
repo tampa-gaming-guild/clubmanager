@@ -15,9 +15,8 @@ require_once (function() {
     return $dir . '/config/bootstrap.php';
 })();
 
-use App\AuditLog;
+use App\Auth;
 use App\Database;
-use App\MailHelper;
 
 $errorMsg = null;
 $successMsg = null;
@@ -62,92 +61,18 @@ if (empty($rawToken)) {
 
                 if (empty($password) || empty($confirmPassword)) {
                     $errorMsg = "Both password fields are required.";
-                } elseif (!is_password_complex($password, $compError)) {
-                    $errorMsg = $compError;
                 } elseif ($password !== $confirmPassword) {
                     $errorMsg = "Passwords do not match. Please enter them again.";
                 } else {
-                    // Start transaction to ensure absolute integrity
-                    $appDb->beginTransaction();
-
+                    // Token-link flow: no login session, so
+                    // completePasswordReset() attributes the reset
+                    // explicitly to the account owner (its default).
                     try {
-                        // 1. Get contact details
-                        $stmtCivi = $appDb->prepare("SELECT id as contact_id FROM tgg_contacts WHERE email = :email LIMIT 1");
-                        $stmtCivi->execute(['email' => $email]);
-                        $civiRow = $stmtCivi->fetch();
-
-                        if (!$civiRow) {
-                            throw new Exception("Local contact associated with this email could not be located.");
-                        }
-                        $contactId = (int)$civiRow['contact_id'];
-
-                        // Retrieve display name
-                        $stmtName = $appDb->prepare("SELECT display_name FROM tgg_contacts WHERE id = :contact_id LIMIT 1");
-                        $stmtName->execute(['contact_id' => $contactId]);
-                        $nameRow = $stmtName->fetch();
-                        $displayName = $nameRow['display_name'] ?? 'Member';
-
-                        // 2. Update or insert settings record, resetting failed login attempts and lockout
-                        $passwordHash = password_hash($password, PASSWORD_DEFAULT);
-                        
-                        $stmtCheck = $appDb->prepare("SELECT role FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1");
-                        $stmtCheck->execute(['contact_id' => $contactId]);
-                        $exists = $stmtCheck->fetch();
-
-                        if ($exists) {
-                            $stmtUpdate = $appDb->prepare("
-                                UPDATE tgg_member_settings 
-                                SET password_hash = :hash, failed_login_attempts = 0, locked_until = NULL 
-                                WHERE contact_id = :contact_id
-                            ");
-                            $stmtUpdate->execute([
-                                'hash' => $passwordHash,
-                                'contact_id' => $contactId
-                            ]);
-                        } else {
-                            $stmtInsert = $appDb->prepare("
-                                INSERT INTO tgg_member_settings (contact_id, password_hash, role, failed_login_attempts, locked_until)
-                                VALUES (:contact_id, :hash, 'member', 0, NULL)
-                            ");
-                            $stmtInsert->execute([
-                                'contact_id' => $contactId,
-                                'hash' => $passwordHash
-                            ]);
-                        }
-
-                        // 3. Delete token
-                        $stmtDelete = $appDb->prepare("DELETE FROM tgg_password_resets WHERE email = :email");
-                        $stmtDelete->execute(['email' => $email]);
-
-                        // 3b. Void any pending email change: a password reset is
-                        // the member's recovery action, and a still-live change
-                        // verification link (possibly attacker-initiated) must
-                        // not complete after they've re-secured the account.
-                        $stmtVoidChange = $appDb->prepare("DELETE FROM tgg_email_change_requests WHERE contact_id = :contact_id");
-                        $stmtVoidChange->execute(['contact_id' => $contactId]);
-
-                        $appDb->commit();
-
-                        // Token-link flow: no login session, so attribute the
-                        // reset explicitly to the account owner.
-                        AuditLog::log('security', 'password_reset_completed', [
-                            'email' => $email
-                        ], $contactId, $contactId);
-
-                        // 4. Send Confirmation Email
-                        $loginUrl = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/index.php';
-                        $placeholders = [
-                            'display_name' => $displayName,
-                            'login_url' => $loginUrl
-                        ];
-                        MailHelper::sendTemplate($email, 'password_reset_completed', $placeholders, $contactId, null);
-
+                        Auth::completePasswordReset($email, $password);
                         $successMsg = "Your password has been reset successfully. You can now sign in using your new credentials.";
                         $tokenValid = false; // Disable form
-
-                    } catch (Exception $txEx) {
-                        if ($appDb->inTransaction()) $appDb->rollBack();
-                        throw $txEx;
+                    } catch (Exception $completeEx) {
+                        $errorMsg = $completeEx->getMessage();
                     }
                 }
             }

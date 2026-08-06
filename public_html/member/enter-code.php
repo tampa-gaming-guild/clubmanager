@@ -16,9 +16,8 @@ require_once (function() {
     return $dir . '/config/bootstrap.php';
 })();
 
+use App\Auth;
 use App\Database;
-
-const MAX_CODE_ATTEMPTS = 5;
 
 $errorMsg = null;
 $successMsg = null;
@@ -37,46 +36,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (empty($code)) {
             $errorMsg = "Please enter the reset code.";
         } elseif (preg_match('/^[0-9]{6}$/', $code)) {
-            // 6-digit code path: a 6-digit space is small, so the lookup is
-            // scoped to the email address and capped at MAX_CODE_ATTEMPTS
-            // wrong guesses per issued code. Every failure shows the same
-            // generic message so the responses reveal nothing about which
-            // emails have pending resets.
-            $genericError = "Invalid or expired code. Please check the code and email address, or request a new one.";
+            // 6-digit code path: verification (lookup, attempt-capping,
+            // enumeration-safe error) lives in Auth::verifyResetCode(),
+            // shared with the mobile API's reset-password endpoint.
             if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
                 $errorMsg = "Please enter the email address the code was sent to.";
             } else {
                 try {
-                    $appDb = Database::getAppConnection();
-                    $stmt = $appDb->prepare("SELECT code, expires_at, code_attempts FROM tgg_password_resets WHERE email = :email LIMIT 1");
-                    $stmt->execute(['email' => $email]);
-                    $row = $stmt->fetch();
+                    Auth::verifyResetCode($email, $code);
 
-                    if (!$row || $row['code'] === null || (int)$row['code_attempts'] >= MAX_CODE_ATTEMPTS || strtotime($row['expires_at']) < time()) {
-                        $errorMsg = $genericError;
-                    } elseif (!hash_equals($row['code'], hash('sha256', $code))) {
-                        // Wrong code: count the strike. Hitting the cap deletes
-                        // the whole reset row, link token included.
-                        $attempts = (int)$row['code_attempts'] + 1;
-                        if ($attempts >= MAX_CODE_ATTEMPTS) {
-                            $appDb->prepare("DELETE FROM tgg_password_resets WHERE email = :email")
-                                ->execute(['email' => $email]);
-                        } else {
-                            $appDb->prepare("UPDATE tgg_password_resets SET code_attempts = :attempts WHERE email = :email")
-                                ->execute(['attempts' => $attempts, 'email' => $email]);
-                        }
-                        $errorMsg = $genericError;
-                    } else {
-                        // Match: the code is single-use. Rotate to a fresh long
-                        // token (only its hash is stored, so the original can't
-                        // be recovered) and hand off to reset-password.php.
-                        $newRawToken = bin2hex(random_bytes(32));
-                        $appDb->prepare("UPDATE tgg_password_resets SET token = :token, code = NULL, code_attempts = 0 WHERE email = :email")
-                            ->execute(['token' => hash('sha256', $newRawToken), 'email' => $email]);
-                        redirect('reset-password.php?token=' . urlencode($newRawToken));
-                    }
+                    // Match: the code is single-use. Rotate to a fresh long
+                    // token (only its hash is stored, so the original can't
+                    // be recovered) and hand off to reset-password.php.
+                    $appDb = Database::getAppConnection();
+                    $newRawToken = bin2hex(random_bytes(32));
+                    $appDb->prepare("UPDATE tgg_password_resets SET token = :token, code = NULL, code_attempts = 0 WHERE email = :email")
+                        ->execute(['token' => hash('sha256', $newRawToken), 'email' => $email]);
+                    redirect('reset-password.php?token=' . urlencode($newRawToken));
                 } catch (Exception $e) {
-                    $errorMsg = safe_err("An error occurred: ", $e);
+                    $errorMsg = $e->getMessage();
                 }
             }
         } else {

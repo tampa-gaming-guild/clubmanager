@@ -9,7 +9,10 @@ use PDO;
  * Authenticates users against CiviCRM emails and local credentials.
  */
 class Auth {
-    
+
+    /** Wrong-guess cap on a pending reset code before its row is discarded entirely. */
+    public const MAX_CODE_ATTEMPTS = 5;
+
     /**
      * Authenticate a user by email and password
      * @param string $email
@@ -251,6 +254,121 @@ class Auth {
         ]);
 
         return ['token' => $rawToken, 'code' => $rawCode];
+    }
+
+    /**
+     * Verify a pending password-reset code for $email, scoped to that
+     * address and capped at MAX_CODE_ATTEMPTS wrong guesses (the whole
+     * tgg_password_resets row is discarded once the cap is hit). A correct
+     * guess does NOT consume the code or mutate the row -- callers that
+     * don't immediately complete the reset in the same request (e.g.
+     * enter-code.php, which still needs to survive a redirect) are
+     * responsible for rotating/clearing it themselves; callers that finish
+     * in one step (the mobile reset endpoint) just proceed straight to
+     * completePasswordReset(), which deletes the row.
+     * Shared by enter-code.php's code path and the mobile API's
+     * reset-password endpoint so this security-sensitive check can't drift
+     * between them.
+     * @throws Exception with a generic, enumeration-safe message on any failure
+     */
+    public static function verifyResetCode(string $email, string $code): void {
+        $appDb = Database::getAppConnection();
+        $email = trim(strtolower($email));
+        $genericError = "Invalid or expired code. Please check the code and email address, or request a new one.";
+
+        $stmt = $appDb->prepare("SELECT code, expires_at, code_attempts FROM tgg_password_resets WHERE email = :email LIMIT 1");
+        $stmt->execute(['email' => $email]);
+        $row = $stmt->fetch();
+
+        if (!$row || $row['code'] === null || (int)$row['code_attempts'] >= self::MAX_CODE_ATTEMPTS || strtotime($row['expires_at']) < time()) {
+            throw new Exception($genericError);
+        }
+
+        if (!hash_equals($row['code'], hash('sha256', $code))) {
+            // Wrong code: count the strike. Hitting the cap deletes the
+            // whole reset row, link token included.
+            $attempts = (int)$row['code_attempts'] + 1;
+            if ($attempts >= self::MAX_CODE_ATTEMPTS) {
+                $appDb->prepare("DELETE FROM tgg_password_resets WHERE email = :email")
+                    ->execute(['email' => $email]);
+            } else {
+                $appDb->prepare("UPDATE tgg_password_resets SET code_attempts = :attempts WHERE email = :email")
+                    ->execute(['attempts' => $attempts, 'email' => $email]);
+            }
+            throw new Exception($genericError);
+        }
+    }
+
+    /**
+     * Apply a new password for the account associated with $email and clear
+     * its pending reset row (and any pending email-change request -- a
+     * password reset is the member's recovery action, and a still-live
+     * change link, possibly attacker-initiated, must not complete after
+     * they've re-secured the account). Shared by reset-password.php (token
+     * flow) and the mobile API's reset-password endpoint (code flow) so the
+     * security-sensitive password-update logic can't drift between them.
+     * @param int|null $actorContactId Explicit actor for AuditLog when
+     *                                 there's no session identity (token-link
+     *                                 or API request); defaults to the
+     *                                 account owner, same as the prior
+     *                                 inline behavior.
+     * @throws Exception On weak password or unknown contact
+     */
+    public static function completePasswordReset(string $email, string $newPassword, ?int $actorContactId = null): void {
+        if (!is_password_complex($newPassword, $error)) {
+            throw new Exception($error);
+        }
+
+        $appDb = Database::getAppConnection();
+        $email = trim(strtolower($email));
+
+        $appDb->beginTransaction();
+        try {
+            $stmtCivi = $appDb->prepare("SELECT id as contact_id, display_name FROM tgg_contacts WHERE email = :email LIMIT 1");
+            $stmtCivi->execute(['email' => $email]);
+            $civiRow = $stmtCivi->fetch();
+            if (!$civiRow) {
+                throw new Exception("Local contact associated with this email could not be located.");
+            }
+            $contactId = (int)$civiRow['contact_id'];
+            $displayName = $civiRow['display_name'] ?? 'Member';
+
+            $passwordHash = password_hash($newPassword, PASSWORD_DEFAULT);
+            $stmtCheck = $appDb->prepare("SELECT role FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1");
+            $stmtCheck->execute(['contact_id' => $contactId]);
+            $exists = $stmtCheck->fetch();
+
+            if ($exists) {
+                $appDb->prepare("
+                    UPDATE tgg_member_settings
+                    SET password_hash = :hash, failed_login_attempts = 0, locked_until = NULL
+                    WHERE contact_id = :contact_id
+                ")->execute(['hash' => $passwordHash, 'contact_id' => $contactId]);
+            } else {
+                $appDb->prepare("
+                    INSERT INTO tgg_member_settings (contact_id, password_hash, role, failed_login_attempts, locked_until)
+                    VALUES (:contact_id, :hash, 'member', 0, NULL)
+                ")->execute(['contact_id' => $contactId, 'hash' => $passwordHash]);
+            }
+
+            $appDb->prepare("DELETE FROM tgg_password_resets WHERE email = :email")->execute(['email' => $email]);
+            $appDb->prepare("DELETE FROM tgg_email_change_requests WHERE contact_id = :contact_id")->execute(['contact_id' => $contactId]);
+
+            $appDb->commit();
+        } catch (Exception $txEx) {
+            if ($appDb->inTransaction()) {
+                $appDb->rollBack();
+            }
+            throw $txEx;
+        }
+
+        AuditLog::log('security', 'password_reset_completed', ['email' => $email], $contactId, $actorContactId ?? $contactId);
+
+        $loginUrl = rtrim($_ENV['BASE_URL'] ?? 'http://localhost/member', '/') . '/index.php';
+        MailHelper::sendTemplate($email, 'password_reset_completed', [
+            'display_name' => $displayName,
+            'login_url' => $loginUrl,
+        ], $contactId, null);
     }
 
     /**
