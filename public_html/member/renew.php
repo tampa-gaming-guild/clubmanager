@@ -142,7 +142,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
 
                     $methodLabel = ($paymentFlow === 'card_on_file') ? 'card on file' : 'cash';
                     $successMsg = "Renewed to " . htmlspecialchars($tierName) . " via {$methodLabel}, through " . htmlspecialchars($expiresLabel) . ".";
-                    $successMsg .= ' <a href="profile.php?id=' . $contactId . '" class="btn btn-secondary btn-small" style="display: inline-block; margin-left: 15px; padding: 4px 10px; font-size: 0.8rem; vertical-align: middle; background: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.25); color: #fff;">Back to Profile</a>';
+                    $successMsg .= ' <a href="profile.php?id=' . $contactId . '" class="btn btn-secondary btn-small" style="display: inline-block; margin-left: 15px; padding: 4px 10px; font-size: 0.8rem; vertical-align: middle; background: rgba(var(--overlay-rgb), 0.15); border: 1px solid rgba(var(--overlay-rgb), 0.25); color: var(--color-text-primary);">Back to Profile</a>';
                 } catch (Exception $e) {
                     $errorMsg = safe_err("Failed to process renewal: ", $e);
                 }
@@ -156,7 +156,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                     $result = BillingHelper::applyMembershipCreditsToMembership($contactId, $creditMonths);
 
                     $successMsg = "Membership extended by {$result['months_applied']} month(s) using Membership Credits, through " . date('F j, Y', strtotime($result['end_date'])) . ".";
-                    $successMsg .= ' <a href="profile.php?id=' . $contactId . '" class="btn btn-secondary btn-small" style="display: inline-block; margin-left: 15px; padding: 4px 10px; font-size: 0.8rem; vertical-align: middle; background: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.25); color: #fff;">Back to Profile</a>';
+                    $successMsg .= ' <a href="profile.php?id=' . $contactId . '" class="btn btn-secondary btn-small" style="display: inline-block; margin-left: 15px; padding: 4px 10px; font-size: 0.8rem; vertical-align: middle; background: rgba(var(--overlay-rgb), 0.15); border: 1px solid rgba(var(--overlay-rgb), 0.25); color: var(--color-text-primary);">Back to Profile</a>';
 
                     $membership = BillingHelper::getMemberSubscriptionDetails($contactId);
                     if (!$membership) {
@@ -220,6 +220,7 @@ try {
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <?php include __DIR__ . '/partials/theme_init.php'; ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Renew Membership - TGG Member Portal</title>
@@ -257,7 +258,7 @@ try {
                         <table class="status-table" style="width: 100%; margin-top: 10px; border-collapse: collapse;">
                             <tr>
                                 <td style="text-align: right; padding: 6px 15px 6px 0; width: 45%; font-weight: bold; color: var(--color-text-secondary); border: none;">Level:</td>
-                                <td style="text-align: left; padding: 6px 0 6px 15px; color: #fff; font-weight: 600; border: none;"><?php echo e($membership['membership_name']); ?></td>
+                                <td style="text-align: left; padding: 6px 0 6px 15px; color: var(--color-text-primary); font-weight: 600; border: none;"><?php echo e($membership['membership_name']); ?></td>
                             </tr>
                             <tr>
                                 <td style="text-align: right; padding: 6px 15px 6px 0; width: 45%; font-weight: bold; color: var(--color-text-secondary); border: none;">Status:</td>
@@ -269,12 +270,12 @@ try {
                             </tr>
                             <tr>
                                 <td style="text-align: right; padding: 6px 15px 6px 0; width: 45%; font-weight: bold; color: var(--color-text-secondary); border: none;">Join Date:</td>
-                                <td style="text-align: left; padding: 6px 0 6px 15px; color: #fff; border: none;"><?php echo date('F j, Y', strtotime($membership['join_date'])); ?></td>
+                                <td style="text-align: left; padding: 6px 0 6px 15px; color: var(--color-text-primary); border: none;"><?php echo date('F j, Y', strtotime($membership['join_date'])); ?></td>
                             </tr>
                             <tr>
                                 <td style="text-align: right; padding: 6px 15px 6px 0; width: 45%; font-weight: bold; color: var(--color-text-secondary); border: none;">Current Expires:</td>
                                 <td style="text-align: left; padding: 6px 0 6px 15px; border: none;">
-                                    <strong class="<?php echo strtotime($membership['end_date']) < time() ? 'text-danger' : ''; ?>" style="color: #fff;">
+                                    <strong class="<?php echo strtotime($membership['end_date']) < time() ? 'text-danger' : ''; ?>" style="color: var(--color-text-primary);">
                                         <?php echo date('F j, Y', strtotime($membership['end_date'])); ?>
                                     </strong>
                                 </td>
@@ -292,7 +293,7 @@ try {
                     <div class="renewal-sections-container" style="display: flex; flex-direction: column; gap: 25px; margin-top: 20px;">
                         
                         <!-- SECTION 1: RENEW MEMBERSHIP (Card on File / Stripe Checkout / Cash) -->
-                        <div class="renewal-section-card" style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 20px; text-align: left;">
+                        <div class="renewal-section-card" style="background: rgba(var(--overlay-rgb), 0.02); border: 1px solid rgba(var(--overlay-rgb), 0.08); border-radius: 12px; padding: 20px; text-align: left;">
                             <h3 style="margin-top: 0; margin-bottom: 15px; color: var(--color-primary); display: flex; align-items: center; gap: 8px; font-size: 1.1rem;">
                                 <span>💳</span> Renew Membership
                             </h3>
@@ -335,7 +336,7 @@ try {
 
                         <?php if ($redeemableMonths >= 1): ?>
                         <!-- SECTION 2: USE MEMBERSHIP CREDITS -->
-                        <div class="renewal-section-card" style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 20px; text-align: left;">
+                        <div class="renewal-section-card" style="background: rgba(var(--overlay-rgb), 0.02); border: 1px solid rgba(var(--overlay-rgb), 0.08); border-radius: 12px; padding: 20px; text-align: left;">
                             <h3 style="margin-top: 0; margin-bottom: 15px; color: var(--color-success); display: flex; align-items: center; gap: 8px; font-size: 1.1rem;">
                                 <span>🏅</span> Use Membership Credits
                             </h3>
@@ -405,7 +406,7 @@ try {
                     </form>
 
                     <?php if ($redeemableMonths >= 1): ?>
-                    <div class="renewal-section-card mt-20" style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 20px; text-align: left;">
+                    <div class="renewal-section-card mt-20" style="background: rgba(var(--overlay-rgb), 0.02); border: 1px solid rgba(var(--overlay-rgb), 0.08); border-radius: 12px; padding: 20px; text-align: left;">
                         <h3 style="margin-top: 0; margin-bottom: 15px; color: var(--color-success); display: flex; align-items: center; gap: 8px; font-size: 1.1rem;">
                             <span>🏅</span> Use Membership Credits
                         </h3>

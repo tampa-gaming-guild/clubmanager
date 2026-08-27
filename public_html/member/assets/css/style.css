@@ -11,39 +11,102 @@
     navigation: auto;
 }
 
-/* --- CSS Variables & Design Tokens --- */
+/* --- CSS Variables & Design Tokens ---
+   :root holds the LIGHT theme (the default). html[data-theme="dark"] overrides
+   with the original dark glassmorphism palette. Toggled by assets/js/theme.js /
+   partials/theme_init.php via a `data-theme` attribute on <html>. --- */
 :root {
     /* Render native browser widgets (date/time picker popups, select dropdowns,
-       scrollbars) in dark mode to match the theme. */
-    color-scheme: dark;
+       scrollbars) to match the theme. */
+    color-scheme: light;
 
     --font-heading: 'Outfit', 'Inter', -apple-system, sans-serif;
     --font-body: 'Inter', -apple-system, sans-serif;
 
     /* Theme Colors (HSL Palettes) */
-    --color-bg: hsl(222, 47%, 8%);
-    --color-bg-glow: radial-gradient(circle at 50% 50%, hsl(222, 47%, 15%) 0%, hsl(222, 47%, 6%) 100%);
-    
-    --color-surface-glass: hsla(223, 47%, 14%, 0.45);
-    --color-surface-glass-solid: hsl(223, 47%, 12%);
-    --border-glass: hsla(217, 30%, 100%, 0.07);
-    --border-glass-focus: hsla(217, 90%, 60%, 0.35);
-    --shadow-glass: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    --color-bg: hsl(210, 45%, 97%);
+    --color-bg-glow: radial-gradient(circle at 50% 50%, hsl(210, 60%, 98%) 0%, hsl(210, 35%, 93%) 100%);
 
-    /* UI Colors */
+    --color-surface-glass: hsla(210, 55%, 100%, 0.6);
+    --color-surface-glass-solid: hsl(210, 40%, 99%);
+    --border-glass: hsla(217, 30%, 20%, 0.1);
+    --border-glass-focus: hsla(217, 90%, 50%, 0.35);
+    --shadow-glass: 0 8px 32px 0 rgba(15, 23, 42, 0.1);
+
+    /* Recurring surface tints scattered through this file as rgba(255,255,255,X)
+       (dark-theme "lighten" overlays for hovers/borders) or hsla(222,47%,...)
+       (navbar/footer/dropdown surfaces) -- theme-flipped here so those rules
+       don't need per-property duplication. */
+    --overlay-rgb: 15, 23, 42;
+    --color-navbar-bg: hsla(210, 55%, 99%, 0.75);
+    --color-search-dropdown-bg: hsla(0, 0%, 100%, 0.98);
+    --color-mobile-nav-bg: hsla(210, 55%, 99%, 0.97);
+    --color-footer-bg: hsla(210, 40%, 95%, 0.85);
+
+    /* UI Colors (theme-neutral brand/status hues -- unchanged between themes) */
     --color-primary: hsl(217, 91%, 60%);
     --color-primary-hover: hsl(217, 91%, 50%);
     --color-primary-rgb: 59, 130, 246;
 
     --color-success: hsl(142, 70%, 45%);
     --color-success-hover: hsl(142, 70%, 40%);
-    
+
     --color-warning: hsl(38, 92%, 50%);
     --color-danger: hsl(350, 89%, 55%);
-    
+
+    --color-text-primary: hsl(222, 47%, 11%);
+    --color-text-secondary: hsl(215, 20%, 35%);
+    --color-text-muted: hsl(215, 12%, 46%);
+
+    /* Alert banners (.alert-danger/-success/-info/-warning) */
+    --alert-danger-bg: rgba(220, 38, 38, 0.08);
+    --alert-danger-border: rgba(220, 38, 38, 0.35);
+    --alert-danger-text: hsl(350, 75%, 42%);
+    --alert-success-bg: rgba(22, 163, 74, 0.08);
+    --alert-success-border: rgba(22, 163, 74, 0.35);
+    --alert-success-text: hsl(142, 70%, 30%);
+    --alert-info-bg: rgba(37, 99, 235, 0.08);
+    --alert-info-border: rgba(37, 99, 235, 0.35);
+    --alert-info-text: hsl(217, 80%, 42%);
+    --alert-warning-bg: rgba(217, 119, 6, 0.08);
+    --alert-warning-border: rgba(217, 119, 6, 0.35);
+    --alert-warning-text: hsl(38, 80%, 32%);
+}
+
+html[data-theme="dark"] {
+    color-scheme: dark;
+
+    --color-bg: hsl(222, 47%, 8%);
+    --color-bg-glow: radial-gradient(circle at 50% 50%, hsl(222, 47%, 15%) 0%, hsl(222, 47%, 6%) 100%);
+
+    --color-surface-glass: hsla(223, 47%, 14%, 0.45);
+    --color-surface-glass-solid: hsl(223, 47%, 12%);
+    --border-glass: hsla(217, 30%, 100%, 0.07);
+    --border-glass-focus: hsla(217, 90%, 60%, 0.35);
+    --shadow-glass: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+
+    --overlay-rgb: 255, 255, 255;
+    --color-navbar-bg: hsla(222, 47%, 8%, 0.7);
+    --color-search-dropdown-bg: hsla(222, 47%, 10%, 0.98);
+    --color-mobile-nav-bg: hsla(222, 47%, 8%, 0.97);
+    --color-footer-bg: hsla(222, 47%, 5%, 0.8);
+
     --color-text-primary: hsl(210, 40%, 98%);
     --color-text-secondary: hsl(215, 20%, 75%);
     --color-text-muted: hsl(215, 12%, 50%);
+
+    --alert-danger-bg: rgba(239, 68, 68, 0.12);
+    --alert-danger-border: rgba(239, 68, 68, 0.3);
+    --alert-danger-text: hsl(350, 100%, 75%);
+    --alert-success-bg: rgba(34, 197, 94, 0.12);
+    --alert-success-border: rgba(34, 197, 94, 0.3);
+    --alert-success-text: hsl(142, 70%, 70%);
+    --alert-info-bg: rgba(59, 130, 246, 0.12);
+    --alert-info-border: rgba(59, 130, 246, 0.3);
+    --alert-info-text: hsl(217, 90%, 75%);
+    --alert-warning-bg: rgba(234, 179, 8, 0.12);
+    --alert-warning-border: rgba(234, 179, 8, 0.3);
+    --alert-warning-text: hsl(45, 90%, 70%);
 }
 
 /* --- Base Layout & Typography --- */
@@ -77,7 +140,7 @@ h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-heading);
     font-weight: 600;
     letter-spacing: -0.02em;
-    color: #fff;
+    color: var(--color-text-primary);
     margin-bottom: 0.5em;
 }
 
@@ -114,7 +177,7 @@ a:hover {
 
 /* --- Translucent Navbar --- */
 .navbar {
-    background: hsla(222, 47%, 8%, 0.7);
+    background: var(--color-navbar-bg);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border-bottom: 1px solid var(--border-glass);
@@ -154,8 +217,8 @@ a:hover {
 }
 
 .nav-links a:hover, .nav-links a.active {
-    color: #fff;
-    background: rgba(255, 255, 255, 0.05);
+    color: var(--color-text-primary);
+    background: rgba(var(--overlay-rgb), 0.05);
 }
 
 .nav-links a.btn-logout {
@@ -167,16 +230,77 @@ a:hover {
     color: hsl(350, 89%, 75%);
 }
 
+/* --- Theme Switcher (Light/Dark/System icon buttons, bulma.io-style) --- */
+.theme-toggle-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    background: rgba(var(--overlay-rgb), 0.05);
+    border: 1px solid var(--border-glass);
+    border-radius: 20px;
+    padding: 3px;
+}
+.theme-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: transparent;
+    border: none;
+    border-radius: 50%;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+.theme-toggle-btn svg {
+    width: 16px;
+    height: 16px;
+}
+.theme-toggle-btn:hover {
+    color: var(--color-text-primary);
+    background: rgba(var(--overlay-rgb), 0.08);
+}
+.theme-toggle-btn.is-active {
+    background: var(--color-primary);
+    color: #fff;
+}
+.theme-toggle-btn:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+}
+
+/* --- Navbar Search Input (partials/navbar.php's search box) --- */
+.navbar-search-form input {
+    width: 100%;
+    padding: 8px 15px 8px 35px;
+    background: rgba(var(--overlay-rgb), 0.05);
+    border: 1px solid var(--border-glass);
+    border-radius: 20px;
+    color: var(--color-text-primary);
+    font-size: 0.85rem;
+    outline: none;
+    transition: all 0.2s ease;
+}
+.navbar-search-form .navbar-search-icon {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+}
+
 /* --- Navbar Search Dropdown --- */
 .navbar-search-dropdown {
     position: absolute;
     top: calc(100% + 6px);
     left: 0;
     right: 0;
-    background: hsla(222, 47%, 10%, 0.98);
+    background: var(--color-search-dropdown-bg);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(var(--overlay-rgb), 0.1);
     border-radius: 10px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
     overflow: hidden;
@@ -189,7 +313,7 @@ a:hover {
     gap: 2px;
     padding: 10px 15px;
     cursor: pointer;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 1px solid rgba(var(--overlay-rgb), 0.06);
     transition: background 0.15s ease;
 }
 
@@ -199,13 +323,13 @@ a:hover {
 
 .navbar-search-result-item:hover,
 .navbar-search-result-item.navbar-search-result-active {
-    background: rgba(255, 255, 255, 0.07);
+    background: rgba(var(--overlay-rgb), 0.07);
 }
 
 .navbar-search-result-name {
     font-size: 0.9rem;
     font-weight: 600;
-    color: #fff;
+    color: var(--color-text-primary);
 }
 
 .navbar-search-result-email {
@@ -336,7 +460,7 @@ a:hover {
     background: rgba(0, 0, 0, 0.25);
     border: 1px solid var(--border-glass);
     border-radius: 8px;
-    color: #fff;
+    color: var(--color-text-primary);
     padding: 12px 14px;
     font-size: 0.95rem;
     font-family: var(--font-body);
@@ -345,7 +469,7 @@ a:hover {
 
 select option {
     background-color: var(--color-surface-glass-solid) !important;
-    color: #fff !important;
+    color: var(--color-text-primary) !important;
 }
 
 .form-group input:focus,
@@ -427,12 +551,12 @@ select option {
 }
 
 .btn-secondary {
-    background: rgba(255, 255, 255, 0.07);
-    color: #fff;
+    background: rgba(var(--overlay-rgb), 0.07);
+    color: var(--color-text-primary);
     border: 1px solid var(--border-glass);
 }
 .btn-secondary:hover {
-    background: rgba(255, 255, 255, 0.15);
+    background: rgba(var(--overlay-rgb), 0.15);
     transform: translateY(-1px);
 }
 
@@ -597,31 +721,31 @@ select option {
 }
 
 .alert-danger {
-    background: rgba(239, 68, 68, 0.12);
-    border: 1px solid rgba(239, 68, 68, 0.3);
-    color: hsl(350, 100%, 75%);
+    background: var(--alert-danger-bg);
+    border: 1px solid var(--alert-danger-border);
+    color: var(--alert-danger-text);
 }
 
 .alert-success {
-    background: rgba(34, 197, 94, 0.12);
-    border: 1px solid rgba(34, 197, 94, 0.3);
-    color: hsl(142, 70%, 70%);
+    background: var(--alert-success-bg);
+    border: 1px solid var(--alert-success-border);
+    color: var(--alert-success-text);
 }
 
 .alert-info {
-    background: rgba(59, 130, 246, 0.12);
-    border: 1px solid rgba(59, 130, 246, 0.3);
-    color: hsl(217, 90%, 75%);
+    background: var(--alert-info-bg);
+    border: 1px solid var(--alert-info-border);
+    color: var(--alert-info-text);
 }
 
 .alert-warning {
-    background: rgba(234, 179, 8, 0.12);
-    border: 1px solid rgba(234, 179, 8, 0.3);
-    color: hsl(45, 90%, 70%);
+    background: var(--alert-warning-bg);
+    border: 1px solid var(--alert-warning-border);
+    color: var(--alert-warning-text);
 }
 
 .info-block {
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba(var(--overlay-rgb), 0.03);
     border-radius: 8px;
     padding: 12px;
     font-size: 0.85rem;
@@ -649,7 +773,7 @@ select option {
 }
 
 .user-role-badge {
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(var(--overlay-rgb), 0.08);
     border-radius: 50px;
     padding: 4px 12px;
     font-size: 0.8rem;
@@ -671,7 +795,7 @@ select option {
 .dashboard-card {
     background: rgba(0, 0, 0, 0.15);
     border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(var(--overlay-rgb), 0.04);
     padding: 20px;
 }
 
@@ -685,7 +809,7 @@ select option {
 .membership-level {
     font-size: 1.3rem;
     font-weight: 700;
-    color: #fff;
+    color: var(--color-text-primary);
 }
 
 .badge {
@@ -729,7 +853,7 @@ select option {
 
 .status-dates span {
     font-weight: 600;
-    color: #fff;
+    color: var(--color-text-primary);
 }
 
 /* Action Buttons list (Dashboard Nav) */
@@ -742,7 +866,7 @@ select option {
 .action-btn {
     display: flex;
     align-items: center;
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba(var(--overlay-rgb), 0.03);
     border: 1px solid var(--border-glass);
     border-radius: 8px;
     padding: 12px 16px;
@@ -750,8 +874,8 @@ select option {
 }
 
 .action-btn:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.15);
+    background: rgba(var(--overlay-rgb), 0.08);
+    border-color: rgba(var(--overlay-rgb), 0.15);
     transform: translateX(4px);
 }
 
@@ -767,7 +891,7 @@ select option {
 }
 
 .action-btn .btn-text strong {
-    color: #fff;
+    color: var(--color-text-primary);
     font-size: 0.95rem;
 }
 
@@ -828,14 +952,14 @@ select option {
 .detail-section {
     background: rgba(0, 0, 0, 0.15);
     border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(var(--overlay-rgb), 0.03);
     padding: 20px;
     margin-bottom: 20px;
 }
 
 .section-title {
     font-size: 1.1rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid rgba(var(--overlay-rgb), 0.05);
     padding-bottom: 8px;
     margin-bottom: 15px;
 }
@@ -870,7 +994,7 @@ select option {
 }
 
 .management-card {
-    background: rgba(255, 255, 255, 0.02);
+    background: rgba(var(--overlay-rgb), 0.02);
     border-radius: 12px;
     border: 1px solid var(--border-glass);
     padding: 20px;
@@ -883,21 +1007,21 @@ select option {
 
 /* --- Entry Check-In Terminal Style --- */
 .terminal-body {
-    background-image: radial-gradient(circle at 50% 50%, hsl(222, 50%, 10%) 0%, hsl(222, 50%, 4%) 100%);
+    background-image: var(--color-bg-glow);
 }
 
 .terminal-panel {
     width: 100%;
     max-width: 600px;
     text-align: center;
-    border-color: rgba(255, 255, 255, 0.15);
+    border-color: rgba(var(--overlay-rgb), 0.15);
     box-shadow: 0 10px 40px rgba(0,0,0,0.5);
 }
 
 .terminal-header h2 {
     font-size: 2.2rem;
     font-weight: 800;
-    background: linear-gradient(135deg, #fff 30%, var(--color-primary) 100%);
+    background: linear-gradient(135deg, var(--color-text-primary) 30%, var(--color-primary) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
 }
@@ -981,7 +1105,7 @@ select option {
 .calendar-day {
     height: 60px;
     width: 14%;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(var(--overlay-rgb), 0.05);
     position: relative;
     padding: 5px;
     vertical-align: top;
@@ -989,7 +1113,7 @@ select option {
 }
 
 .calendar-day:hover:not(.empty-day) {
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba(var(--overlay-rgb), 0.03);
 }
 
 .calendar-day .day-num {
@@ -1018,12 +1142,12 @@ select option {
 
 /* --- Volunteer signup table (shared by volunteers.php and calendar.php's day panel) --- */
 .event-group-header td {
-    background: rgba(255, 255, 255, 0.05) !important;
+    background: rgba(var(--overlay-rgb), 0.05) !important;
     font-family: var(--font-heading);
     font-size: 1rem;
     font-weight: 600;
-    color: #fff !important;
-    border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+    color: var(--color-text-primary) !important;
+    border-bottom: 1px solid rgba(var(--overlay-rgb),0.08) !important;
     padding: 14px 16px !important;
 }
 .event-group-header.highlighted {
@@ -1039,7 +1163,7 @@ select option {
     font-size: 0.9rem;
 }
 .role-subrow:hover {
-    background: rgba(255, 255, 255, 0.01) !important;
+    background: rgba(var(--overlay-rgb), 0.01) !important;
 }
 .volunteer-status-needed {
     color: hsl(38, 92%, 55%);
@@ -1065,7 +1189,7 @@ select option {
 .role-bullet.filled.bullet-greeter { background-color: var(--color-primary); }
 
 .has-events-day {
-    background: rgba(255, 255, 255, 0.02);
+    background: rgba(var(--overlay-rgb), 0.02);
 }
 
 .day-events-dots {
@@ -1131,7 +1255,7 @@ select option {
 }
 
 .event-card {
-    background: rgba(255, 255, 255, 0.02);
+    background: rgba(var(--overlay-rgb), 0.02);
     border: 1px solid var(--border-glass);
     border-radius: 12px;
     padding: 20px;
@@ -1153,7 +1277,7 @@ select option {
 .event-time {
     font-size: 0.75rem;
     color: var(--color-text-secondary);
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(var(--overlay-rgb), 0.05);
     padding: 3px 8px;
     border-radius: 4px;
 }
@@ -1172,7 +1296,7 @@ select option {
 .progress-bar {
     width: 100%;
     height: 6px;
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(var(--overlay-rgb), 0.05);
     border-radius: 50px;
     overflow: hidden;
     margin-top: 5px;
@@ -1225,7 +1349,7 @@ select option {
 
 .admin-sidebar h3 {
     font-size: 1.1rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid rgba(var(--overlay-rgb), 0.05);
     padding-bottom: 8px;
     margin-bottom: 15px;
 }
@@ -1248,8 +1372,8 @@ select option {
 }
 
 .admin-menu a:hover, .admin-menu a.active {
-    color: #fff;
-    background: rgba(255,255,255,0.05);
+    color: var(--color-text-primary);
+    background: rgba(var(--overlay-rgb),0.05);
 }
 
 .admin-menu a.active {
@@ -1289,7 +1413,7 @@ select option {
     font-size: 1.8rem;
     font-family: var(--font-heading);
     font-weight: 700;
-    color: #fff;
+    color: var(--color-text-primary);
     line-height: 1.2;
 }
 
@@ -1317,7 +1441,7 @@ select option {
     background: rgba(0,0,0,0.2);
     border: 1px solid var(--border-glass);
     border-radius: 6px;
-    color: #fff;
+    color: var(--color-text-primary);
     padding: 8px 14px;
     font-size: 0.85rem;
     width: 250px;
@@ -1336,7 +1460,7 @@ select option {
 
 .admin-table th {
     padding: 12px 16px;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
+    border-bottom: 1px solid rgba(var(--overlay-rgb),0.08);
     color: var(--color-text-secondary);
     font-size: 0.8rem;
     text-transform: uppercase;
@@ -1345,12 +1469,12 @@ select option {
 
 .admin-table td {
     padding: 14px 16px;
-    border-bottom: 1px solid rgba(255,255,255,0.04);
+    border-bottom: 1px solid rgba(var(--overlay-rgb),0.04);
     font-size: 0.9rem;
 }
 
 .admin-table tr:hover {
-    background: rgba(255, 255, 255, 0.02);
+    background: rgba(var(--overlay-rgb), 0.02);
 }
 
 .table-datetime {
@@ -1374,7 +1498,7 @@ select option {
 
 .guest-tick:hover,
 .guest-tick:focus {
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(var(--overlay-rgb), 0.08);
     outline: none;
 }
 
@@ -1396,7 +1520,7 @@ select option {
 }
 
 .scheduler-form-card {
-    background: rgba(255, 255, 255, 0.01);
+    background: rgba(var(--overlay-rgb), 0.01);
     border-radius: 12px;
     padding: 20px;
 }
@@ -1412,7 +1536,7 @@ select option {
 }
 
 .status-badge {
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba(var(--overlay-rgb), 0.03);
     border: 1px solid var(--border-glass);
     padding: 10px 16px;
     border-radius: 8px;
@@ -1467,7 +1591,7 @@ select option {
     border-top: 1px solid var(--border-glass);
     padding: 20px;
     text-align: center;
-    background: hsla(222, 47%, 5%, 0.8);
+    background: var(--color-footer-bg);
     font-size: 0.8rem;
     color: var(--color-text-muted);
     margin-top: 40px;
@@ -1522,7 +1646,7 @@ select option {
         flex-direction: column;
         align-items: stretch;
         gap: 0;
-        background: hsla(222, 47%, 8%, 0.97);
+        background: var(--color-mobile-nav-bg);
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
         border-bottom: 1px solid var(--border-glass);

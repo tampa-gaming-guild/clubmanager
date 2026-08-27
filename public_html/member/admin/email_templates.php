@@ -116,6 +116,7 @@ try {
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <?php include __DIR__ . '/../partials/theme_init.php'; ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Email Templates Manager - Admin Controls</title>
@@ -140,16 +141,16 @@ try {
             display: flex;
             flex-direction: column;
             padding: 12px 15px;
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.05);
+            background: rgba(var(--overlay-rgb), 0.02);
+            border: 1px solid rgba(var(--overlay-rgb), 0.05);
             border-radius: 8px;
-            color: #fff;
+            color: var(--color-text-primary);
             text-decoration: none;
             transition: all 0.2s ease;
             text-align: left;
         }
         .template-link-btn:hover {
-            background: rgba(255, 255, 255, 0.06);
+            background: rgba(var(--overlay-rgb), 0.06);
             border-color: var(--color-primary);
         }
         .template-link-btn.active {
@@ -165,7 +166,7 @@ try {
         .template-link-btn .key {
             font-family: monospace;
             font-size: 0.75rem;
-            color: rgba(255, 255, 255, 0.4);
+            color: rgba(var(--overlay-rgb), 0.4);
         }
         .editor-container {
             display: flex;
@@ -173,8 +174,8 @@ try {
             gap: 20px;
         }
         .placeholder-box {
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px dashed rgba(255, 255, 255, 0.1);
+            background: rgba(var(--overlay-rgb), 0.02);
+            border: 1px dashed rgba(var(--overlay-rgb), 0.1);
             border-radius: 8px;
             padding: 15px;
             font-size: 0.85rem;
@@ -194,7 +195,7 @@ try {
             background: rgba(0, 0, 0, 0.2);
             padding: 8px 10px;
             border-radius: 4px;
-            border: 1px solid rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(var(--overlay-rgb), 0.03);
         }
         .placeholder-tag {
             font-family: monospace;
@@ -203,7 +204,7 @@ try {
             margin-bottom: 2px;
         }
         .placeholder-desc {
-            color: rgba(255, 255, 255, 0.6);
+            color: rgba(var(--overlay-rgb), 0.6);
             font-size: 0.8rem;
         }
         .template-form-group {
@@ -214,13 +215,13 @@ try {
         .template-form-group label {
             font-weight: 600;
             font-size: 0.95rem;
-            color: rgba(255, 255, 255, 0.95);
+            color: rgba(var(--overlay-rgb), 0.95);
         }
         .template-form-group input, .template-form-group textarea {
             background: rgba(0, 0, 0, 0.3);
             border: 1px solid var(--border-glass);
             border-radius: 8px;
-            color: #fff;
+            color: var(--color-text-primary);
             padding: 12px 16px;
             font-size: 0.9rem;
             font-family: var(--font-body);
@@ -286,12 +287,12 @@ try {
                         <!-- Right Sub-panel: Editor Form -->
                         <div class="glass-panel editor-container">
                             <h3>Edit Template: <span style="color: var(--color-primary); font-family: monospace;"><?php echo e($activeKey); ?></span></h3>
-                            <p style="font-size: 0.85rem; color: rgba(255, 255, 255, 0.6);"><?php echo e($activeTemplate['description']); ?></p>
+                            <p style="font-size: 0.85rem; color: rgba(var(--overlay-rgb), 0.6);"><?php echo e($activeTemplate['description']); ?></p>
 
                             <!-- Placeholder Info -->
                             <div class="placeholder-box">
                                 <h4>Available Placeholders</h4>
-                                <p style="font-size: 0.8rem; color: rgba(255, 255, 255, 0.5); margin-bottom: 10px;">These tags will be dynamically replaced with user data at runtime:</p>
+                                <p style="font-size: 0.8rem; color: rgba(var(--overlay-rgb), 0.5); margin-bottom: 10px;">These tags will be dynamically replaced with user data at runtime:</p>
                                 <div class="placeholder-list">
                                     <?php if (isset($placeholdersDoc[$activeKey])): ?>
                                         <?php foreach ($placeholdersDoc[$activeKey] as $tag => $desc): ?>

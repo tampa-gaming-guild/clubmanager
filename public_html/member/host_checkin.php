@@ -233,6 +233,7 @@ if (isset($_GET['contact_id'])) {
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <?php include __DIR__ . '/partials/theme_init.php'; ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Host Check-In Terminal - Club Entry</title>
@@ -245,22 +246,22 @@ if (isset($_GET['contact_id'])) {
             max-height: 250px;
             overflow-y: auto;
             border-radius: 6px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(var(--overlay-rgb), 0.1);
         }
         .search-result-item {
             display: flex;
             justify-content: space-between;
             align-items: center;
             padding: 12px 15px;
-            background: rgba(255, 255, 255, 0.03);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(var(--overlay-rgb), 0.03);
+            border-bottom: 1px solid rgba(var(--overlay-rgb), 0.08);
             transition: background 0.2s ease;
         }
         .search-result-item:last-child {
             border-bottom: none;
         }
         .search-result-item:hover {
-            background: rgba(255, 255, 255, 0.07);
+            background: rgba(var(--overlay-rgb), 0.07);
         }
         .search-result-info {
             display: flex;
@@ -269,7 +270,7 @@ if (isset($_GET['contact_id'])) {
         }
         .search-result-name {
             font-weight: 600;
-            color: #fff;
+            color: var(--color-text-primary);
         }
         .search-result-meta {
             font-size: 0.8rem;

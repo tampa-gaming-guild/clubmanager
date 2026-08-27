@@ -756,6 +756,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <?php include __DIR__ . '/partials/theme_init.php'; ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo e($displayNameToPublic); ?> - Member Profile</title>
@@ -786,11 +787,11 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
         outline: none;
     }
     .tab-button:hover {
-        color: #fff;
-        background: rgba(255, 255, 255, 0.05);
+        color: var(--color-text-primary);
+        background: rgba(var(--overlay-rgb), 0.05);
     }
     .tab-button.active {
-        color: #fff;
+        color: var(--color-text-primary);
         background: rgba(34, 197, 94, 0.15); /* success tint */
         border: 1px solid rgba(34, 197, 94, 0.3);
     }
@@ -985,7 +986,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                             <!-- Password Reset Panel -->
                             <div class="management-card mt-20">
                                 <h4>Portal Password Reset</h4>
-                                <p style="font-size: 0.85rem; color: rgba(255, 255, 255, 0.75); margin-bottom: 15px; line-height: 1.4;">
+                                <p style="font-size: 0.85rem; color: rgba(var(--overlay-rgb), 0.75); margin-bottom: 15px; line-height: 1.4;">
                                     To change your portal password, click the button below to receive a secure password reset link at your registered email address (<strong><?php echo e($contact['email']); ?></strong>).
                                 </p>
                                 <form action="profile.php?id=<?php echo $profileId; ?>" method="POST">
@@ -1007,7 +1008,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                         <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
 
                                         <div class="form-group" style="margin-bottom: 15px;">
-                                            <label for="custom_display_name" style="display: block; font-size: 0.9rem; font-weight: 500; margin-bottom: 5px; color: #fff;">Preferred Display Name (Required)</label>
+                                            <label for="custom_display_name" style="display: block; font-size: 0.9rem; font-weight: 500; margin-bottom: 5px; color: var(--color-text-primary);">Preferred Display Name (Required)</label>
                                             <input type="text" id="custom_display_name" name="custom_display_name" value="<?php echo e($settings['custom_display_name'] ?? $contact['display_name']); ?>" required data-dirty-field>
                                         </div>
 
@@ -1018,9 +1019,9 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                         </div>
 
                                         <div class="form-group" style="margin-top: 15px;">
-                                            <label for="phone" style="display: block; font-size: 0.85rem; margin-bottom: 5px; color: rgba(255,255,255,0.85);">Phone Number</label>
+                                            <label for="phone" style="display: block; font-size: 0.85rem; margin-bottom: 5px; color: rgba(var(--overlay-rgb),0.85);">Phone Number</label>
                                             <input type="tel" id="phone" name="phone" value="<?php echo e($contact['phone'] ? format_phone($contact['phone']) : ''); ?>" placeholder="(813) 555-0123" data-dirty-field>
-                                            <p style="font-size: 0.75rem; color: rgba(255,255,255,0.6); margin-top: 5px;">US 10-digit number; leave blank to remove.</p>
+                                            <p style="font-size: 0.75rem; color: rgba(var(--overlay-rgb),0.6); margin-top: 5px;">US 10-digit number; leave blank to remove.</p>
                                         </div>
 
                                         <button type="submit" name="profile_settings_update" id="profileSettingsSaveBtn" class="btn btn-success btn-block mt-15">Save Changes</button>
@@ -1043,35 +1044,35 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                     <?php endif; ?>
 
                                     <?php if ($isOwner): ?>
-                                        <p style="font-size: 0.85rem; color: rgba(255, 255, 255, 0.75); margin-bottom: 15px; line-height: 1.4;">
+                                        <p style="font-size: 0.85rem; color: rgba(var(--overlay-rgb), 0.75); margin-bottom: 15px; line-height: 1.4;">
                                             To change your login email, enter the new address and your current password. A verification link will be sent to the new address &mdash; your email won't change until you click it.<?php if ($pendingEmailChange): ?> Submitting again replaces the pending request.<?php endif; ?>
                                         </p>
                                         <form action="profile.php?id=<?php echo $profileId; ?>" method="POST" class="settings-form">
                                             <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
                                             <div class="form-group">
-                                                <label for="new_email" style="display: block; font-size: 0.85rem; margin-bottom: 5px; color: rgba(255,255,255,0.85);">New Email Address</label>
+                                                <label for="new_email" style="display: block; font-size: 0.85rem; margin-bottom: 5px; color: rgba(var(--overlay-rgb),0.85);">New Email Address</label>
                                                 <input type="email" id="new_email" name="new_email" required placeholder="new@example.com" autocomplete="off">
                                             </div>
                                             <div class="form-group" style="margin-top: 10px;">
-                                                <label for="current_password" style="display: block; font-size: 0.85rem; margin-bottom: 5px; color: rgba(255,255,255,0.85);">Confirm Current Password</label>
+                                                <label for="current_password" style="display: block; font-size: 0.85rem; margin-bottom: 5px; color: rgba(var(--overlay-rgb),0.85);">Confirm Current Password</label>
                                                 <input type="password" id="current_password" name="current_password" required placeholder="••••••••" autocomplete="current-password">
                                             </div>
                                             <button type="submit" name="request_email_change" class="btn btn-warning btn-block mt-15">Send Verification Link</button>
                                         </form>
                                     <?php elseif (has_role('superadmin')): ?>
-                                        <p style="font-size: 0.85rem; color: rgba(255, 255, 255, 0.75); margin-bottom: 15px; line-height: 1.4;">
+                                        <p style="font-size: 0.85rem; color: rgba(var(--overlay-rgb), 0.75); margin-bottom: 15px; line-height: 1.4;">
                                             <strong>Superadmin:</strong> this changes the member's login email immediately; both the old and new addresses will be notified.
                                         </p>
                                         <form action="profile.php?id=<?php echo $profileId; ?>" method="POST" class="settings-form" data-confirm="Change this member's login email immediately? Both addresses will be notified.">
                                             <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
                                             <div class="form-group">
-                                                <label for="new_email" style="display: block; font-size: 0.85rem; margin-bottom: 5px; color: rgba(255,255,255,0.85);">Email Address</label>
+                                                <label for="new_email" style="display: block; font-size: 0.85rem; margin-bottom: 5px; color: rgba(var(--overlay-rgb),0.85);">Email Address</label>
                                                 <input type="email" id="new_email" name="new_email" required value="<?php echo e($contact['email']); ?>">
                                             </div>
                                             <button type="submit" name="staff_contact_update" class="btn btn-warning btn-block mt-15">Update Email Address</button>
                                         </form>
                                     <?php else: ?>
-                                        <p style="font-size: 0.85rem; color: rgba(255, 255, 255, 0.75); line-height: 1.4;">
+                                        <p style="font-size: 0.85rem; color: rgba(var(--overlay-rgb), 0.75); line-height: 1.4;">
                                             Only the member and superadmins can change this email address. Members can update it themselves from this page; ask a superadmin if direct assistance is needed.
                                         </p>
                                     <?php endif; ?>
@@ -1089,9 +1090,9 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                             $isLastSuperadmin = $targetHasSuperadmin && Auth::countSuperadmins($appDb, $profileId) < 1;
                                         ?>
                                         <div class="form-group">
-                                            <label style="display: block; font-size: 0.85rem; margin-bottom: 8px; color: rgba(255,255,255,0.85);">Assign Roles</label>
+                                            <label style="display: block; font-size: 0.85rem; margin-bottom: 8px; color: rgba(var(--overlay-rgb),0.85);">Assign Roles</label>
                                             <?php if ($isLastSuperadmin): ?>
-                                                <p style="font-size: 0.75rem; color: rgba(255,255,255,0.6); margin-bottom: 8px;">This is the only superadmin account -- the superadmin role can't be removed until another user is granted it.</p>
+                                                <p style="font-size: 0.75rem; color: rgba(var(--overlay-rgb),0.6); margin-bottom: 8px;">This is the only superadmin account -- the superadmin role can't be removed until another user is granted it.</p>
                                             <?php endif; ?>
                                             <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 5px;">
                                                 <?php foreach ($rolesList as $roleOption):
@@ -1111,7 +1112,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                                     // 2b in the role_update handler) are the actual enforcement.
                                                     $checked = in_array($roleOption['name'], $memberRoles, true) ? 'checked' : '';
                                                 ?>
-                                                    <label style="display: inline-flex; align-items: center; gap: 8px; color: #fff; cursor: <?php echo $disabled ? 'not-allowed' : 'pointer'; ?>; opacity: <?php echo $disabled ? '0.5' : '1'; ?>;">
+                                                    <label style="display: inline-flex; align-items: center; gap: 8px; color: var(--color-text-primary); cursor: <?php echo $disabled ? 'not-allowed' : 'pointer'; ?>; opacity: <?php echo $disabled ? '0.5' : '1'; ?>;">
                                                         <input type="checkbox" name="roles[]" value="<?php echo e($roleOption['name']); ?>" <?php echo $checked; ?> <?php echo $disabled; ?> style="width: auto;">
                                                         <?php echo e(ucfirst($roleOption['name'])); ?>
                                                     </label>
@@ -1162,7 +1163,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                     <form action="profile.php?id=<?php echo $profileId; ?>" method="POST" class="settings-form">
                                         <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
                                         <div class="form-group">
-                                            <label for="rate_id" style="display: block; font-size: 0.85rem; margin-bottom: 8px; color: rgba(255,255,255,0.85);">Select Active Rate</label>
+                                            <label for="rate_id" style="display: block; font-size: 0.85rem; margin-bottom: 8px; color: rgba(var(--overlay-rgb),0.85);">Select Active Rate</label>
                                             <select name="rate_id" id="rate_id" required>
                                                 <?php foreach ($activeRates as $rate):
                                                     $isCurrentRate = $planDefaultRateId === (int)$rate['id'];
@@ -1197,10 +1198,10 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                 <span class="private-badge">🔒 Owner & Admins Only</span>
                             </div>
 
-                            <div class="volunteer-summary-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 20px; background: rgba(255, 255, 255, 0.02); padding: 15px; border-radius: 8px; border: 1px solid var(--border-glass);">
+                            <div class="volunteer-summary-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 20px; background: rgba(var(--overlay-rgb), 0.02); padding: 15px; border-radius: 8px; border: 1px solid var(--border-glass);">
                                 <div>
                                     <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-secondary);">Lifetime Earned:</p>
-                                    <h4 style="margin: 5px 0 0 0; color: #fff; font-size: 1.2rem;">
+                                    <h4 style="margin: 5px 0 0 0; color: var(--color-text-primary); font-size: 1.2rem;">
                                         <?php echo (int)$totalEarned; ?>
                                         <?php if ($pendingCredits > 0): ?>
                                             <span style="font-size: 0.8rem; color: var(--color-text-secondary); font-weight: normal;">
@@ -1211,7 +1212,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                 </div>
                                 <div>
                                     <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-secondary);">Lifetime Applied:</p>
-                                    <h4 style="margin: 5px 0 0 0; color: #fff; font-size: 1.2rem;"><?php echo (int)$totalApplied; ?></h4>
+                                    <h4 style="margin: 5px 0 0 0; color: var(--color-text-primary); font-size: 1.2rem;"><?php echo (int)$totalApplied; ?></h4>
                                 </div>
                                 <div>
                                     <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-secondary);">Outstanding Balance:</p>
@@ -1230,9 +1231,9 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                 </div>
                             </div>
 
-                            <div style="margin-bottom: 20px; background: rgba(255, 255, 255, 0.02); padding: 12px 15px; border-radius: 8px; border: 1px solid var(--border-glass);">
+                            <div style="margin-bottom: 20px; background: rgba(var(--overlay-rgb), 0.02); padding: 12px 15px; border-radius: 8px; border: 1px solid var(--border-glass);">
                                 <p style="margin: 0 0 5px 0; font-size: 0.85rem; color: var(--color-text-secondary);">Next Expiration:</p>
-                                <strong style="color: #fff;">
+                                <strong style="color: var(--color-text-primary);">
                                     <?php if ($nextExpirationDate === 'Never'): ?>
                                         Never
                                     <?php else: ?>
@@ -1244,9 +1245,9 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                 </strong>
                             </div>
 
-                            <div style="margin-bottom: 20px; background: rgba(255, 255, 255, 0.02); padding: 12px 15px; border-radius: 8px; border: 1px solid var(--border-glass); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                            <div style="margin-bottom: 20px; background: rgba(var(--overlay-rgb), 0.02); padding: 12px 15px; border-radius: 8px; border: 1px solid var(--border-glass); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
                                 <div>
-                                    <p style="margin: 0 0 3px 0; font-size: 0.9rem; color: #fff; font-weight: 600;">Auto-Apply Membership Credits</p>
+                                    <p style="margin: 0 0 3px 0; font-size: 0.9rem; color: var(--color-text-primary); font-weight: 600;">Auto-Apply Membership Credits</p>
                                     <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-secondary);">When enabled, banked credits are used automatically at auto-renewal (instead of charging your card) whenever there's enough for at least one month.</p>
                                 </div>
                                 <form action="profile.php?id=<?php echo $profileId; ?>" method="POST" style="display: inline; margin: 0;">
@@ -1258,7 +1259,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                 </form>
                             </div>
 
-                            <h4 style="margin: 20px 0 10px 0; color: #fff; font-size: 0.95rem;">Membership Credits Earned</h4>
+                            <h4 style="margin: 20px 0 10px 0; color: var(--color-text-primary); font-size: 0.95rem;">Membership Credits Earned</h4>
                             <?php if (empty($creditGrants)): ?>
                                 <p class="private-locked-msg">No Membership Credits earned yet.</p>
                             <?php else: ?>
@@ -1302,7 +1303,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                 </div>
                             <?php endif; ?>
 
-                            <h4 style="margin: 20px 0 10px 0; color: #fff; font-size: 0.95rem;">Hosting Shift History</h4>
+                            <h4 style="margin: 20px 0 10px 0; color: var(--color-text-primary); font-size: 0.95rem;">Hosting Shift History</h4>
                             <?php if (empty($volunteerShifts)): ?>
                                 <p class="private-locked-msg">No shifts found.</p>
                             <?php else: ?>
@@ -1324,7 +1325,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                             <?php foreach ($volunteerShifts as $tx): ?>
                                                 <tr>
                                                     <td style="padding: 8px 10px;"><span class="table-datetime"><?php echo date('Y-m-d', strtotime($tx['date'])); ?></span></td>
-                                                    <td style="padding: 8px 10px; font-weight: bold; color: #fff;"><?php echo e($tx['event_title'] ?: 'Volunteer Event'); ?></td>
+                                                    <td style="padding: 8px 10px; font-weight: bold; color: var(--color-text-primary);"><?php echo e($tx['event_title'] ?: 'Volunteer Event'); ?></td>
                                                     <td style="padding: 8px 10px;"><?php echo e($tx['shift']); ?></td>
                                                     <td style="padding: 8px 10px; text-align: center; font-weight: bold; color: var(--color-primary);">+<?php echo (int)$tx['credits']; ?></td>
                                                     <td style="padding: 8px 10px; text-align: center;">

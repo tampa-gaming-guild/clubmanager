@@ -166,6 +166,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <?php include __DIR__ . '/../partials/theme_init.php'; ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Membership Credits - Admin Dashboard</title>
@@ -181,8 +182,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             font-size: 0.9rem !important;
             border-radius: 6px !important;
             border: 1px solid var(--border-glass) !important;
-            background: rgba(255, 255, 255, 0.05) !important;
-            color: #fff !important;
+            background: rgba(var(--overlay-rgb), 0.05) !important;
+            color: var(--color-text-primary) !important;
             outline: none !important;
             transition: all 0.2s ease !important;
         }
@@ -195,8 +196,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             font-size: 0.9rem;
             border-radius: 6px;
             border: 1px solid var(--border-glass);
-            background: rgba(255, 255, 255, 0.05);
-            color: #fff;
+            background: rgba(var(--overlay-rgb), 0.05);
+            color: var(--color-text-primary);
             outline: none;
             transition: all 0.2s ease;
         }
@@ -281,7 +282,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     <?php else: ?>
                                         <?php foreach ($creditSettings as $setting): ?>
                                             <tr>
-                                                <td style="font-weight: 600; color: #fff;">
+                                                <td style="font-weight: 600; color: var(--color-text-primary);">
                                                     <?php echo e($setting['credit_label']); ?>
                                                 </td>
                                                 <td>
@@ -324,7 +325,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                         <div class="form-group">
                             <label for="grant-member">Member</label>
-                            <input type="text" id="grant-member" list="grant-members-list" placeholder="Type member name..." style="width: 260px; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-glass); background: rgba(255, 255, 255, 0.05); color: #fff;" oninput="updateGrantMemberId(this)" required>
+                            <input type="text" id="grant-member" list="grant-members-list" placeholder="Type member name..." style="width: 260px; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-glass); background: rgba(var(--overlay-rgb), 0.05); color: var(--color-text-primary);" oninput="updateGrantMemberId(this)" required>
                             <input type="hidden" id="grant_contact_id" name="grant_contact_id" value="">
                         </div>
                         <div class="form-group">
@@ -338,7 +339,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </div>
                         <div class="form-group" id="grant-custom-reason-group" style="display: none;">
                             <label for="grant-reason-custom">Custom Reason</label>
-                            <input type="text" id="grant-reason-custom" name="grant_reason_custom" placeholder="e.g. Saturday Cleanup" style="width: 220px; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-glass); background: rgba(255, 255, 255, 0.05); color: #fff;">
+                            <input type="text" id="grant-reason-custom" name="grant_reason_custom" placeholder="e.g. Saturday Cleanup" style="width: 220px; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-glass); background: rgba(var(--overlay-rgb), 0.05); color: var(--color-text-primary);">
                         </div>
                         <div class="form-group">
                             <label for="grant-credits">Credits to Grant</label>
@@ -373,7 +374,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                         <div class="form-group">
                             <label for="apply-member">Member</label>
-                            <input type="text" id="apply-member" list="apply-members-list" placeholder="Type member name..." style="width: 260px; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-glass); background: rgba(255, 255, 255, 0.05); color: #fff;" oninput="updateApplyMemberId(this)" required>
+                            <input type="text" id="apply-member" list="apply-members-list" placeholder="Type member name..." style="width: 260px; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-glass); background: rgba(var(--overlay-rgb), 0.05); color: var(--color-text-primary);" oninput="updateApplyMemberId(this)" required>
                             <input type="hidden" id="apply_contact_id" name="apply_contact_id" value="">
                         </div>
                         <div class="form-group">

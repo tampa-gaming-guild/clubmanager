@@ -251,6 +251,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <?php include __DIR__ . '/partials/theme_init.php'; ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Member Check-In - Club Entry</title>
@@ -300,7 +301,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <?php if ($isLoggedIn): ?>
                         <div style="text-align: center; margin-bottom: 25px;">
                             <p style="font-size: 1.15rem; color: var(--color-text-secondary); margin-bottom: 5px;">Logged in as:</p>
-                            <p style="font-size: 1.4rem; font-weight: 700; color: #fff; margin: 0; font-family: var(--font-heading);"><?php echo e($loggedInName); ?></p>
+                            <p style="font-size: 1.4rem; font-weight: 700; color: var(--color-text-primary); margin: 0; font-family: var(--font-heading);"><?php echo e($loggedInName); ?></p>
                         </div>
                         <input type="hidden" id="identifier" name="identifier" value="<?php echo e($_SESSION['user']['contact_id']); ?>">
                     <?php else: ?>

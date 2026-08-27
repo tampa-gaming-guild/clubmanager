@@ -379,6 +379,7 @@ if (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest') {
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <?php include __DIR__ . '/../partials/theme_init.php'; ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Roles & Permissions Editor - Club Management</title>
@@ -396,7 +397,7 @@ if (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest') {
         .matrix-table th, .matrix-table td {
             padding: 12px 15px;
             text-align: center;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            border-bottom: 1px solid rgba(var(--overlay-rgb), 0.08);
         }
         .matrix-table th {
             font-weight: 600;
@@ -441,7 +442,7 @@ if (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest') {
             background: rgba(0, 0, 0, 0.2);
             border: 1px solid var(--border-glass);
             border-radius: 8px;
-            color: #fff;
+            color: var(--color-text-primary);
             font-size: 0.85rem;
         }
         .search-field::before {
@@ -451,20 +452,20 @@ if (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest') {
             top: 50%;
             transform: translateY(-50%);
             font-size: 0.9rem;
-            color: rgba(255, 255, 255, 0.4);
+            color: rgba(var(--overlay-rgb), 0.4);
         }
         .role-select {
             background: rgba(0, 0, 0, 0.3);
             border: 1px solid var(--border-glass);
             border-radius: 6px;
-            color: #fff;
+            color: var(--color-text-primary);
             padding: 6px 12px;
             font-size: 0.85rem;
             cursor: pointer;
         }
         .role-select option {
             background: #202030;
-            color: #fff;
+            color: var(--color-text-primary);
         }
         .pagination-row {
             display: flex;
@@ -474,9 +475,9 @@ if (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest') {
             margin-top: 25px;
         }
         .pagination-btn {
-            background: rgba(255, 255, 255, 0.05);
+            background: rgba(var(--overlay-rgb), 0.05);
             border: 1px solid var(--border-glass);
-            color: #fff;
+            color: var(--color-text-primary);
             padding: 6px 14px;
             border-radius: 6px;
             text-decoration: none;

@@ -338,6 +338,7 @@ if (Auth::check() && has_permission('admin panel')) {
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <?php include __DIR__ . '/partials/theme_init.php'; ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo Auth::check() ? 'Member Portal - Club Management' : 'Login - Tampa Gaming Guild'; ?></title>
@@ -394,7 +395,7 @@ if (Auth::check() && has_permission('admin panel')) {
                                     <form action="portal.php" method="POST" autocomplete="off" style="display: flex; flex-wrap: wrap; gap: 10px;">
                                         <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
                                         <input type="text" id="identifier" name="identifier" required placeholder="Enter email, phone, or ID…"
-                                               style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 10px; border-radius: 6px; width: 100%; box-sizing: border-box;">
+                                               style="background: rgba(var(--overlay-rgb),0.05); border: 1px solid rgba(var(--overlay-rgb),0.15); color: var(--color-text-primary); padding: 10px; border-radius: 6px; width: 100%; box-sizing: border-box;">
                                         <div style="display: flex; gap: 10px; width: 100%;">
                                             <button type="submit" name="member_lookup_action" value="checkin" class="btn btn-primary" style="flex: 1; padding: 10px; border-radius: 6px; font-weight: 600;">Check-In</button>
                                             <button type="submit" name="member_lookup_action" value="renew" class="btn btn-secondary" style="flex: 1; padding: 10px; border-radius: 6px; font-weight: 600;">Renew</button>
@@ -572,7 +573,7 @@ if (Auth::check() && has_permission('admin panel')) {
                                     <div style="overflow-x: auto; font-size: 0.8rem;">
                                         <table style="width: 100%; border-collapse: collapse; text-align: left; min-width: 600px;">
                                             <thead>
-                                                <tr style="border-bottom: 1px solid rgba(255,255,255,0.08); color: var(--color-text-secondary);">
+                                                <tr style="border-bottom: 1px solid rgba(var(--overlay-rgb),0.08); color: var(--color-text-secondary);">
                                                     <th style="padding: 6px 8px;">Membership Level</th>
                                                     <?php foreach ($statuses as $stat): ?>
                                                         <th style="padding: 6px 8px; text-align: right; white-space: nowrap;"><?php echo e($stat['label']); ?></th>
@@ -591,15 +592,15 @@ if (Auth::check() && has_permission('admin panel')) {
                                                 foreach ($matrix as $lvl => $stats):
                                                     $rowTotal = 0;
                                                 ?>
-                                                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
-                                                        <td style="padding: 6px 8px; font-weight: 500; color: #fff; white-space: nowrap;"><a href="admin/dashboard.php?level=<?php echo urlencode($lvl); ?>" style="color: var(--color-primary); text-decoration: none; font-weight: 600;"><?php echo e($lvl); ?></a></td>
+                                                    <tr style="border-bottom: 1px solid rgba(var(--overlay-rgb),0.04);">
+                                                        <td style="padding: 6px 8px; font-weight: 500; color: var(--color-text-primary); white-space: nowrap;"><a href="admin/dashboard.php?level=<?php echo urlencode($lvl); ?>" style="color: var(--color-primary); text-decoration: none; font-weight: 600;"><?php echo e($lvl); ?></a></td>
                                                         <?php foreach ($statuses as $stat):
                                                             $count = $stats[$stat['label']] ?? 0;
                                                             if ($stat['is_active']) {
                                                                 $rowTotal += $count;
                                                             }
                                                             $colTotals[$stat['label']] += $count;
-                                                            $color = $count > 0 ? ($stat['label'] === 'Current' || $stat['label'] === 'New' ? 'var(--color-success)' : ($stat['label'] === 'Expired' ? 'var(--color-danger)' : '#fff')) : 'rgba(255,255,255,0.15)';
+                                                            $color = $count > 0 ? ($stat['label'] === 'Current' || $stat['label'] === 'New' ? 'var(--color-success)' : ($stat['label'] === 'Expired' ? 'var(--color-danger)' : 'var(--color-text-primary)')) : 'rgba(var(--overlay-rgb),0.15)';
                                                             $weight = $count > 0 ? '700' : '400';
                                                         ?>
                                                             <td style="padding: 6px 8px; text-align: right; font-weight: <?php echo $weight; ?>; color: <?php echo $color; ?>;">
@@ -610,7 +611,7 @@ if (Auth::check() && has_permission('admin panel')) {
                                                                 <?php endif; ?>
                                                             </td>
                                                         <?php endforeach; ?>
-                                                        <td style="padding: 6px 8px; text-align: right; font-weight: 700; color: #fff;">
+                                                        <td style="padding: 6px 8px; text-align: right; font-weight: 700; color: var(--color-text-primary);">
                                                             <?php if ($rowTotal > 0): ?>
                                                                 <a href="admin/dashboard.php?level=<?php echo urlencode($lvl); ?>&status=" style="color: inherit; text-decoration: none;"><?php echo $rowTotal; ?></a>
                                                             <?php else: ?>
@@ -622,7 +623,7 @@ if (Auth::check() && has_permission('admin panel')) {
                                                 <?php endforeach; ?>
                                             </tbody>
                                             <tfoot>
-                                                <tr style="border-top: 2px solid rgba(255,255,255,0.15); font-weight: 700; color: #fff;">
+                                                <tr style="border-top: 2px solid rgba(var(--overlay-rgb),0.15); font-weight: 700; color: var(--color-text-primary);">
                                                     <td style="padding: 8px; font-weight: 700;">Total</td>
                                                     <?php foreach ($statuses as $stat):
                                                         $colVal = $colTotals[$stat['label']];
@@ -690,26 +691,26 @@ if (Auth::check() && has_permission('admin panel')) {
         <div class="modal-card glass-panel" style="max-width: 480px; margin: 60px auto; padding: 24px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
                 <h3 style="margin: 0;">Add New Walk-In Member</h3>
-                <button type="button" onclick="closeAddMemberModal()" style="background: none; border: none; color: #fff; font-size: 1.4rem; cursor: pointer;">&times;</button>
+                <button type="button" onclick="closeAddMemberModal()" style="background: none; border: none; color: var(--color-text-primary); font-size: 1.4rem; cursor: pointer;">&times;</button>
             </div>
             <form action="portal.php" method="POST" autocomplete="off">
                 <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
                 <input type="hidden" name="add_member" value="1">
                 <div class="form-group" style="margin-bottom: 12px;">
                     <label for="first_name" style="display: block; font-size: 0.85rem; margin-bottom: 4px;">First Name *</label>
-                    <input type="text" id="first_name" name="first_name" required style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.05); color: #fff;">
+                    <input type="text" id="first_name" name="first_name" required style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(var(--overlay-rgb),0.2); background: rgba(var(--overlay-rgb),0.05); color: var(--color-text-primary);">
                 </div>
                 <div class="form-group" style="margin-bottom: 12px;">
                     <label for="last_name" style="display: block; font-size: 0.85rem; margin-bottom: 4px;">Last Name *</label>
-                    <input type="text" id="last_name" name="last_name" required style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.05); color: #fff;">
+                    <input type="text" id="last_name" name="last_name" required style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(var(--overlay-rgb),0.2); background: rgba(var(--overlay-rgb),0.05); color: var(--color-text-primary);">
                 </div>
                 <div class="form-group" style="margin-bottom: 12px;">
                     <label for="modal_email" style="display: block; font-size: 0.85rem; margin-bottom: 4px;">Email Address *</label>
-                    <input type="email" id="modal_email" name="email" required style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.05); color: #fff;">
+                    <input type="email" id="modal_email" name="email" required style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(var(--overlay-rgb),0.2); background: rgba(var(--overlay-rgb),0.05); color: var(--color-text-primary);">
                 </div>
                 <div class="form-group" style="margin-bottom: 16px;">
                     <label for="phone" style="display: block; font-size: 0.85rem; margin-bottom: 4px;">Phone Number</label>
-                    <input type="text" id="phone" name="phone" placeholder="(813) 555-0199" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.05); color: #fff;">
+                    <input type="text" id="phone" name="phone" placeholder="(813) 555-0199" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid rgba(var(--overlay-rgb),0.2); background: rgba(var(--overlay-rgb),0.05); color: var(--color-text-primary);">
                 </div>
                 <div style="display: flex; gap: 10px; justify-content: flex-end;">
                     <button type="button" onclick="closeAddMemberModal()" class="btn btn-secondary">Cancel</button>
@@ -781,7 +782,7 @@ if (Auth::check() && has_permission('admin panel')) {
                 listEl.innerHTML = '';
                 pending.forEach((p) => {
                     const row = document.createElement('div');
-                    row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.08); flex-wrap: wrap;';
+                    row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid rgba(var(--overlay-rgb),0.08); flex-wrap: wrap;';
                     row.innerHTML = `
                         <div>
                             <strong>${escapeHtml(p.display_name)}</strong>
@@ -860,5 +861,6 @@ if (Auth::check() && has_permission('admin panel')) {
         });
     }
     </script>
+    <script src="assets/js/theme.js<?php echo asset_version('assets/js/theme.js'); ?>"></script>
 </body>
 </html>

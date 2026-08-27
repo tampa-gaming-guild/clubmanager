@@ -88,13 +88,13 @@ try {
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <?php include __DIR__ . '/../partials/theme_init.php'; ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Check-In List - Admin Panel</title>
     <link rel="stylesheet" href="../assets/css/style.css<?php echo asset_version('assets/css/style.css'); ?>">
     <!-- Flatpickr Datepicker (Served locally to satisfy Content Security Policy) -->
-    <link rel="stylesheet" href="../assets/css/flatpickr.min.css">
-    <link rel="stylesheet" href="../assets/css/flatpickr-dark.min.css">
+    <link rel="stylesheet" id="flatpickr-css" href="../assets/css/flatpickr.min.css" data-dark-href="../assets/css/flatpickr-dark.min.css">
     <style>
         /* Custom styled Flatpickr for dark glassmorphism */
         .flatpickr-calendar {
@@ -117,9 +117,9 @@ try {
         }
         .flatpickr-day:hover,
         .flatpickr-day:focus {
-            background: rgba(255, 255, 255, 0.08) !important;
-            color: #fff !important;
-            border-color: rgba(255, 255, 255, 0.15) !important;
+            background: rgba(var(--overlay-rgb), 0.08) !important;
+            color: var(--color-text-primary) !important;
+            border-color: rgba(var(--overlay-rgb), 0.15) !important;
         }
         .flatpickr-day.selected,
         .flatpickr-day.selected:hover {
@@ -128,7 +128,7 @@ try {
             border-color: var(--color-primary) !important;
         }
         .flatpickr-day.today {
-            border-color: rgba(255, 255, 255, 0.3) !important;
+            border-color: rgba(var(--overlay-rgb), 0.3) !important;
         }
         .flatpickr-day.prevMonthDay,
         .flatpickr-day.nextMonthDay {
@@ -175,9 +175,9 @@ try {
                             <h2 style="margin: 0;">Check-In List</h2>
                             <p class="description-text" style="margin: 5px 0 0 0;">Manage and verify members currently checked in at the club.</p>
                         </div>
-                        <form method="GET" action="checkins.php" style="display: inline-flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.05); padding: 8px 15px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);">
+                        <form method="GET" action="checkins.php" style="display: inline-flex; align-items: center; gap: 10px; background: rgba(var(--overlay-rgb),0.05); padding: 8px 15px; border-radius: 8px; border: 1px solid rgba(var(--overlay-rgb),0.1);">
                             <label for="date-filter" style="color: var(--color-text-secondary); font-size: 0.85rem; font-weight: 500;">Choose Date:</label>
-                            <input type="text" id="date-filter" name="date" value="<?php echo e($selectedDate); ?>" onchange="this.form.submit()" style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #fff; padding: 5px 10px; font-size: 0.85rem; outline: none; cursor: pointer; width: 120px; text-align: center;">
+                            <input type="text" id="date-filter" name="date" value="<?php echo e($selectedDate); ?>" onchange="this.form.submit()" style="background: rgba(0,0,0,0.2); border: 1px solid rgba(var(--overlay-rgb),0.2); border-radius: 4px; color: var(--color-text-primary); padding: 5px 10px; font-size: 0.85rem; outline: none; cursor: pointer; width: 120px; text-align: center;">
                         </form>
                     </div>
 

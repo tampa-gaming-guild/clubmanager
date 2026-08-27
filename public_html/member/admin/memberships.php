@@ -136,6 +136,7 @@ $autoOpenPlanModal = $editPlan || $planFormError;
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <?php include __DIR__ . '/../partials/theme_init.php'; ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Manage Memberships - Admin Panel</title>
@@ -158,7 +159,7 @@ $autoOpenPlanModal = $editPlan || $planFormError;
         }
         .reports-table th {
             padding: 12px 24px;
-            border-bottom: 1px solid rgba(255,255,255,0.08);
+            border-bottom: 1px solid rgba(var(--overlay-rgb),0.08);
             color: var(--color-text-secondary);
             font-size: 0.8rem;
             text-transform: uppercase;
@@ -166,10 +167,10 @@ $autoOpenPlanModal = $editPlan || $planFormError;
         }
         .reports-table td {
             padding: 14px 24px;
-            border-bottom: 1px solid rgba(255,255,255,0.04);
+            border-bottom: 1px solid rgba(var(--overlay-rgb),0.04);
         }
         .reports-table tr:hover {
-            background: rgba(255, 255, 255, 0.02);
+            background: rgba(var(--overlay-rgb), 0.02);
         }
     </style>
 </head>
@@ -280,10 +281,10 @@ $autoOpenPlanModal = $editPlan || $planFormError;
 
         <!-- Add/Edit Membership Level Modal -->
         <div id="plan-modal" class="modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(5px);">
-            <div class="modal-content glass-panel" style="background: rgba(30, 30, 40, 0.95); margin: 5% auto; padding: 25px; border: 1px solid rgba(255, 255, 255, 0.1); width: 90%; max-width: 480px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
-                <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 15px; margin-bottom: 20px;">
-                    <h3 style="margin: 0; color: #fff; font-size: 1.2rem;"><?php echo $editPlan ? 'Edit Membership Level' : 'Add Membership Level'; ?></h3>
-                    <span class="close" onclick="closePlanModal()" style="color: rgba(255,255,255,0.6); font-size: 28px; font-weight: bold; cursor: pointer; transition: color 0.2s;">&times;</span>
+            <div class="modal-content glass-panel" style="background: var(--color-surface-glass-solid); margin: 5% auto; padding: 25px; border: 1px solid rgba(var(--overlay-rgb), 0.1); width: 90%; max-width: 480px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+                <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(var(--overlay-rgb), 0.1); padding-bottom: 15px; margin-bottom: 20px;">
+                    <h3 style="margin: 0; color: var(--color-text-primary); font-size: 1.2rem;"><?php echo $editPlan ? 'Edit Membership Level' : 'Add Membership Level'; ?></h3>
+                    <span class="close" onclick="closePlanModal()" style="color: rgba(var(--overlay-rgb),0.6); font-size: 28px; font-weight: bold; cursor: pointer; transition: color 0.2s;">&times;</span>
                 </div>
 
                 <form action="memberships.php" method="POST" class="auth-form">

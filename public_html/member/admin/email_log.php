@@ -90,6 +90,7 @@ try {
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <?php include __DIR__ . '/../partials/theme_init.php'; ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Email Audit Log - Admin Panel</title>
@@ -102,8 +103,8 @@ try {
             max-width: 500px;
         }
         .search-bar-container input {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(var(--overlay-rgb), 0.05);
+            border: 1px solid rgba(var(--overlay-rgb), 0.1);
             border-radius: 8px;
             padding: 10px 15px;
             color: #white;
@@ -114,7 +115,7 @@ try {
         }
         .search-bar-container input:focus {
             border-color: var(--color-primary);
-            background: rgba(255, 255, 255, 0.1);
+            background: rgba(var(--overlay-rgb), 0.1);
         }
         .btn-view-mail {
             background: rgba(9, 132, 227, 0.15);
@@ -130,10 +131,10 @@ try {
         .btn-view-mail:hover {
             background: rgba(9, 132, 227, 0.3);
             border-color: var(--color-primary);
-            color: #fff;
+            color: var(--color-text-primary);
         }
         .close:hover {
-            color: #fff !important;
+            color: var(--color-text-primary) !important;
         }
     </style>
 </head>
@@ -189,7 +190,7 @@ try {
                                                 if (!empty($log['sender_id'])) {
                                                     $sId = (int)$log['sender_id'];
                                                     $sName = $namesMap[$sId] ?? "Member #$sId";
-                                                    $senderText = "<strong>" . e($sName) . "</strong><br><span style='font-size:0.75rem; color:rgba(255,255,255,0.4);'>ID: $sId</span>";
+                                                    $senderText = "<strong>" . e($sName) . "</strong><br><span style='font-size:0.75rem; color:rgba(var(--overlay-rgb),0.4);'>ID: $sId</span>";
                                                 }
 
                                                 // Format recipient info
@@ -197,7 +198,7 @@ try {
                                                 if (!empty($log['recipient_id'])) {
                                                     $rId = (int)$log['recipient_id'];
                                                     $rName = $namesMap[$rId] ?? "Member #$rId";
-                                                    $recipientText = "<strong>" . e($rName) . "</strong><br><span style='font-size:0.75rem; color:rgba(255,255,255,0.5);'>" . e($log['recipient']) . "</span><br><span style='font-size:0.7rem; color:rgba(255,255,255,0.3);'>ID: $rId</span>";
+                                                    $recipientText = "<strong>" . e($rName) . "</strong><br><span style='font-size:0.75rem; color:rgba(var(--overlay-rgb),0.5);'>" . e($log['recipient']) . "</span><br><span style='font-size:0.7rem; color:rgba(var(--overlay-rgb),0.3);'>ID: $rId</span>";
                                                 }
                                             ?>
                                             <tr>
@@ -247,17 +248,17 @@ try {
 
     <!-- Email Content Preview Modal -->
     <div id="email-modal" class="modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(5px);">
-        <div class="modal-content glass-panel" style="background: rgba(30, 30, 40, 0.95); margin: 5% auto; padding: 25px; border: 1px solid rgba(255, 255, 255, 0.1); width: 70%; max-width: 800px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
-            <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 15px; margin-bottom: 20px;">
-                <h3 id="modal-subject" style="margin: 0; color: #fff; font-size: 1.2rem;">Email Subject</h3>
-                <span class="close" onclick="closeModal()" style="color: rgba(255,255,255,0.6); font-size: 28px; font-weight: bold; cursor: pointer; transition: color 0.2s;">&times;</span>
+        <div class="modal-content glass-panel" style="background: var(--color-surface-glass-solid); margin: 5% auto; padding: 25px; border: 1px solid rgba(var(--overlay-rgb), 0.1); width: 70%; max-width: 800px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+            <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(var(--overlay-rgb), 0.1); padding-bottom: 15px; margin-bottom: 20px;">
+                <h3 id="modal-subject" style="margin: 0; color: var(--color-text-primary); font-size: 1.2rem;">Email Subject</h3>
+                <span class="close" onclick="closeModal()" style="color: rgba(var(--overlay-rgb),0.6); font-size: 28px; font-weight: bold; cursor: pointer; transition: color 0.2s;">&times;</span>
             </div>
-            <div class="modal-meta" style="margin-bottom: 15px; font-size: 0.85rem; color: rgba(255,255,255,0.7); display: flex; flex-direction: column; gap: 5px; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px;">
+            <div class="modal-meta" style="margin-bottom: 15px; font-size: 0.85rem; color: rgba(var(--overlay-rgb),0.7); display: flex; flex-direction: column; gap: 5px; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px;">
                 <div><strong>Sent At:</strong> <span id="modal-sent-at"></span></div>
                 <div><strong>From:</strong> <span id="modal-sender"></span></div>
                 <div><strong>To:</strong> <span id="modal-recipient"></span></div>
             </div>
-            <div style="border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; background: white; overflow: hidden;">
+            <div style="border: 1px solid rgba(var(--overlay-rgb),0.1); border-radius: 8px; background: white; overflow: hidden;">
                 <iframe id="modal-body-frame" sandbox="allow-same-origin" style="width: 100%; height: 400px; border: none; background: white;"></iframe>
             </div>
         </div>

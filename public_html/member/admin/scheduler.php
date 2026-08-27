@@ -366,6 +366,7 @@ if (empty($createFormSlots)) {
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <?php include __DIR__ . '/../partials/theme_init.php'; ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Event & Session Scheduler - Admin</title>
@@ -384,12 +385,12 @@ if (empty($createFormSlots)) {
             user-select: none;
         }
         th.sortable:hover {
-            background: rgba(255, 255, 255, 0.05);
+            background: rgba(var(--overlay-rgb), 0.05);
         }
         th.sortable::after {
             content: ' ↕';
             font-size: 0.8rem;
-            color: rgba(255, 255, 255, 0.3);
+            color: rgba(var(--overlay-rgb), 0.3);
         }
         th.sortable.asc::after {
             content: ' ▲';

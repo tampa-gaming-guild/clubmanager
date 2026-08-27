@@ -80,6 +80,7 @@ try {
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <?php include __DIR__ . '/../partials/theme_init.php'; ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Payments Log - Admin Panel</title>
@@ -96,7 +97,7 @@ try {
             transition: background 0.2s ease;
         }
         .sortable-header:hover {
-            background: rgba(255, 255, 255, 0.05);
+            background: rgba(var(--overlay-rgb), 0.05);
         }
         .sortable-header::after {
             content: " ⇅";

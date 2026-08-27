@@ -129,6 +129,7 @@ try {
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <?php include __DIR__ . '/../partials/theme_init.php'; ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Autorenew Log - Admin Panel</title>
@@ -141,11 +142,11 @@ try {
             max-width: 500px;
         }
         .search-bar-container input {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(var(--overlay-rgb), 0.05);
+            border: 1px solid rgba(var(--overlay-rgb), 0.1);
             border-radius: 8px;
             padding: 10px 15px;
-            color: #fff;
+            color: var(--color-text-primary);
             flex-grow: 1;
             font-size: 0.9rem;
             outline: none;
@@ -153,7 +154,7 @@ try {
         }
         .search-bar-container input:focus {
             border-color: var(--color-primary);
-            background: rgba(255, 255, 255, 0.1);
+            background: rgba(var(--overlay-rgb), 0.1);
         }
         .badge {
             padding: 4px 8px;
@@ -198,9 +199,9 @@ try {
             color: #bdc3c7;
         }
         .badge-raw {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            color: #fff;
+            background: rgba(var(--overlay-rgb), 0.05);
+            border: 1px solid rgba(var(--overlay-rgb), 0.1);
+            color: var(--color-text-primary);
         }
         th.sortable {
             cursor: pointer;
@@ -208,12 +209,12 @@ try {
             user-select: none;
         }
         th.sortable:hover {
-            background: rgba(255, 255, 255, 0.05);
+            background: rgba(var(--overlay-rgb), 0.05);
         }
         th.sortable::after {
             content: ' ↕';
             font-size: 0.8rem;
-            color: rgba(255, 255, 255, 0.3);
+            color: rgba(var(--overlay-rgb), 0.3);
         }
         th.sortable.asc::after {
             content: ' ▲';
@@ -275,7 +276,7 @@ try {
                                                 if (!empty($entry['contact_id'])) {
                                                     $cId = $entry['contact_id'];
                                                     $name = $namesMap[$cId] ?? "Member #$cId";
-                                                    $memberText = "<strong>" . e($name) . "</strong><br><span style='font-size:0.75rem; color:rgba(255,255,255,0.4);'>ID: $cId</span>";
+                                                    $memberText = "<strong>" . e($name) . "</strong><br><span style='font-size:0.75rem; color:rgba(var(--overlay-rgb),0.4);'>ID: $cId</span>";
                                                 }
                                             ?>
                                             <tr>

@@ -13,4 +13,5 @@ $footerText = $footerText ?? 'TGG Club Membership System. Secure Public Portal.'
         </footer>
     </div>
 
+    <script src="<?php echo $navPrefix; ?>assets/js/theme.js<?php echo asset_version('assets/js/theme.js'); ?>"></script>
     <script src="<?php echo $navPrefix; ?>assets/js/main.js<?php echo asset_version('assets/js/main.js'); ?>"></script>

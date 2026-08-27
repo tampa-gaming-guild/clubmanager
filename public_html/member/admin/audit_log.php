@@ -171,6 +171,7 @@ $hasFilters = $filterQuery !== '';
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <?php include __DIR__ . '/../partials/theme_init.php'; ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Audit Log - Admin Panel</title>
@@ -193,18 +194,18 @@ $hasFilters = $filterQuery !== '';
             color: var(--color-text-muted);
         }
         .audit-filter-bar input, .audit-filter-bar select {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(var(--overlay-rgb), 0.05);
+            border: 1px solid rgba(var(--overlay-rgb), 0.1);
             border-radius: 8px;
             padding: 8px 12px;
-            color: #fff;
+            color: var(--color-text-primary);
             font-size: 0.85rem;
             outline: none;
             transition: all 0.2s ease;
         }
         .audit-filter-bar input:focus, .audit-filter-bar select:focus {
             border-color: var(--color-primary);
-            background: rgba(255, 255, 255, 0.1);
+            background: rgba(var(--overlay-rgb), 0.1);
         }
         .audit-filter-bar select option {
             background: #1e1e28;
@@ -223,10 +224,10 @@ $hasFilters = $filterQuery !== '';
         .btn-view-details:hover {
             background: rgba(9, 132, 227, 0.3);
             border-color: var(--color-primary);
-            color: #fff;
+            color: var(--color-text-primary);
         }
         .close:hover {
-            color: #fff !important;
+            color: var(--color-text-primary) !important;
         }
         .audit-action-code {
             font-family: monospace;
@@ -394,17 +395,17 @@ $hasFilters = $filterQuery !== '';
 
     <!-- Audit Details Modal -->
     <div id="audit-modal" class="modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(5px);">
-        <div class="modal-content glass-panel" style="background: rgba(30, 30, 40, 0.95); margin: 5% auto; padding: 25px; border: 1px solid rgba(255, 255, 255, 0.1); width: 70%; max-width: 700px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
-            <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 15px; margin-bottom: 20px;">
-                <h3 id="audit-modal-action" style="margin: 0; color: #fff; font-size: 1.2rem; font-family: monospace;">action</h3>
-                <span class="close" onclick="closeAuditModal()" style="color: rgba(255,255,255,0.6); font-size: 28px; font-weight: bold; cursor: pointer; transition: color 0.2s;">&times;</span>
+        <div class="modal-content glass-panel" style="background: var(--color-surface-glass-solid); margin: 5% auto; padding: 25px; border: 1px solid rgba(var(--overlay-rgb), 0.1); width: 70%; max-width: 700px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+            <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(var(--overlay-rgb), 0.1); padding-bottom: 15px; margin-bottom: 20px;">
+                <h3 id="audit-modal-action" style="margin: 0; color: var(--color-text-primary); font-size: 1.2rem; font-family: monospace;">action</h3>
+                <span class="close" onclick="closeAuditModal()" style="color: rgba(var(--overlay-rgb),0.6); font-size: 28px; font-weight: bold; cursor: pointer; transition: color 0.2s;">&times;</span>
             </div>
-            <div class="modal-meta" style="margin-bottom: 15px; font-size: 0.85rem; color: rgba(255,255,255,0.7); display: flex; flex-direction: column; gap: 5px; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px;">
+            <div class="modal-meta" style="margin-bottom: 15px; font-size: 0.85rem; color: rgba(var(--overlay-rgb),0.7); display: flex; flex-direction: column; gap: 5px; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px;">
                 <div><strong>When:</strong> <span id="audit-modal-when"></span></div>
                 <div><strong>Actor:</strong> <span id="audit-modal-actor"></span></div>
                 <div><span id="audit-modal-meta"></span></div>
             </div>
-            <pre id="audit-modal-details" style="border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; background: rgba(0,0,0,0.3); color: #a3e4ff; padding: 15px; font-size: 0.8rem; max-height: 400px; overflow: auto; white-space: pre-wrap; word-break: break-word;"></pre>
+            <pre id="audit-modal-details" style="border: 1px solid rgba(var(--overlay-rgb),0.1); border-radius: 8px; background: rgba(0,0,0,0.3); color: #a3e4ff; padding: 15px; font-size: 0.8rem; max-height: 400px; overflow: auto; white-space: pre-wrap; word-break: break-word;"></pre>
         </div>
     </div>
 

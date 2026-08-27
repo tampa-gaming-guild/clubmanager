@@ -140,6 +140,7 @@ try {
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <?php include __DIR__ . '/../partials/theme_init.php'; ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Dashboard - Club Management</title>
@@ -152,7 +153,7 @@ try {
             transition: background 0.2s ease;
         }
         .sortable-header:hover {
-            background: rgba(255, 255, 255, 0.05);
+            background: rgba(var(--overlay-rgb), 0.05);
         }
         .sortable-header::after {
             content: " ⇅";
@@ -177,7 +178,7 @@ try {
             background: rgba(0, 0, 0, 0.2);
             border: 1px solid var(--border-glass);
             border-radius: 6px;
-            color: #fff;
+            color: var(--color-text-primary);
             padding: 8px 14px;
             font-size: 0.85rem;
             cursor: pointer;
@@ -267,7 +268,7 @@ try {
                         <div style="overflow-x: auto; font-size: 0.8rem;">
                             <table style="width: 100%; border-collapse: collapse; text-align: left; min-width: 600px;">
                                 <thead>
-                                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.08); color: var(--color-text-secondary);">
+                                    <tr style="border-bottom: 1px solid rgba(var(--overlay-rgb),0.08); color: var(--color-text-secondary);">
                                         <th style="padding: 6px 8px;">Membership Level</th>
                                         <?php foreach ($statuses as $stat): ?>
                                             <th style="padding: 6px 8px; text-align: right; white-space: nowrap;"><?php echo e($stat['label']); ?></th>
@@ -286,15 +287,15 @@ try {
                                     foreach ($matrix as $lvl => $stats): 
                                         $rowTotal = 0;
                                     ?>
-                                        <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
-                                            <td style="padding: 6px 8px; font-weight: 500; color: #fff; white-space: nowrap;"><a href="dashboard.php?level=<?php echo urlencode($lvl); ?>" style="color: var(--color-primary); text-decoration: none; font-weight: 600;"><?php echo e($lvl); ?></a></td>
+                                        <tr style="border-bottom: 1px solid rgba(var(--overlay-rgb),0.04);">
+                                            <td style="padding: 6px 8px; font-weight: 500; color: var(--color-text-primary); white-space: nowrap;"><a href="dashboard.php?level=<?php echo urlencode($lvl); ?>" style="color: var(--color-primary); text-decoration: none; font-weight: 600;"><?php echo e($lvl); ?></a></td>
                                             <?php foreach ($statuses as $stat):
                                                 $count = $stats[$stat['label']] ?? 0;
                                                 if ($stat['is_active']) {
                                                     $rowTotal += $count;
                                                 }
                                                 $colTotals[$stat['label']] += $count;
-                                                $color = $count > 0 ? ($stat['label'] === 'Current' || $stat['label'] === 'New' ? 'var(--color-success)' : ($stat['label'] === 'Expired' ? 'var(--color-danger)' : '#fff')) : 'rgba(255,255,255,0.15)';
+                                                $color = $count > 0 ? ($stat['label'] === 'Current' || $stat['label'] === 'New' ? 'var(--color-success)' : ($stat['label'] === 'Expired' ? 'var(--color-danger)' : 'var(--color-text-primary)')) : 'rgba(var(--overlay-rgb),0.15)';
                                                 $weight = $count > 0 ? '700' : '400';
                                             ?>
                                                 <td style="padding: 6px 8px; text-align: right; font-weight: <?php echo $weight; ?>; color: <?php echo $color; ?>;">
@@ -305,7 +306,7 @@ try {
                                                     <?php endif; ?>
                                                 </td>
                                             <?php endforeach; ?>
-                                            <td style="padding: 6px 8px; text-align: right; font-weight: 700; color: #fff;">
+                                            <td style="padding: 6px 8px; text-align: right; font-weight: 700; color: var(--color-text-primary);">
                                                 <?php if ($rowTotal > 0): ?>
                                                     <a href="dashboard.php?level=<?php echo urlencode($lvl); ?>&status=" style="color: inherit; text-decoration: none;"><?php echo $rowTotal; ?></a>
                                                 <?php else: ?>
@@ -317,7 +318,7 @@ try {
                                     <?php endforeach; ?>
                                 </tbody>
                                 <tfoot>
-                                    <tr style="border-top: 2px solid rgba(255,255,255,0.15); font-weight: 700; color: #fff;">
+                                    <tr style="border-top: 2px solid rgba(var(--overlay-rgb),0.15); font-weight: 700; color: var(--color-text-primary);">
                                         <td style="padding: 8px; font-weight: 700;">Total</td>
                                         <?php foreach ($statuses as $stat): 
                                             $colVal = $colTotals[$stat['label']];
@@ -447,10 +448,10 @@ try {
 
     <!-- Add Member Modal -->
     <div id="add-member-modal" class="modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(5px);">
-        <div class="modal-content glass-panel" style="background: rgba(30, 30, 40, 0.95); margin: 5% auto; padding: 25px; border: 1px solid rgba(255, 255, 255, 0.1); width: 90%; max-width: 480px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
-            <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 15px; margin-bottom: 20px;">
-                <h3 style="margin: 0; color: #fff; font-size: 1.2rem;">Add Member</h3>
-                <span class="close" onclick="closeAddMemberModal()" style="color: rgba(255,255,255,0.6); font-size: 28px; font-weight: bold; cursor: pointer; transition: color 0.2s;">&times;</span>
+        <div class="modal-content glass-panel" style="background: var(--color-surface-glass-solid); margin: 5% auto; padding: 25px; border: 1px solid rgba(var(--overlay-rgb), 0.1); width: 90%; max-width: 480px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+            <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(var(--overlay-rgb), 0.1); padding-bottom: 15px; margin-bottom: 20px;">
+                <h3 style="margin: 0; color: var(--color-text-primary); font-size: 1.2rem;">Add Member</h3>
+                <span class="close" onclick="closeAddMemberModal()" style="color: rgba(var(--overlay-rgb),0.6); font-size: 28px; font-weight: bold; cursor: pointer; transition: color 0.2s;">&times;</span>
             </div>
             <form action="dashboard.php" method="POST" class="auth-form">
                 <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">

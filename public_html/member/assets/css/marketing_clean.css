@@ -2,9 +2,11 @@
    Clean Page Variant Stylesheet (index.php's public marketing homepage)
    ========================================================================== */
 
-/* Design tokens for this light "cheery" marketing theme -- consolidates the
-   handful of hex values that were previously repeated across this file
-   (and marketing.css) as raw literals. */
+/* Design tokens for this "cheery" marketing theme. :root holds the LIGHT
+   defaults (this page's original look); html[data-theme="dark"] below adds a
+   dark equivalent that keeps the same cheery structure. Toggled by
+   assets/js/theme.js / partials/theme_init.php via a `data-theme` attribute
+   on <html> -- same mechanism style.css uses for the portal pages. */
 :root {
     --mkt-blue: #2563eb;
     --mkt-blue-hover: #1d4ed8;
@@ -16,8 +18,29 @@
     --mkt-border-light: #e2e8f0;
     --mkt-bg-subtle: #f1f5f9;
     --mkt-bg-page: #f8fafc;
+    --mkt-card-bg: #ffffff;
+    --mkt-shadow-rgb: 15, 23, 42;
+    --mkt-accent-navy: #1e3a8a;
     --mkt-danger: #dc2626;
     --mkt-warning: #ea580c;
+}
+
+html[data-theme="dark"] {
+    --mkt-blue: #60a5fa;
+    --mkt-blue-hover: #93c5fd;
+    --mkt-blue-dark: #3b82f6;
+    --mkt-text-heading: #f8fafc;
+    --mkt-text-body: #cbd5e1;
+    --mkt-text-muted: #94a3b8;
+    --mkt-border: #334155;
+    --mkt-border-light: #1e293b;
+    --mkt-bg-subtle: #1e293b;
+    --mkt-bg-page: #0f172a;
+    --mkt-card-bg: #16213a;
+    --mkt-shadow-rgb: 0, 0, 0;
+    --mkt-accent-navy: #93c5fd;
+    --mkt-danger: #f87171;
+    --mkt-warning: #fb923c;
 }
 
 body.frameless-page {
@@ -52,9 +75,9 @@ body.frameless-page {
     display: flex;
     justify-content: center;
     align-items: center;
-    background: #ffffff;
+    background: var(--mkt-card-bg);
     border-bottom: 2px solid var(--mkt-border);
-    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+    box-shadow: 0 4px 14px rgba(var(--mkt-shadow-rgb), 0.05);
     padding: 0 10px;
     flex-wrap: wrap;
 }
@@ -73,8 +96,14 @@ body.frameless-page {
 
 .clean-menu-link:hover {
     color: var(--mkt-blue);
-    background: #f0f9ff;
+    background: rgba(var(--color-primary-rgb), 0.08);
     border-bottom-color: var(--mkt-blue);
+}
+
+/* The theme switcher rides along in the same bar -- keep it vertically
+   centered and give it a little breathing room from the adjacent links. */
+.clean-menu-bar .theme-toggle-group {
+    margin: 8px 10px;
 }
 
 /* The link labels + generous padding wrap into a tall multi-row block on
@@ -105,26 +134,33 @@ body.frameless-page {
     color: var(--mkt-text-muted);
 }
 
+/* Utility for one-off strong/emphasis text in marketing_clean.php that used
+   to be a hardcoded inline color -- kept themeable via var(--mkt-text-heading). */
+.mkt-text-strong {
+    font-weight: 600;
+    color: var(--mkt-text-heading);
+}
+
 .clean-page-card .marketing-section {
     position: relative;
     scroll-margin-top: 90px;
     margin: 0 auto 40px;
     max-width: 1100px;
     padding: 36px 32px;
-    background: #ffffff;
+    background: var(--mkt-card-bg);
     border-radius: 20px;
-    border: 1px solid rgba(226, 232, 240, 0.9);
-    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
+    border: 1px solid var(--mkt-border-light);
+    box-shadow: 0 4px 12px rgba(var(--mkt-shadow-rgb), 0.05);
 }
 
 .clean-page-card .marketing-section:nth-of-type(even) {
     background: var(--mkt-bg-subtle);
-    border-color: rgba(203, 213, 225, 0.8);
+    border-color: var(--mkt-border);
 }
 
 .clean-page-card .free-sundays-banner {
-    background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
-    border: 1px solid rgba(203, 213, 225, 0.8);
+    background: linear-gradient(135deg, rgba(var(--color-primary-rgb), 0.08) 0%, rgba(var(--color-primary-rgb), 0.16) 100%);
+    border: 1px solid var(--mkt-border);
     border-radius: 18px;
     padding: 24px 20px;
     box-shadow: 0 4px 12px rgba(37, 99, 235, 0.12);
@@ -136,16 +172,16 @@ body.frameless-page {
 }
 
 .clean-page-card .free-sundays-banner p {
-    color: #1e293b;
+    color: var(--mkt-text-heading);
     font-weight: 500;
 }
 
 .clean-page-card .glass-panel,
 .clean-page-card .overlap-card,
 .clean-page-card .schedule-item {
-    background: #ffffff;
-    border: 1px solid rgba(203, 213, 225, 0.8);
-    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+    background: var(--mkt-card-bg);
+    border: 1px solid var(--mkt-border);
+    box-shadow: 0 4px 14px rgba(var(--mkt-shadow-rgb), 0.05);
 }
 
 .clean-page-card .eyebrow {
@@ -188,11 +224,11 @@ body.frameless-page {
     font-size: 0.95rem;
     font-weight: 700;
     color: var(--mkt-text-heading) !important;
-    background: #ffffff !important;
+    background: var(--mkt-card-bg) !important;
     border: 2px solid var(--mkt-border) !important;
     border-radius: 10px;
     text-decoration: none;
-    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+    box-shadow: 0 4px 12px rgba(var(--mkt-shadow-rgb), 0.08);
     transition: all 0.2s ease;
     white-space: nowrap;
 }
@@ -220,12 +256,12 @@ body.frameless-page {
     object-fit: contain;
     display: block;
     margin: 0 auto 6px;
-    filter: drop-shadow(0 2px 10px rgba(15, 23, 42, 0.15));
+    filter: drop-shadow(0 2px 10px rgba(var(--mkt-shadow-rgb), 0.15));
 }
 
 .clean-page-card .hero-tagline {
     text-align: center !important;
-    color: #1e3a8a !important;
+    color: var(--mkt-accent-navy) !important;
     font-size: 1.1rem !important;
     font-weight: 700 !important;
     margin: 4px auto 12px !important;
@@ -267,7 +303,7 @@ body.frameless-page {
 .clean-page-card .library-display-item img {
     border-radius: 16px !important;
     border: 1px solid var(--mkt-border) !important;
-    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06) !important;
+    box-shadow: 0 4px 12px rgba(var(--mkt-shadow-rgb), 0.06) !important;
 }
 
 .clean-page-card .event-logo {
@@ -277,7 +313,7 @@ body.frameless-page {
     margin-top: 0;
     margin-bottom: 16px;
     border-radius: 12px !important;
-    box-shadow: 0 3px 10px rgba(15, 23, 42, 0.08) !important;
+    box-shadow: 0 3px 10px rgba(var(--mkt-shadow-rgb), 0.08) !important;
 }
 
 .bleed-section.bleed-right {

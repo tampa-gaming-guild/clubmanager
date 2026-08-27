@@ -177,6 +177,7 @@ try {
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <?php include __DIR__ . '/../partials/theme_init.php'; ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Reports & Analytics - Admin Panel</title>
@@ -195,7 +196,7 @@ try {
             transition: background 0.2s ease;
         }
         .sortable-header:hover {
-            background: rgba(255, 255, 255, 0.05);
+            background: rgba(var(--overlay-rgb), 0.05);
         }
         .sortable-header::after {
             content: " ⇅";
@@ -408,9 +409,12 @@ try {
         }
 
         document.addEventListener('DOMContentLoaded', () => {
-            // Chart.js global options for dark theme alignment
-            Chart.defaults.color = 'rgba(255, 255, 255, 0.7)';
-            Chart.defaults.borderColor = 'rgba(255, 255, 255, 0.1)';
+            // Chart.js reads these as literal canvas colors -- CSS custom
+            // properties don't resolve inside a canvas context, so pull the
+            // current theme's overlay tint via getComputedStyle instead.
+            const overlayRgb = getComputedStyle(document.documentElement).getPropertyValue('--overlay-rgb').trim() || '255, 255, 255';
+            Chart.defaults.color = `rgba(${overlayRgb}, 0.7)`;
+            Chart.defaults.borderColor = `rgba(${overlayRgb}, 0.1)`;
             Chart.defaults.font.family = 'system-ui, -apple-system, sans-serif';
 
             // 1. Attendance Chart (Line)

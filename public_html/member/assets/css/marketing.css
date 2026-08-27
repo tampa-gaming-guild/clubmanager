@@ -717,7 +717,7 @@ html, body {
     height: 420px;
     object-fit: cover;
     border-radius: 16px;
-    border: 1px solid #cbd5e1;
+    border: 1px solid var(--border-glass);
     box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.08);
 }
 
@@ -917,8 +917,8 @@ html {
 }
 
 .schedule-item--free {
-    border-color: #fed7aa !important;
-    background: #fff7ed !important;
+    border-color: rgba(234, 88, 12, 0.35) !important;
+    background: rgba(234, 88, 12, 0.08) !important;
 }
 
 /* --- Membership Pricing Tier Highlights --- */
@@ -932,7 +932,7 @@ html {
 
 .tier-card.tier-featured {
     border: 1px solid rgba(37, 99, 235, 0.35) !important;
-    background: #ffffff !important;
+    background: var(--color-surface-glass-solid) !important;
     box-shadow: 0 8px 24px -6px rgba(37, 99, 235, 0.18) !important;
 }
 
@@ -959,14 +959,14 @@ html {
     font-family: var(--font-heading);
     font-size: 2.2rem;
     font-weight: 800;
-    color: #0f172a;
+    color: var(--color-text-primary);
     line-height: 1.1;
 }
 
 .tier-price span {
     font-size: 0.9rem;
     font-weight: 500;
-    color: #64748b;
+    color: var(--color-text-secondary);
 }
 
 .tier-price-alt {
@@ -984,9 +984,9 @@ html {
 
 .tier-features li {
     font-size: 0.88rem;
-    color: #334155;
+    color: var(--color-text-secondary);
     padding: 6px 0;
-    border-bottom: 1px dashed #e2e8f0;
+    border-bottom: 1px dashed var(--border-glass);
 }
 
 .tier-features li:last-child {
@@ -1004,16 +1004,16 @@ html {
     border-radius: 20px;
     font-size: 0.78rem;
     font-weight: 700;
-    background: #e0f2fe;
-    color: #0369a1;
+    background: rgba(37, 99, 235, 0.12);
+    color: var(--color-primary);
     margin-bottom: 8px;
-    border: 1px solid #bae6fd;
+    border: 1px solid rgba(37, 99, 235, 0.3);
 }
 
 .event-badge--charity {
-    background: #fce7f3;
-    color: #be185d;
-    border-color: #fbcfe8;
+    background: rgba(219, 39, 119, 0.12);
+    color: hsl(330, 65%, 55%);
+    border-color: rgba(219, 39, 119, 0.3);
 }
 
 .btn-link {

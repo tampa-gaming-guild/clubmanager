@@ -82,18 +82,18 @@ $vsSlotTypeColors = [
                                                 Sign Up for All Open Slots &rarr;
                                             </button>
                                         </div>
-                                        <div id="confirm-container-<?php echo $evtId; ?>-ALL" style="display: none; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-glass); border-radius: 8px; padding: 10px; min-width: 240px; text-align: left;">
+                                        <div id="confirm-container-<?php echo $evtId; ?>-ALL" style="display: none; background: rgba(var(--overlay-rgb), 0.03); border: 1px solid var(--border-glass); border-radius: 8px; padding: 10px; min-width: 240px; text-align: left;">
                                             <?php if (has_permission('manage hosting')): ?>
                                                 <div style="margin-bottom: 8px;">
-                                                    <label style="font-size: 0.8rem; margin-right: 12px; cursor: pointer; color: #fff;">
+                                                    <label style="font-size: 0.8rem; margin-right: 12px; cursor: pointer; color: var(--color-text-primary);">
                                                         <input type="radio" name="signup_type_<?php echo $evtId; ?>_ALL" value="self" checked onclick="toggleAdminSignupType(<?php echo $evtId; ?>, 'ALL', 'self')" style="margin-right: 4px;"> Myself
                                                     </label>
-                                                    <label style="font-size: 0.8rem; cursor: pointer; color: #fff;">
+                                                    <label style="font-size: 0.8rem; cursor: pointer; color: var(--color-text-primary);">
                                                         <input type="radio" name="signup_type_<?php echo $evtId; ?>_ALL" value="other" onclick="toggleAdminSignupType(<?php echo $evtId; ?>, 'ALL', 'other')" style="margin-right: 4px;"> Other Member
                                                     </label>
                                                 </div>
                                                 <div id="admin-search-<?php echo $evtId; ?>-ALL" style="display: none; margin-bottom: 8px;">
-                                                    <input type="text" list="members-list" placeholder="Type member name..." oninput="updateMemberId(this, <?php echo $evtId; ?>, 'ALL')" style="width: 100%; padding: 6px 10px; font-size: 0.8rem; border-radius: 4px; border: 1px solid var(--border-glass); background: rgba(255, 255, 255, 0.05); color: #fff; outline: none;">
+                                                    <input type="text" list="members-list" placeholder="Type member name..." oninput="updateMemberId(this, <?php echo $evtId; ?>, 'ALL')" style="width: 100%; padding: 6px 10px; font-size: 0.8rem; border-radius: 4px; border: 1px solid var(--border-glass); background: rgba(var(--overlay-rgb), 0.05); color: var(--color-text-primary); outline: none;">
                                                 </div>
                                             <?php endif; ?>
                                             <form action="<?php echo e($vsAction); ?>" method="POST" style="display: inline;" onsubmit="return validateAdminSignup(this, <?php echo $evtId; ?>, 'ALL')">
@@ -111,7 +111,7 @@ $vsSlotTypeColors = [
 
                                                 <div style="display: flex; gap: 6px;">
                                                     <button type="submit" name="action_signup_all" class="btn btn-success btn-small" style="padding: 4px 8px; font-size: 0.75rem;">Confirm</button>
-                                                    <button type="button" class="btn btn-secondary btn-small" onclick="cancelSignup(<?php echo $evtId; ?>, 'ALL')" style="padding: 4px 8px; font-size: 0.75rem; background: rgba(255,255,255,0.05); color: #fff; border: 1px solid var(--border-glass);">Cancel</button>
+                                                    <button type="button" class="btn btn-secondary btn-small" onclick="cancelSignup(<?php echo $evtId; ?>, 'ALL')" style="padding: 4px 8px; font-size: 0.75rem; background: rgba(var(--overlay-rgb),0.05); color: var(--color-text-primary); border: 1px solid var(--border-glass);">Cancel</button>
                                                 </div>
                                             </form>
                                         </div>
@@ -209,18 +209,18 @@ $vsSlotTypeColors = [
                                                 Sign Up &rarr;
                                             </button>
                                         </div>
-                                        <div id="confirm-container-<?php echo $evtId; ?>-<?php echo $slotId; ?>" style="display: none; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-glass); border-radius: 8px; padding: 10px; min-width: 220px; text-align: left;">
+                                        <div id="confirm-container-<?php echo $evtId; ?>-<?php echo $slotId; ?>" style="display: none; background: rgba(var(--overlay-rgb), 0.03); border: 1px solid var(--border-glass); border-radius: 8px; padding: 10px; min-width: 220px; text-align: left;">
                                             <?php if (has_permission('manage hosting')): ?>
                                                 <div style="margin-bottom: 8px;">
-                                                    <label style="font-size: 0.8rem; margin-right: 12px; cursor: pointer; color: #fff;">
+                                                    <label style="font-size: 0.8rem; margin-right: 12px; cursor: pointer; color: var(--color-text-primary);">
                                                         <input type="radio" name="signup_type_<?php echo $evtId; ?>_<?php echo $slotId; ?>" value="self" checked onclick="toggleAdminSignupType(<?php echo $evtId; ?>, <?php echo $slotId; ?>, 'self')" style="margin-right: 4px;"> Myself
                                                     </label>
-                                                    <label style="font-size: 0.8rem; cursor: pointer; color: #fff;">
+                                                    <label style="font-size: 0.8rem; cursor: pointer; color: var(--color-text-primary);">
                                                         <input type="radio" name="signup_type_<?php echo $evtId; ?>_<?php echo $slotId; ?>" value="other" onclick="toggleAdminSignupType(<?php echo $evtId; ?>, <?php echo $slotId; ?>, 'other')" style="margin-right: 4px;"> Other Member
                                                     </label>
                                                 </div>
                                                 <div id="admin-search-<?php echo $evtId; ?>-<?php echo $slotId; ?>" style="display: none; margin-bottom: 8px;">
-                                                    <input type="text" list="members-list" placeholder="Type member name..." oninput="updateMemberId(this, <?php echo $evtId; ?>, <?php echo $slotId; ?>)" style="width: 100%; padding: 6px 10px; font-size: 0.8rem; border-radius: 4px; border: 1px solid var(--border-glass); background: rgba(255, 255, 255, 0.05); color: #fff; outline: none;">
+                                                    <input type="text" list="members-list" placeholder="Type member name..." oninput="updateMemberId(this, <?php echo $evtId; ?>, <?php echo $slotId; ?>)" style="width: 100%; padding: 6px 10px; font-size: 0.8rem; border-radius: 4px; border: 1px solid var(--border-glass); background: rgba(var(--overlay-rgb), 0.05); color: var(--color-text-primary); outline: none;">
                                                 </div>
                                             <?php endif; ?>
                                             <form action="<?php echo e($vsAction); ?>" method="POST" style="display: inline;" onsubmit="return validateAdminSignup(this, <?php echo $evtId; ?>, <?php echo $slotId; ?>)">
@@ -238,7 +238,7 @@ $vsSlotTypeColors = [
 
                                                 <div style="display: flex; gap: 6px;">
                                                     <button type="submit" name="action_signup" class="btn btn-success btn-small" style="padding: 4px 8px; font-size: 0.75rem;">Confirm</button>
-                                                    <button type="button" class="btn btn-secondary btn-small" onclick="cancelSignup(<?php echo $evtId; ?>, <?php echo $slotId; ?>)" style="padding: 4px 8px; font-size: 0.75rem; background: rgba(255,255,255,0.05); color: #fff; border: 1px solid var(--border-glass);">Cancel</button>
+                                                    <button type="button" class="btn btn-secondary btn-small" onclick="cancelSignup(<?php echo $evtId; ?>, <?php echo $slotId; ?>)" style="padding: 4px 8px; font-size: 0.75rem; background: rgba(var(--overlay-rgb),0.05); color: var(--color-text-primary); border: 1px solid var(--border-glass);">Cancel</button>
                                                 </div>
                                             </form>
                                         </div>

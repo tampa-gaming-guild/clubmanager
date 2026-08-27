@@ -275,6 +275,7 @@ $cgDayContent = function (int $day, array $eventsForDay) use ($slotsByEvent, $vo
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <?php include __DIR__ . '/partials/theme_init.php'; ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Volunteer Schedule - TGG Club</title>
@@ -300,7 +301,7 @@ $cgDayContent = function (int $day, array $eventsForDay) use ($slotsByEvent, $vo
         }
         .filter-toggle a {
             padding: 6px 14px;
-            background: rgba(255, 255, 255, 0.05);
+            background: rgba(var(--overlay-rgb), 0.05);
             border: 1px solid var(--border-glass);
             border-radius: 20px;
             font-size: 0.85rem;

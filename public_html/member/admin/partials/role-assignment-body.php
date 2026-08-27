@@ -108,7 +108,7 @@
 
                                         $checked = in_array($roleOption['name'], $memberRoles, true) ? 'checked' : '';
                                     ?>
-                                        <label title="<?php echo ($isSuperadminRole && $isLastSuperadmin) ? 'Only superadmin -- role cannot be removed until another user is granted it' : ''; ?>" style="display: inline-flex; align-items: center; gap: 4px; color: #fff; margin-right: 10px; cursor: <?php echo $disabled ? 'not-allowed' : 'pointer'; ?>; opacity: <?php echo $disabled ? '0.5' : '1'; ?>;">
+                                        <label title="<?php echo ($isSuperadminRole && $isLastSuperadmin) ? 'Only superadmin -- role cannot be removed until another user is granted it' : ''; ?>" style="display: inline-flex; align-items: center; gap: 4px; color: var(--color-text-primary); margin-right: 10px; cursor: <?php echo $disabled ? 'not-allowed' : 'pointer'; ?>; opacity: <?php echo $disabled ? '0.5' : '1'; ?>;">
                                             <input type="checkbox" form="<?php echo $rowFormId; ?>" name="roles[]" value="<?php echo e($roleOption['name']); ?>" <?php echo $checked; ?> <?php echo $disabled; ?> style="width: auto; transform: scale(1.0); margin: 0;">
                                             <?php echo e(ucfirst($roleOption['name'])); ?><?php echo ($isSuperadminRole && $isLastSuperadmin) ? ' &#9888;' : ''; ?>
                                         </label>

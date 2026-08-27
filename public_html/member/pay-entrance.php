@@ -319,6 +319,7 @@ $reasonLabel = ($reason === 'entrance_fee')
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <?php include __DIR__ . '/partials/theme_init.php'; ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Payment Required - Club Entry</title>
@@ -425,7 +426,7 @@ $reasonLabel = ($reason === 'entrance_fee')
                 <?php elseif ($context): ?>
                     <div style="text-align: center; margin-bottom: 25px;">
                         <p style="font-size: 1.15rem; color: var(--color-text-secondary); margin-bottom: 5px;"><?php echo e($context['contact']['display_name']); ?></p>
-                        <p style="font-size: 2rem; font-weight: 700; color: #fff; margin: 0; font-family: var(--font-heading);">$<?php echo number_format($context['amount'], 2); ?></p>
+                        <p style="font-size: 2rem; font-weight: 700; color: var(--color-text-primary); margin: 0; font-family: var(--font-heading);">$<?php echo number_format($context['amount'], 2); ?></p>
                         <p style="color: var(--color-text-secondary); margin-top: 5px;">
                             <?php echo $reason === 'entrance_fee'
                                 ? 'Members on a per-session membership pay an entrance fee on every visit.'

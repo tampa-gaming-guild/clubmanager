@@ -233,6 +233,7 @@ $hasFilters = $playerCount !== null || $maxPlaytime !== null || $mechanism !== '
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <?php include __DIR__ . '/partials/theme_init.php'; ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Library - Tampa Gaming Guild</title>
@@ -428,10 +429,10 @@ $hasFilters = $playerCount !== null || $maxPlaytime !== null || $mechanism !== '
     <?php if ($canManageLibrary): ?>
     <!-- Add/Edit Game Modal -->
     <div id="game-modal" class="modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(5px);">
-        <div class="modal-content glass-panel" style="background: rgba(30, 30, 40, 0.97); margin: 3% auto; padding: 25px; border: 1px solid rgba(255, 255, 255, 0.1); width: 90%; max-width: 600px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); max-height: 90vh; overflow-y: auto;">
-            <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 15px; margin-bottom: 20px;">
-                <h3 id="game-modal-title" style="margin: 0; color: #fff;">Add Game</h3>
-                <span class="close" onclick="closeGameModal()" style="color: rgba(255,255,255,0.6); font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
+        <div class="modal-content glass-panel" style="background: var(--color-surface-glass-solid); margin: 3% auto; padding: 25px; border: 1px solid rgba(var(--overlay-rgb), 0.1); width: 90%; max-width: 600px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); max-height: 90vh; overflow-y: auto;">
+            <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(var(--overlay-rgb), 0.1); padding-bottom: 15px; margin-bottom: 20px;">
+                <h3 id="game-modal-title" style="margin: 0; color: var(--color-text-primary);">Add Game</h3>
+                <span class="close" onclick="closeGameModal()" style="color: rgba(var(--overlay-rgb),0.6); font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
             </div>
 
             <div id="bgg-search-section">

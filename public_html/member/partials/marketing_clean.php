@@ -6,11 +6,6 @@
                 <div class="hero-title-group">
                     <img src="assets/images/header-colored-logo.png" alt="Tampa Gaming Guild" class="hero-colored-logo" loading="lazy">
                     <p class="hero-tagline">Board gaming and RPG club</p>
-                    <div class="hero-badges">
-                        <span class="hero-badge">🎮 400+ Game Library</span>
-                        <span class="hero-badge hero-badge--accent">🎉 Donation Sundays</span>
-                        <span class="hero-badge">📅 Weekly Sessions</span>
-                    </div>
                 </div>
             </div>
             <div class="hero-actions">
@@ -34,6 +29,7 @@
         <a href="#section-pricing" class="clean-menu-link">Membership</a>
         <a href="#section-library" class="clean-menu-link">Game Library</a>
         <a href="#section-events" class="clean-menu-link">Events</a>
+        <?php include __DIR__ . '/theme_toggle.php'; ?>
     </nav>
 
     <div class="clean-page-body">
@@ -189,7 +185,7 @@
                     <span class="eyebrow">Bargain Game Sales</span>
                     <h3>Flea Market</h3>
                     <p>We hold a semi-annual flea market where you can buy and sell used games. Hundreds of games are for sale at bargain prices!</p>
-                    <p style="font-weight: 600; color: #1e293b; margin-top: 8px;">Next flea market date: to be determined.</p>
+                    <p class="mkt-text-strong" style="margin-top: 8px;">Next flea market date: to be determined.</p>
                 </div>
             </div>
 
@@ -202,12 +198,12 @@
                     <span class="eyebrow">1Voice Foundation</span>
                     <h3>Kardboard for Kids</h3>
                     <p>From time to time we do fundraisers for charity, such as the Kardboard for Kids event that sends games to the 1Voice Foundation to share with kids who have cancer.</p>
-                    <p style="font-weight: 600; color: #1e293b; margin-top: 8px;">Next fundraiser: to be determined.</p>
+                    <p class="mkt-text-strong" style="margin-top: 8px;">Next fundraiser: to be determined.</p>
                 </div>
             </div>
         </section>
 
-        <footer class="marketing-footer" style="text-align: center; margin-top: 40px; padding: 24px 0 16px; border-top: 1px solid rgba(203, 213, 225, 0.6); color: #64748b; font-size: 0.88rem;">
+        <footer class="marketing-footer" style="text-align: center; margin-top: 40px; padding: 24px 0 16px; border-top: 1px solid var(--mkt-border-light); color: var(--mkt-text-muted); font-size: 0.88rem;">
             <p>&copy; <?php echo date('Y'); ?> Tampa Gaming Guild. All rights reserved. &bull; Non-Profit Board Gaming &amp; RPG Club</p>
         </footer>
     </div>
