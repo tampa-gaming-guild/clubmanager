@@ -275,6 +275,22 @@ $cgDayContent = function (int $day, array $eventsForDay) use ($slotsByEvent, $vo
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <script>
+    (function () {
+        try {
+            var params = new URLSearchParams(location.search);
+            if (!params.has('view')) {
+                var stored = localStorage.getItem('tgg_volunteers_view');
+                if (stored === 'list' || stored === 'calendar' || stored === 'combo') {
+                    params.set('view', stored);
+                    location.replace(location.pathname + '?' + params.toString() + location.hash);
+                    return;
+                }
+            }
+            localStorage.setItem('tgg_volunteers_view', <?php echo json_encode($view); ?>);
+        } catch (e) {}
+    })();
+    </script>
     <?php include __DIR__ . '/partials/theme_init.php'; ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
