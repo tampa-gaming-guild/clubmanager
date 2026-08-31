@@ -619,6 +619,23 @@ if (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest') {
                 // the exact pre-swap position immediately after so nothing above the
                 // fragment appears to move.
                 const scrollBefore = window.scrollY;
+
+                // innerHTML replacement destroys and recreates every node, including
+                // whatever the user was typing in (e.g. the search box), which drops
+                // focus and cursor position. Capture the focused field's name and
+                // selection here and restore it on the freshly-rendered element below.
+                const active = document.activeElement;
+                let focusedName = null;
+                let selStart = null;
+                let selEnd = null;
+                if (active && fragment.contains(active) && active.name) {
+                    focusedName = active.name;
+                    if (typeof active.selectionStart === 'number') {
+                        selStart = active.selectionStart;
+                        selEnd = active.selectionEnd;
+                    }
+                }
+
                 fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
                     .then(function(res) {
                         if (!res.ok) throw new Error('Request failed');
@@ -628,6 +645,16 @@ if (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest') {
                         fragment.innerHTML = html;
                         if (pushState) history.pushState({}, '', url);
                         window.scrollTo(0, scrollBefore);
+
+                        if (focusedName) {
+                            const restored = fragment.querySelector('[name="' + focusedName + '"]');
+                            if (restored) {
+                                restored.focus();
+                                if (selStart !== null && typeof restored.setSelectionRange === 'function') {
+                                    restored.setSelectionRange(selStart, selEnd);
+                                }
+                            }
+                        }
                     })
                     .catch(function() {
                         // Fall back to a real navigation if the fetch fails for any reason.
