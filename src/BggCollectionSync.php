@@ -130,11 +130,12 @@ class BggCollectionSync {
     }
 
     /**
-     * Log in, run $callback with the session cookie header, and normalize any
-     * exception into the ['success' => false, ...] contract. Re-authenticates
-     * on every call rather than persisting cookies, to avoid stale-session
-     * failures -- this is a low-frequency operation (one push per librarian
-     * edit), not worth the complexity of session reuse/expiry tracking.
+     * Run $callback with a session cookie header, and normalize any exception
+     * into the ['success' => false, ...] contract. Cookies are cached in
+     * tgg_bgg_session (BGG's session is long-lived in practice) rather than
+     * re-authenticating on every call; a BggAuthException from $callback --
+     * meaning the cached session has gone stale -- triggers one fresh login
+     * and retry before giving up.
      */
     private static function withSession(callable $callback): array {
         $username = $_ENV['BGG_USERNAME'] ?? '';
@@ -144,7 +145,26 @@ class BggCollectionSync {
         }
 
         try {
+            $cookies = self::cachedCookies();
+            if ($cookies === null) {
+                $cookies = self::login($username, $password);
+                self::cacheCookies($cookies);
+            }
+        } catch (\Throwable $e) {
+            return ['success' => false, 'message' => 'BGG login failed: ' . $e->getMessage()];
+        }
+
+        try {
+            return $callback($cookies);
+        } catch (BggAuthException $e) {
+            // Cached session is stale -- refresh once and retry.
+        } catch (\Throwable $e) {
+            return ['success' => false, 'message' => $e->getMessage()];
+        }
+
+        try {
             $cookies = self::login($username, $password);
+            self::cacheCookies($cookies);
         } catch (\Throwable $e) {
             return ['success' => false, 'message' => 'BGG login failed: ' . $e->getMessage()];
         }
@@ -156,11 +176,64 @@ class BggCollectionSync {
         }
     }
 
+    /** @return string|null Cached cookie header value, or null if none is cached. */
+    private static function cachedCookies(): ?string {
+        $appDb = Database::getAppConnection();
+        $stmt = $appDb->prepare("SELECT cookies FROM tgg_bgg_session WHERE id = 1 LIMIT 1");
+        $stmt->execute();
+        $row = $stmt->fetch();
+        return $row ? $row['cookies'] : null;
+    }
+
+    private static function cacheCookies(string $cookies): void {
+        $appDb = Database::getAppConnection();
+        $appDb->prepare("
+            INSERT INTO tgg_bgg_session (id, cookies, fetched_at)
+            VALUES (1, :cookies, :fetched)
+            ON DUPLICATE KEY UPDATE cookies = :cookies2, fetched_at = :fetched2
+        ")->execute([
+            'cookies' => $cookies,
+            'fetched' => date('Y-m-d H:i:s'),
+            'cookies2' => $cookies,
+            'fetched2' => date('Y-m-d H:i:s'),
+        ]);
+    }
+
     /**
+     * Log in, retrying once on a response that looks like a login-endpoint
+     * throttle rather than genuinely bad credentials: BGG returns the same
+     * generic 400 "Invalid username or password" body for both, and rapid
+     * back-to-back logins (e.g. several librarian pushes in quick succession
+     * under the pre-caching code) were observed tripping it against known-
+     * good credentials. One retry after a short wait clears a transient
+     * throttle; a real bad password still fails after it.
      * @return string Cookie header value to attach to subsequent requests
      * @throws Exception
      */
-    private static function login(string $username, string $password): string {
+    private static function login(string $username, string $password, int $maxAttempts = 2, int $waitSeconds = 5): string {
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            [$httpCode, $body, $headers] = self::rawLogin($username, $password);
+
+            if ($httpCode === 200 || $httpCode === 204) {
+                $cookies = self::extractCookies($headers);
+                if (empty($cookies)) {
+                    throw new Exception("login response contained no session cookies");
+                }
+                return $cookies;
+            }
+
+            $looksThrottled = $httpCode === 400 && stripos($body, 'invalid username or password') !== false;
+            if ($looksThrottled && $attempt < $maxAttempts) {
+                sleep($waitSeconds);
+                continue;
+            }
+            throw new Exception("login returned HTTP {$httpCode}" . ($body !== '' ? ': ' . substr($body, 0, 300) : ''));
+        }
+        throw new Exception("login never completed after {$maxAttempts} attempts.");
+    }
+
+    /** @return array{0: int, 1: string, 2: string} [httpCode, trimmed response body, raw response headers] */
+    private static function rawLogin(string $username, string $password): array {
         $ch = curl_init(self::LOGIN_URL);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_HEADER, true);
@@ -185,21 +258,8 @@ class BggCollectionSync {
         if ($response === false) {
             throw new Exception("login request failed: " . $curlErr);
         }
-        // 204 (No Content) is the observed success response for this endpoint --
-        // it sets session cookies and returns no body. The real success signal
-        // is the presence of session cookies below, not the status code alone.
-        if ($httpCode !== 200 && $httpCode !== 204) {
-            $body = trim(substr($response, $headerSize));
-            throw new Exception("login returned HTTP {$httpCode}" . ($body !== '' ? ': ' . substr($body, 0, 300) : ''));
-        }
 
-        $headers = substr($response, 0, $headerSize);
-        $cookies = self::extractCookies($headers);
-        if (empty($cookies)) {
-            throw new Exception("login response contained no session cookies");
-        }
-
-        return $cookies;
+        return [$httpCode, trim(substr($response, $headerSize)), substr($response, 0, $headerSize)];
     }
 
     /** Parse Set-Cookie response headers into a single "k=v; k2=v2" Cookie header value. */
@@ -255,7 +315,10 @@ class BggCollectionSync {
         // didn't actually authenticate -- these endpoints don't reliably
         // signal that via HTTP status alone.
         if (stripos($response, '<form') !== false && stripos($response, 'password') !== false) {
-            throw new Exception("{$method} {$path} response looks like a login page -- session not authenticated");
+            throw new BggAuthException("{$method} {$path} response looks like a login page -- session not authenticated");
+        }
+        if ($httpCode === 401 || $httpCode === 403) {
+            throw new BggAuthException("{$method} {$path} returned HTTP {$httpCode} -- session likely expired");
         }
         if ($httpCode < 200 || $httpCode >= 300) {
             throw new Exception("{$method} {$path} returned HTTP {$httpCode}: " . substr($response, 0, 300));

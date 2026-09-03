@@ -96,7 +96,7 @@ class GameLibraryService {
     public static function updateGame(int $gameId, array $data, int $actorContactId): array {
         $appDb = Database::getAppConnection();
 
-        $beforeStmt = $appDb->prepare("SELECT name, owner_contact_id FROM tgg_games WHERE id = :id LIMIT 1");
+        $beforeStmt = $appDb->prepare("SELECT name, notes, owner_contact_id FROM tgg_games WHERE id = :id LIMIT 1");
         $beforeStmt->execute(['id' => $gameId]);
         $before = $beforeStmt->fetch(PDO::FETCH_ASSOC);
         if (!$before) {
@@ -158,7 +158,15 @@ class GameLibraryService {
             }
         }
 
-        self::pushToBgg($gameId);
+        // BGG only ever receives name/notes (see pushToBgg()) -- owner/loan
+        // changes never do (see the comment there). So a save that only
+        // touched owner_contact_id (e.g. recording/returning a loan) has
+        // nothing new to push; skip it rather than hitting BGG for a no-op.
+        $newName = array_key_exists('name', $data) ? $data['name'] : $before['name'];
+        $newNotes = array_key_exists('notes', $data) ? $data['notes'] : $before['notes'];
+        if ($newName !== $before['name'] || $newNotes !== $before['notes']) {
+            self::pushToBgg($gameId);
+        }
 
         return ['game_id' => $gameId];
     }
