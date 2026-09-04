@@ -104,7 +104,7 @@ try {
                 $errorMsg = "Enter a valid check-in time.";
             } else {
                 $checkedInAt = "{$selectedDate} {$checkinTime}:00";
-                $result = CheckinService::checkIn($memberContactId, $checkinNotes, [], false, $checkedInAt);
+                $result = CheckinService::checkIn($memberContactId, $checkinNotes, [], false, $checkedInAt, true);
                 if ($result['ok']) {
                     redirect("admin/checkins.php?date=" . urlencode($selectedDate) . "&success=1");
                 } else {

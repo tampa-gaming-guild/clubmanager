@@ -28,6 +28,15 @@ class CheckinService {
      *        Null (the default) uses NOW(), the live check-in path. Passing
      *        this logs a 'checkins'/'checkin_added' audit event, since this
      *        is a correction rather than an ordinary live visit.
+     * @param bool $skipMembershipCheck ONLY for the admin/checkins.php "Add
+     *        Missed Check-In" feature -- skips the membership-active/
+     *        entrance-fee gating below entirely, since that gating exists to
+     *        stop an inactive member from checking themself in live without
+     *        paying, and doesn't apply to a host-verified correction of a
+     *        visit that already happened (whose membership status *today*
+     *        may not even match what it was on that date). Every other
+     *        caller (self-service kiosk, host terminal, mobile API) must
+     *        leave this false.
      * @return array{
      *   ok: bool,
      *   error: ?string,
@@ -43,7 +52,8 @@ class CheckinService {
         string $notes,
         array $guestNames = [],
         bool $suppressRedirectIfPendingPayment = false,
-        ?string $checkedInAt = null
+        ?string $checkedInAt = null,
+        bool $skipMembershipCheck = false
     ): array {
         $appDb = Database::getAppConnection();
         $isBackdated = $checkedInAt !== null;
@@ -65,18 +75,26 @@ class CheckinService {
 
         $membership = MembershipService::getMemberMembershipDetails($contactId);
 
-        if (!$membership || !$membership['is_active']) {
-            if ($suppressRedirectIfPendingPayment && self::hasPendingPayment($contactId)) {
-                return self::errorResult("You already have a pending payment with the host. Please see the host to complete your check-in.");
+        // Only the "Add Missed Check-In" admin feature sets $skipMembershipCheck --
+        // it's an admin correcting the record of a visit that already happened, so
+        // it must not be blocked by the member's membership/entrance-fee status
+        // *today*, which is irrelevant to (and may have since changed from) their
+        // status on the date being corrected. Every other caller (live self-service/
+        // host check-ins) always runs this gating.
+        if (!$skipMembershipCheck) {
+            if (!$membership || !$membership['is_active']) {
+                if ($suppressRedirectIfPendingPayment && self::hasPendingPayment($contactId)) {
+                    return self::errorResult("You already have a pending payment with the host. Please see the host to complete your check-in.");
+                }
+                return self::redirectResult('renewal');
             }
-            return self::redirectResult('renewal');
-        }
 
-        if (BillingHelper::entranceFeeOwed($membership)) {
-            if ($suppressRedirectIfPendingPayment && self::hasPendingPayment($contactId)) {
-                return self::errorResult("You already have a pending payment with the host. Please see the host to complete your check-in.");
+            if (BillingHelper::entranceFeeOwed($membership)) {
+                if ($suppressRedirectIfPendingPayment && self::hasPendingPayment($contactId)) {
+                    return self::errorResult("You already have a pending payment with the host. Please see the host to complete your check-in.");
+                }
+                return self::redirectResult('entrance_fee');
             }
-            return self::redirectResult('entrance_fee');
         }
 
         if (!empty($guestNames)) {
@@ -123,8 +141,8 @@ class CheckinService {
             'message' => $message,
             'details' => [
                 'name' => $contactName,
-                'membership' => $membership['membership_name'],
-                'expires' => date('M d, Y', strtotime($membership['end_date'])),
+                'membership' => $membership['membership_name'] ?? null,
+                'expires' => $membership ? date('M d, Y', strtotime($membership['end_date'])) : null,
             ],
         ];
     }
