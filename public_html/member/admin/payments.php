@@ -26,6 +26,9 @@ $paymentsList = [];
 
 // Actor attribution is admin-panel-only information.
 $showActorCol = has_permission('admin panel');
+// Editing/reversing a payment only happens on the per-member profile page --
+// this page just links the member name there.
+$showAdminActions = has_permission('admin panel');
 
 try {
     $appDb = Database::getAppConnection();
@@ -57,6 +60,7 @@ try {
         foreach ($payLogsRaw as $row) {
             $cid = (int)$row['contact_id'];
             $paymentsList[] = [
+                'contact_id' => $cid,
                 'display_name' => $contactsMap[$cid] ?? "Member #{$cid}",
                 'receive_date' => $row['receive_date'],
                 'total_amount' => $row['total_amount'],
@@ -152,13 +156,19 @@ try {
                                 <tbody>
                                     <?php if (empty($paymentsList)): ?>
                                         <tr>
-                                            <td colspan="<?php echo $showActorCol ? 6 : 5; ?>" class="text-center">No payment history found.</td>
+                                            <td colspan="<?php echo 5 + ($showActorCol ? 1 : 0); ?>" class="text-center">No payment history found.</td>
                                         </tr>
                                     <?php else: ?>
                                         <?php foreach ($paymentsList as $pay): ?>
                                             <tr>
                                                 <td><span class="table-datetime"><?php echo date('Y-m-d H:i:s', strtotime($pay['receive_date'])); ?></span></td>
-                                                <td><strong><?php echo e($pay['display_name']); ?></strong></td>
+                                                <td>
+                                                    <?php if ($showAdminActions): ?>
+                                                        <a href="../profile.php?id=<?php echo (int)$pay['contact_id']; ?>#tab-billing" style="color: var(--color-text-primary); text-decoration: none; font-weight: 700;" title="Go to this member's Payment History"><?php echo e($pay['display_name']); ?></a>
+                                                    <?php else: ?>
+                                                        <strong><?php echo e($pay['display_name']); ?></strong>
+                                                    <?php endif; ?>
+                                                </td>
                                                 <td><a href="dashboard.php?level=<?php echo urlencode($pay['plan_name']); ?>" style="color: var(--color-primary); text-decoration: none; font-weight: 600;"><?php echo e($pay['plan_name']); ?></a></td>
                                                 <td>
                                                     <?php
@@ -166,7 +176,10 @@ try {
                                                     $badgeClass = 'badge-active';
                                                     $badgeLabel = 'Paid (Card)';
 
-                                                    if (($pay['payment_status'] ?? '') === 'failed') {
+                                                    if (strpos($trxnId, 'reversal_of_') === 0) {
+                                                        $badgeClass = 'badge-volunteer';
+                                                        $badgeLabel = 'Reversal';
+                                                    } elseif (($pay['payment_status'] ?? '') === 'failed') {
                                                         $badgeClass = 'badge-expired';
                                                         $badgeLabel = 'Declined';
                                                     } elseif (strpos($trxnId, 'credit_redeem_') === 0) {

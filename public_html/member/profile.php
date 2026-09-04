@@ -16,6 +16,7 @@ require_once (function() {
 })();
 
 use App\Database;
+use App\CheckinService;
 use App\EventSlot;
 use App\MembershipCredits;
 use App\MembershipService;
@@ -23,6 +24,65 @@ use App\Auth;
 use App\AuditLog;
 use App\MailHelper;
 use App\BillingHelper;
+
+/**
+ * Directly set a member's plan/expiration with no payment event, for the
+ * "Membership Override" admin action and for the plan/date correction
+ * bundled into a payment reversal. Never touches status/join_date/
+ * start_date/auto_renew_attempts. Clears the reminder-suppression columns
+ * so BillingHelper's cron reminder jobs re-evaluate against the new date.
+ *
+ * @return array{ok: bool, error: ?string}
+ */
+function apply_membership_override(PDO $appDb, int $profileId, int $newPlanId, string $newEndDate, array $extraAuditDetails = []): array {
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $newEndDate)) {
+        return ['ok' => false, 'error' => 'Invalid expiration date.'];
+    }
+
+    $beforeStmt = $appDb->prepare("SELECT plan_id, end_date, rate_id FROM tgg_subscriptions WHERE contact_id = :id LIMIT 1");
+    $beforeStmt->execute(['id' => $profileId]);
+    $beforeRow = $beforeStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$beforeRow) {
+        return ['ok' => false, 'error' => 'Member must have a subscription to adjust.'];
+    }
+
+    $planStmt = $appDb->prepare("SELECT default_rate_id FROM tgg_subscription_plans WHERE id = :id LIMIT 1");
+    $planStmt->execute(['id' => $newPlanId]);
+    $planRow = $planStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$planRow) {
+        return ['ok' => false, 'error' => 'Selected plan not found.'];
+    }
+
+    $planChanging = (int)$beforeRow['plan_id'] !== $newPlanId;
+    $newRateId = $planChanging ? $planRow['default_rate_id'] : $beforeRow['rate_id'];
+
+    $updStmt = $appDb->prepare("
+        UPDATE tgg_subscriptions
+        SET plan_id = :plan_id, end_date = :end_date, rate_id = :rate_id,
+            auto_renew_reminder_sent_for = NULL, renewal_reminder_sent_for = NULL, expired_notice_sent_for = NULL
+        WHERE contact_id = :contact_id
+    ");
+    $updStmt->execute(['plan_id' => $newPlanId, 'end_date' => $newEndDate, 'rate_id' => $newRateId, 'contact_id' => $profileId]);
+
+    AuditLog::log('membership', 'member_membership_overridden', array_merge([
+        'before' => $beforeRow,
+        'after' => ['plan_id' => $newPlanId, 'end_date' => $newEndDate, 'rate_id' => $newRateId],
+    ], $extraAuditDetails), $profileId);
+
+    return ['ok' => true, 'error' => null];
+}
+
+/** Re-run after a check-in edit/delete so the Attendance tab reflects the change. */
+function fetch_attendance_records(PDO $appDb, int $profileId): array {
+    $stmt = $appDb->prepare("
+        SELECT id AS checkin_id, checked_in_at, notes, guest_name
+        FROM tgg_checkins
+        WHERE contact_id = :contact_id
+        ORDER BY checked_in_at DESC
+    ");
+    $stmt->execute(['contact_id' => $profileId]);
+    return $stmt->fetchAll() ?: [];
+}
 
 $errorMsg = null;
 $successMsg = null;
@@ -120,6 +180,17 @@ $canViewBilling = $isOwner || has_permission('process payments');
 $canManageContact = $isOwner || $isAdmin || has_permission('process payments');
 $canManageLibrary = has_permission('manage library');
 
+// All plans, for the admin-only Membership Override card and the Payment
+// History edit/reverse forms.
+$allPlans = [];
+if ($isAdmin && $appDb) {
+    try {
+        $allPlans = $appDb->query("SELECT id, name FROM tgg_subscription_plans ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {
+        $allPlans = [];
+    }
+}
+
 // Fetch any pending (unexpired) email change request for display
 $pendingEmailChange = null;
 if ($canManageContact && $appDb) {
@@ -148,7 +219,8 @@ $transactions = [];
 if ($canViewBilling && $appDb) {
     try {
         $transStmt = $appDb->prepare("
-            SELECT l.created_at, l.amount, l.currency, l.action_type, l.payment_status, l.payment_intent_id as trxn_id, p.name as plan_name,
+            SELECT l.id AS ledger_id, l.created_at, l.amount, l.currency, l.action_type, l.plan_id, l.payment_status, l.payment_intent_id as trxn_id, p.name as plan_name,
+                   p.duration_unit AS plan_duration_unit, p.duration_interval AS plan_duration_interval,
                    l.created_by, l.impersonator_id, l.source,
                    cb.display_name AS created_by_name, ci.display_name AS impersonator_name
             FROM tgg_billing_ledger l
@@ -160,6 +232,20 @@ if ($canViewBilling && $appDb) {
         ");
         $transStmt->execute(['contact_id' => $profileId]);
         $transactions = $transStmt->fetchAll();
+
+        // Mark rows that have since been reversed (see reverse_payment below) --
+        // detected via the reversal row's payment_intent_id convention, so no
+        // extra column is needed.
+        $reversedLedgerIds = [];
+        foreach ($transactions as $tx) {
+            if (preg_match('/^reversal_of_(\d+)/', $tx['trxn_id'] ?? '', $m)) {
+                $reversedLedgerIds[(int)$m[1]] = true;
+            }
+        }
+        foreach ($transactions as &$tx) {
+            $tx['is_reversed'] = isset($reversedLedgerIds[(int)$tx['ledger_id']]);
+        }
+        unset($tx);
     } catch (Exception $e) {
         $errorMsg = safe_err(($errorMsg ? $errorMsg . " | " : "") . "Failed to load billing history: ", $e);
     }
@@ -256,14 +342,7 @@ if ($hasPrivateAccess && $appDb) {
 $attendanceRecords = [];
 if ($hasPrivateAccess && $appDb) {
     try {
-        $attStmt = $appDb->prepare("
-            SELECT id AS checkin_id, checked_in_at, notes, guest_name
-            FROM tgg_checkins
-            WHERE contact_id = :contact_id
-            ORDER BY checked_in_at DESC
-        ");
-        $attStmt->execute(['contact_id' => $profileId]);
-        $attendanceRecords = $attStmt->fetchAll();
+        $attendanceRecords = fetch_attendance_records($appDb, $profileId);
     } catch (Exception $e) {
         $errorMsg = safe_err(($errorMsg ? $errorMsg . " | " : "") . "Failed to load attendance records: ", $e);
     }
@@ -700,6 +779,179 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($hasPrivateAccess || $canManageCon
                 $membership = MembershipService::getMemberMembershipDetails($profileId);
             } catch (Exception $e) {
                 $errorMsg = safe_err("Failed to update rate: ", $e);
+            }
+        }
+
+        // A2c. Handle Membership Override -- plan and/or expiration date, no
+        // payment event (Only Admin/Superadmin)
+        if (isset($_POST['update_member_membership']) && $isAdmin) {
+            $newPlanId = (int)($_POST['plan_id'] ?? 0);
+            $newEndDate = trim($_POST['end_date'] ?? '');
+            $result = apply_membership_override($appDb, $profileId, $newPlanId, $newEndDate);
+            if ($result['ok']) {
+                $successMsg = "Membership overridden successfully.";
+                $membership = MembershipService::getMemberMembershipDetails($profileId);
+            } else {
+                $errorMsg = "Failed to update membership: " . $result['error'];
+            }
+        }
+
+        // A2d. Handle Payment Edit -- fix a mis-entered amount/plan on a real
+        // payment (Only Admin/Superadmin). Never touches the linked membership
+        // period -- the payment is presumed to have been valid, just recorded
+        // wrong. created_at is not editable -- it reflects when the payment
+        // actually happened per the system clock, not a value to correct.
+        if (isset($_POST['edit_payment']) && $isAdmin) {
+            $ledgerId = (int)($_POST['ledger_id'] ?? 0);
+            $newAmount = (float)($_POST['amount'] ?? 0);
+            $newPlanId = (int)($_POST['plan_id'] ?? 0);
+            $newActionType = trim($_POST['action_type'] ?? '');
+            try {
+                if ($newAmount < 0) {
+                    throw new Exception("Amount cannot be negative.");
+                }
+
+                $beforeStmt = $appDb->prepare("SELECT * FROM tgg_billing_ledger WHERE id = :id AND contact_id = :contact_id LIMIT 1");
+                $beforeStmt->execute(['id' => $ledgerId, 'contact_id' => $profileId]);
+                $beforeRow = $beforeStmt->fetch(PDO::FETCH_ASSOC);
+                if (!$beforeRow) {
+                    throw new Exception("Payment record not found for this member.");
+                }
+
+                $planCheck = $appDb->prepare("SELECT id FROM tgg_subscription_plans WHERE id = :id LIMIT 1");
+                $planCheck->execute(['id' => $newPlanId]);
+                if (!$planCheck->fetchColumn()) {
+                    throw new Exception("Selected plan not found.");
+                }
+
+                $appDb->prepare("
+                    UPDATE tgg_billing_ledger
+                    SET plan_id = :plan_id, amount = :amount, action_type = :action_type
+                    WHERE id = :id
+                ")->execute([
+                    'plan_id' => $newPlanId,
+                    'amount' => $newAmount,
+                    'action_type' => $newActionType,
+                    'id' => $ledgerId,
+                ]);
+
+                AuditLog::log('billing', 'payment_updated', [
+                    'ledger_id' => $ledgerId,
+                    'before' => $beforeRow,
+                    'after' => ['plan_id' => $newPlanId, 'amount' => $newAmount, 'action_type' => $newActionType],
+                ], $profileId);
+
+                $successMsg = "Payment updated successfully.";
+            } catch (Exception $e) {
+                $errorMsg = safe_err("Failed to update payment: ", $e);
+            }
+        }
+
+        // A2e. Handle Payment Reversal -- for a payment that shouldn't exist
+        // at all. Inserts an offsetting reversing ledger entry rather than
+        // deleting/flagging the original, so payment history stays complete.
+        // Optionally bundles a Membership Override in the same submit, since
+        // an erroneous payment likely changed the member's plan/expiration
+        // incorrectly (Only Admin/Superadmin).
+        if (isset($_POST['reverse_payment']) && $isAdmin) {
+            $ledgerId = (int)($_POST['ledger_id'] ?? 0);
+            try {
+                $origStmt = $appDb->prepare("SELECT * FROM tgg_billing_ledger WHERE id = :id AND contact_id = :contact_id LIMIT 1");
+                $origStmt->execute(['id' => $ledgerId, 'contact_id' => $profileId]);
+                $origRow = $origStmt->fetch(PDO::FETCH_ASSOC);
+                if (!$origRow) {
+                    throw new Exception("Payment record not found for this member.");
+                }
+                if (strpos($origRow['payment_intent_id'], 'reversal_of_') === 0) {
+                    throw new Exception("A reversal entry cannot itself be reversed.");
+                }
+
+                $appDb->beginTransaction();
+
+                $appDb->prepare("
+                    INSERT INTO tgg_billing_ledger
+                        (contact_id, plan_id, rate_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type, created_by, impersonator_id, source)
+                    VALUES
+                        (:contact_id, :plan_id, :rate_id, :stripe_session_id, :payment_intent_id, :amount, :currency, 'paid', :action_type, :created_by, :impersonator_id, :source)
+                ")->execute(array_merge([
+                    'contact_id' => $profileId,
+                    'plan_id' => $origRow['plan_id'],
+                    'rate_id' => $origRow['rate_id'],
+                    'stripe_session_id' => "reversal_{$ledgerId}_" . uniqid(),
+                    'payment_intent_id' => "reversal_of_{$ledgerId}",
+                    'amount' => -$origRow['amount'],
+                    'currency' => $origRow['currency'],
+                    'action_type' => $origRow['action_type'],
+                ], AuditLog::actorColumns()));
+
+                AuditLog::log('billing', 'payment_reversed', [
+                    'reversed_ledger_id' => $ledgerId,
+                    'original' => $origRow,
+                ], $profileId);
+
+                // Optional bundled membership correction -- only applied if the
+                // admin actually changed the pre-filled current plan/date.
+                $membershipNote = '';
+                if (isset($_POST['reversal_plan_id'], $_POST['reversal_end_date']) && $membership) {
+                    $revPlanId = (int)$_POST['reversal_plan_id'];
+                    $revEndDate = trim($_POST['reversal_end_date']);
+                    $changed = $revPlanId !== (int)$membership['membership_id'] || $revEndDate !== $membership['end_date'];
+                    if ($changed) {
+                        $memResult = apply_membership_override($appDb, $profileId, $revPlanId, $revEndDate, [
+                            'reason' => 'payment_reversal',
+                            'reversed_ledger_id' => $ledgerId,
+                        ]);
+                        if (!$memResult['ok']) {
+                            throw new Exception($memResult['error']);
+                        }
+                        $membershipNote = ' Membership plan/expiration updated as part of this correction.';
+                    }
+                }
+
+                $appDb->commit();
+
+                $successMsg = "Payment reversed successfully.{$membershipNote}";
+                $membership = MembershipService::getMemberMembershipDetails($profileId);
+            } catch (Exception $e) {
+                if ($appDb->inTransaction()) {
+                    $appDb->rollBack();
+                }
+                $errorMsg = safe_err("Failed to reverse payment: ", $e);
+            }
+        }
+
+        // A2f. Handle Check-In Edit/Delete on the Attendance History tab
+        // (permission: 'edit checkins')
+        if (isset($_POST['edit_checkin']) && has_permission('edit checkins')) {
+            $checkinId = (int)($_POST['checkin_id'] ?? 0);
+            $newCheckedInAt = trim($_POST['checked_in_at'] ?? '');
+            $newNotes = trim($_POST['notes'] ?? '') ?: null;
+            $newGuestName = trim($_POST['guest_name'] ?? '') ?: null;
+            if ($checkinId <= 0 || !preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/', $newCheckedInAt)) {
+                $errorMsg = "Invalid check-in edit submission.";
+            } else {
+                $result = CheckinService::updateCheckin($checkinId, date('Y-m-d H:i:s', strtotime($newCheckedInAt)), $newNotes, $newGuestName);
+                if ($result['ok']) {
+                    $successMsg = "Check-in updated successfully.";
+                    $attendanceRecords = fetch_attendance_records($appDb, $profileId);
+                } else {
+                    $errorMsg = $result['error'];
+                }
+            }
+        }
+
+        if (isset($_POST['delete_checkin']) && has_permission('edit checkins')) {
+            $checkinId = (int)($_POST['checkin_id'] ?? 0);
+            if ($checkinId <= 0) {
+                $errorMsg = "Invalid check-in ID.";
+            } else {
+                $result = CheckinService::deleteCheckin($checkinId);
+                if ($result['ok']) {
+                    $successMsg = "Check-in deleted successfully.";
+                    $attendanceRecords = fetch_attendance_records($appDb, $profileId);
+                } else {
+                    $errorMsg = $result['error'];
+                }
             }
         }
 
@@ -1180,6 +1432,32 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                         <button type="submit" name="update_member_rate" class="btn btn-primary btn-block mt-15">Update Rate</button>
                                     </form>
                                 </div>
+
+                                <!-- Admin Membership Override Card -->
+                                <div class="management-card mt-20">
+                                    <h4>Membership Override</h4>
+                                    <p style="font-size: 0.8rem; color: rgba(var(--overlay-rgb), 0.75); margin-bottom: 15px; line-height: 1.4;">
+                                        Directly sets this member's plan and expiration date. It does not create or affect any payment record.
+                                    </p>
+                                    <form action="profile.php?id=<?php echo $profileId; ?>#tab-billing" method="POST" class="settings-form" data-confirm="Override this member's membership type/expiration with no payment recorded? This does not affect their billing history.">
+                                        <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                        <div class="form-group">
+                                            <label for="membership_plan_id" style="display: block; font-size: 0.85rem; margin-bottom: 8px; color: rgba(var(--overlay-rgb),0.85);">Membership Type</label>
+                                            <select name="plan_id" id="membership_plan_id" required>
+                                                <?php foreach ($allPlans as $planOpt): ?>
+                                                    <option value="<?php echo (int)$planOpt['id']; ?>" <?php echo ((int)$membership['membership_id'] === (int)$planOpt['id']) ? 'selected' : ''; ?>>
+                                                        <?php echo e($planOpt['name']); ?>
+                                                    </option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </div>
+                                        <div class="form-group mt-15">
+                                            <label for="membership_end_date" style="display: block; font-size: 0.85rem; margin-bottom: 8px; color: rgba(var(--overlay-rgb),0.85);">Expiration Date</label>
+                                            <input type="date" name="end_date" id="membership_end_date" value="<?php echo e($membership['end_date']); ?>" required>
+                                        </div>
+                                        <button type="submit" name="update_member_membership" class="btn btn-primary btn-block mt-15">Override Membership</button>
+                                    </form>
+                                </div>
                                 <?php endif; ?>
                                 <?php endif; ?>
                             </div>
@@ -1366,6 +1644,9 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                                 <th style="padding: 8px 10px;">Time</th>
                                                 <th style="padding: 8px 10px;">Notes</th>
                                                 <th style="padding: 8px 10px; text-align: center;">+1</th>
+                                                <?php if (has_permission('edit checkins')): ?>
+                                                    <th style="padding: 8px 10px; text-align: center;">Actions</th>
+                                                <?php endif; ?>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -1382,6 +1663,17 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                                             <span style="color: var(--color-text-muted);">-</span>
                                                         <?php endif; ?>
                                                     </td>
+                                                    <?php if (has_permission('edit checkins')): ?>
+                                                        <td style="padding: 8px 10px; text-align: center; white-space: nowrap;">
+                                                            <button type="button" class="btn btn-secondary btn-icon" aria-label="Edit check-in" title="Edit check-in"
+                                                                onclick="openProfileCheckinModal(<?php echo (int)$ar['checkin_id']; ?>, '<?php echo e(date('Y-m-d\TH:i', strtotime($ar['checked_in_at']))); ?>', <?php echo e(json_encode($ar['notes'])); ?>, <?php echo e(json_encode($ar['guest_name'])); ?>, <?php echo $isGuest ? 'true' : 'false'; ?>)">✏️</button>
+                                                            <form action="profile.php?id=<?php echo $profileId; ?>#tab-attendance" method="POST" data-confirm="Delete this check-in record?" style="margin: 0; display: inline;">
+                                                                <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                                                <input type="hidden" name="checkin_id" value="<?php echo (int)$ar['checkin_id']; ?>">
+                                                                <button type="submit" name="delete_checkin" class="btn btn-danger btn-icon" aria-label="Delete check-in" title="Delete check-in">🗑️</button>
+                                                            </form>
+                                                        </td>
+                                                    <?php endif; ?>
                                                 </tr>
                                             <?php endforeach; ?>
                                         </tbody>
@@ -1390,6 +1682,56 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                             <?php endif; ?>
                         </div>
                     </div>
+                    <?php endif; ?>
+
+                    <?php if ($hasPrivateAccess && has_permission('edit checkins')): ?>
+                    <!-- Edit Check-In Modal (Attendance History tab) -->
+                    <div id="profile-checkin-modal" class="modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(5px);">
+                        <div class="modal-content glass-panel" style="background: var(--color-surface-glass-solid); margin: 5% auto; padding: 25px; border: 1px solid rgba(var(--overlay-rgb), 0.1); width: 90%; max-width: 420px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+                            <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(var(--overlay-rgb), 0.1); padding-bottom: 15px; margin-bottom: 20px;">
+                                <h3 style="margin: 0; color: var(--color-text-primary); font-size: 1.2rem;">Edit Check-In</h3>
+                                <span class="close" onclick="closeProfileCheckinModal()" style="color: rgba(var(--overlay-rgb),0.6); font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
+                            </div>
+                            <form action="profile.php?id=<?php echo $profileId; ?>#tab-attendance" method="POST" class="auth-form">
+                                <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                <input type="hidden" name="checkin_id" id="profile-checkin-id" value="">
+                                <div class="form-group">
+                                    <label for="profile-checkin-time">Check-In Date/Time</label>
+                                    <input type="datetime-local" id="profile-checkin-time" name="checked_in_at" required>
+                                </div>
+                                <div class="form-group" id="profile-checkin-notes-group">
+                                    <label for="profile-checkin-notes">Notes</label>
+                                    <input type="text" id="profile-checkin-notes" name="notes">
+                                </div>
+                                <div class="form-group" id="profile-checkin-guest-group" style="display: none;">
+                                    <label for="profile-checkin-guest">Guest Name</label>
+                                    <input type="text" id="profile-checkin-guest" name="guest_name">
+                                </div>
+                                <div class="form-actions">
+                                    <button type="submit" name="edit_checkin" class="btn btn-primary">Save Changes</button>
+                                    <button type="button" class="btn btn-secondary" onclick="closeProfileCheckinModal()">Cancel</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                    <script>
+                        function openProfileCheckinModal(checkinId, checkedInAt, notes, guestName, isGuest) {
+                            document.getElementById('profile-checkin-id').value = checkinId;
+                            document.getElementById('profile-checkin-time').value = checkedInAt;
+                            document.getElementById('profile-checkin-notes').value = notes || '';
+                            document.getElementById('profile-checkin-guest').value = guestName || '';
+                            document.getElementById('profile-checkin-notes-group').style.display = isGuest ? 'none' : 'block';
+                            document.getElementById('profile-checkin-guest-group').style.display = isGuest ? 'block' : 'none';
+                            document.getElementById('profile-checkin-modal').style.display = 'block';
+                        }
+                        function closeProfileCheckinModal() {
+                            document.getElementById('profile-checkin-modal').style.display = 'none';
+                        }
+                        window.addEventListener('click', function (event) {
+                            const modal = document.getElementById('profile-checkin-modal');
+                            if (event.target === modal) closeProfileCheckinModal();
+                        });
+                    </script>
                     <?php endif; ?>
 
                     <?php if ($canViewBilling): ?>
@@ -1415,6 +1757,9 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                                 <?php if ($showActorCol): ?>
                                                     <th style="padding: 8px 10px;">Recorded By</th>
                                                 <?php endif; ?>
+                                                <?php if ($isAdmin): ?>
+                                                    <th style="padding: 8px 10px; text-align: center;">Actions</th>
+                                                <?php endif; ?>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -1422,8 +1767,12 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                                  <?php
                                                  $badgeClass = 'badge-expired';
                                                  $badgeLabel = ucfirst($tx['payment_status']);
-                                                 if ($tx['payment_status'] === 'paid') {
-                                                     $trxnId = $tx['trxn_id'] ?? '';
+                                                 $trxnId = $tx['trxn_id'] ?? '';
+                                                 $isReversalRow = strpos($trxnId, 'reversal_of_') === 0;
+                                                 if ($isReversalRow) {
+                                                     $badgeClass = 'badge-volunteer';
+                                                     $badgeLabel = 'Reversal';
+                                                 } elseif ($tx['payment_status'] === 'paid') {
                                                      if (strpos($trxnId, 'trial_') === 0) {
                                                          $badgeClass = 'badge-free';
                                                          $badgeLabel = 'Email Verified';
@@ -1459,6 +1808,9 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                                          <span class="badge <?php echo $badgeClass; ?>" style="font-size: 0.75rem; padding: 2px 6px; display: inline-block;">
                                                              <?php echo e($badgeLabel); ?>
                                                          </span>
+                                                         <?php if (!empty($tx['is_reversed'])): ?>
+                                                             <span class="badge badge-volunteer" style="font-size: 0.75rem; padding: 2px 6px; display: inline-block; margin-left: 4px;" title="An offsetting reversal entry was recorded for this payment">Reversed</span>
+                                                         <?php endif; ?>
                                                      </td>
                                                      <?php if ($showActorCol): ?>
                                                          <td style="padding: 8px 10px;">
@@ -1479,6 +1831,30 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                                              ?>
                                                          </td>
                                                      <?php endif; ?>
+                                                     <?php if ($isAdmin): ?>
+                                                         <td style="padding: 8px 10px; text-align: center; white-space: nowrap;">
+                                                             <?php if (!$isReversalRow): ?>
+                                                                 <button type="button" class="btn btn-secondary btn-icon" aria-label="Edit payment" title="Edit payment"
+                                                                     onclick="openEditPaymentModal(<?php echo (int)$tx['ledger_id']; ?>, <?php echo (int)$tx['plan_id']; ?>, <?php echo (float)$tx['amount']; ?>, <?php echo e(json_encode($tx['action_type'])); ?>)">✏️</button>
+                                                                 <?php if (empty($tx['is_reversed'])): ?>
+                                                                     <?php
+                                                                         // Best-effort suggested rollback date: this payment's plan
+                                                                         // length subtracted from the member's current expiration.
+                                                                         // Day/session plans never move end_date on payment, so leave
+                                                                         // the suggestion at the current date for those.
+                                                                         $suggestedEndDate = $membership['end_date'] ?? '';
+                                                                         $revUnit = strtolower($tx['plan_duration_unit'] ?? '');
+                                                                         $revInterval = (int)($tx['plan_duration_interval'] ?? 0);
+                                                                         if ($suggestedEndDate && $revInterval > 0 && in_array($revUnit, ['month', 'year'], true)) {
+                                                                             $suggestedEndDate = date('Y-m-d', strtotime("{$suggestedEndDate} -{$revInterval} {$revUnit}"));
+                                                                         }
+                                                                     ?>
+                                                                     <button type="button" class="btn btn-danger btn-icon" aria-label="Reverse payment" title="Reverse payment"
+                                                                         onclick="openReversePaymentModal(<?php echo (int)$tx['ledger_id']; ?>, <?php echo e(json_encode($tx['plan_name'] . ' - $' . number_format($tx['amount'], 2))); ?>, <?php echo e(json_encode($suggestedEndDate)); ?>)">↩️</button>
+                                                                 <?php endif; ?>
+                                                             <?php endif; ?>
+                                                         </td>
+                                                     <?php endif; ?>
                                                  </tr>
                                              <?php endforeach; ?>
                                         </tbody>
@@ -1487,6 +1863,101 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                             <?php endif; ?>
                         </div>
                     </div>
+                    <?php endif; ?>
+
+                    <?php if ($isAdmin): ?>
+                    <!-- Edit Payment Modal -->
+                    <div id="edit-payment-modal" class="modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(5px);">
+                        <div class="modal-content glass-panel" style="background: var(--color-surface-glass-solid); margin: 5% auto; padding: 25px; border: 1px solid rgba(var(--overlay-rgb), 0.1); width: 90%; max-width: 420px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+                            <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(var(--overlay-rgb), 0.1); padding-bottom: 15px; margin-bottom: 20px;">
+                                <h3 style="margin: 0; color: var(--color-text-primary); font-size: 1.2rem;">Edit Payment</h3>
+                                <span class="close" onclick="closeEditPaymentModal()" style="color: rgba(var(--overlay-rgb),0.6); font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
+                            </div>
+                            <p style="font-size: 0.8rem; color: rgba(var(--overlay-rgb), 0.75); margin-bottom: 15px;">For a real payment that was recorded wrong (wrong amount/plan). This does not change the member's membership dates. The payment date isn't editable -- it reflects when the payment actually happened.</p>
+                            <form action="profile.php?id=<?php echo $profileId; ?>#tab-billing" method="POST" class="auth-form">
+                                <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                <input type="hidden" name="ledger_id" id="edit-payment-ledger-id" value="">
+                                <div class="form-group">
+                                    <label for="edit-payment-plan">Plan</label>
+                                    <select id="edit-payment-plan" name="plan_id" required>
+                                        <?php foreach ($allPlans as $planOpt): ?>
+                                            <option value="<?php echo (int)$planOpt['id']; ?>"><?php echo e($planOpt['name']); ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="edit-payment-amount">Amount (USD)</label>
+                                    <input type="number" id="edit-payment-amount" name="amount" min="0" step="0.01" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="edit-payment-action-type">Action Type</label>
+                                    <input type="text" id="edit-payment-action-type" name="action_type" required>
+                                </div>
+                                <div class="form-actions">
+                                    <button type="submit" name="edit_payment" class="btn btn-primary">Save Changes</button>
+                                    <button type="button" class="btn btn-secondary" onclick="closeEditPaymentModal()">Cancel</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- Reverse Payment Modal -->
+                    <div id="reverse-payment-modal" class="modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(5px);">
+                        <div class="modal-content glass-panel" style="background: var(--color-surface-glass-solid); margin: 5% auto; padding: 25px; border: 1px solid rgba(var(--overlay-rgb), 0.1); width: 90%; max-width: 460px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+                            <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(var(--overlay-rgb), 0.1); padding-bottom: 15px; margin-bottom: 20px;">
+                                <h3 style="margin: 0; color: var(--color-text-primary); font-size: 1.2rem;">Reverse Payment</h3>
+                                <span class="close" onclick="closeReversePaymentModal()" style="color: rgba(var(--overlay-rgb),0.6); font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
+                            </div>
+                            <p style="font-size: 0.85rem; color: rgba(var(--overlay-rgb), 0.75); margin-bottom: 15px;">This creates a reversing entry for <strong id="reverse-payment-label"></strong> -- the original record is kept, not deleted. The expiration date below is estimated by subtracting this payment's plan length from the member's current expiration -- review and adjust before confirming, or leave both fields unchanged if this payment didn't affect membership dates.</p>
+                            <form action="profile.php?id=<?php echo $profileId; ?>#tab-billing" method="POST" class="auth-form" data-confirm="Create a reversing entry for this payment?">
+                                <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
+                                <input type="hidden" name="ledger_id" id="reverse-payment-ledger-id" value="">
+                                <div class="form-group">
+                                    <label for="reverse-payment-plan">Membership Type</label>
+                                    <select id="reverse-payment-plan" name="reversal_plan_id" required>
+                                        <?php foreach ($allPlans as $planOpt): ?>
+                                            <option value="<?php echo (int)$planOpt['id']; ?>" <?php echo ($membership && (int)$membership['membership_id'] === (int)$planOpt['id']) ? 'selected' : ''; ?>><?php echo e($planOpt['name']); ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="reverse-payment-end-date">Expiration Date</label>
+                                    <input type="date" id="reverse-payment-end-date" name="reversal_end_date" value="<?php echo $membership ? e($membership['end_date']) : ''; ?>" <?php echo $membership ? 'required' : 'disabled'; ?>>
+                                </div>
+                                <div class="form-actions">
+                                    <button type="submit" name="reverse_payment" class="btn btn-danger">Reverse Payment</button>
+                                    <button type="button" class="btn btn-secondary" onclick="closeReversePaymentModal()">Cancel</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                    <script>
+                        function openEditPaymentModal(ledgerId, planId, amount, actionType) {
+                            document.getElementById('edit-payment-ledger-id').value = ledgerId;
+                            document.getElementById('edit-payment-plan').value = planId;
+                            document.getElementById('edit-payment-amount').value = amount;
+                            document.getElementById('edit-payment-action-type').value = actionType || '';
+                            document.getElementById('edit-payment-modal').style.display = 'block';
+                        }
+                        function closeEditPaymentModal() {
+                            document.getElementById('edit-payment-modal').style.display = 'none';
+                        }
+                        function openReversePaymentModal(ledgerId, label, suggestedEndDate) {
+                            document.getElementById('reverse-payment-ledger-id').value = ledgerId;
+                            document.getElementById('reverse-payment-label').textContent = label;
+                            if (suggestedEndDate) {
+                                document.getElementById('reverse-payment-end-date').value = suggestedEndDate;
+                            }
+                            document.getElementById('reverse-payment-modal').style.display = 'block';
+                        }
+                        function closeReversePaymentModal() {
+                            document.getElementById('reverse-payment-modal').style.display = 'none';
+                        }
+                        window.addEventListener('click', function (event) {
+                            if (event.target === document.getElementById('edit-payment-modal')) closeEditPaymentModal();
+                            if (event.target === document.getElementById('reverse-payment-modal')) closeReversePaymentModal();
+                        });
+                    </script>
                     <?php endif; ?>
 
                     <?php if ($canManageLibrary): ?>
@@ -1539,6 +2010,14 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
         <?php include __DIR__ . '/partials/footer.php'; ?>
 
     <script>
+    // .profile-container's backdrop-filter creates a containing block for
+    // position:fixed descendants -- that traps these modals inside the panel
+    // instead of the viewport. Re-parenting to <body> escapes it.
+    ['profile-checkin-modal', 'edit-payment-modal', 'reverse-payment-modal'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) document.body.appendChild(el);
+    });
+
     function switchTab(tabId) {
         document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
         document.querySelectorAll('.tab-button').forEach(el => el.classList.remove('active'));
@@ -1550,8 +2029,8 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
         if (btn) btn.classList.add('active');
     }
 
-    if (window.location.hash === '#tab-library') {
-        switchTab('library');
+    if (window.location.hash.indexOf('#tab-') === 0) {
+        switchTab(window.location.hash.slice(5));
     }
 
     (function() {

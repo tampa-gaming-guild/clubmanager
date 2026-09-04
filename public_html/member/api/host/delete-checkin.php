@@ -16,7 +16,7 @@ require_once (function() {
 })();
 
 use App\ApiAuth;
-use App\Database;
+use App\CheckinService;
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     json_response(['error' => 'Method not allowed'], 405);
@@ -30,7 +30,9 @@ if ($checkinId <= 0) {
     json_response(['success' => false, 'error' => 'Invalid check-in ID.'], 400);
 }
 
-$appDb = Database::getAppConnection();
-$appDb->prepare("DELETE FROM tgg_checkins WHERE id = :id")->execute(['id' => $checkinId]);
+$result = CheckinService::deleteCheckin($checkinId);
+if (!$result['ok']) {
+    json_response(['success' => false, 'error' => $result['error']], 404);
+}
 
 json_response(['success' => true]);

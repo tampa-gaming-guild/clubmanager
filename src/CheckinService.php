@@ -23,6 +23,11 @@ class CheckinService {
      *        avoids a duplicate pending-payment request from an unaccompanied
      *        kiosk visitor. Hosts handle this in person, so host-initiated
      *        check-ins should leave this false.
+     * @param ?string $checkedInAt Explicit 'Y-m-d H:i:s' timestamp for a
+     *        backdated/missed check-in entered by a host after the fact.
+     *        Null (the default) uses NOW(), the live check-in path. Passing
+     *        this logs a 'checkins'/'checkin_added' audit event, since this
+     *        is a correction rather than an ordinary live visit.
      * @return array{
      *   ok: bool,
      *   error: ?string,
@@ -37,9 +42,13 @@ class CheckinService {
         int $contactId,
         string $notes,
         array $guestNames = [],
-        bool $suppressRedirectIfPendingPayment = false
+        bool $suppressRedirectIfPendingPayment = false,
+        ?string $checkedInAt = null
     ): array {
         $appDb = Database::getAppConnection();
+        $isBackdated = $checkedInAt !== null;
+        $checkedInAt = $checkedInAt ?? date('Y-m-d H:i:s');
+        $onDate = date('Y-m-d', strtotime($checkedInAt));
 
         $contactStmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE id = :id AND is_deleted = 0 LIMIT 1");
         $contactStmt->execute(['id' => $contactId]);
@@ -48,9 +57,10 @@ class CheckinService {
         }
         $contactName = MembershipService::getFormattedName($contactId);
 
-        $hasCheckedInToday = self::hasCheckedInToday($contactId);
+        $hasCheckedInToday = self::hasCheckedInToday($contactId, $onDate);
         if ($hasCheckedInToday && empty($guestNames)) {
-            return self::errorResult("Check-in Denied: {$contactName} has already checked in today.");
+            $dayLabel = $isBackdated ? 'on ' . date('M j, Y', strtotime($onDate)) : 'today';
+            return self::errorResult("Check-in Denied: {$contactName} has already checked in {$dayLabel}.");
         }
 
         $membership = MembershipService::getMemberMembershipDetails($contactId);
@@ -76,16 +86,29 @@ class CheckinService {
             }
         }
 
+        $newCheckinId = null;
         if (!$hasCheckedInToday) {
-            $appDb->prepare("INSERT INTO tgg_checkins (contact_id, checked_in_at, notes) VALUES (:contact_id, NOW(), :notes)")
-                ->execute(['contact_id' => $contactId, 'notes' => $notes]);
+            $appDb->prepare("INSERT INTO tgg_checkins (contact_id, checked_in_at, notes) VALUES (:contact_id, :checked_in_at, :notes)")
+                ->execute(['contact_id' => $contactId, 'checked_in_at' => $checkedInAt, 'notes' => $notes]);
+            $newCheckinId = (int)$appDb->lastInsertId();
         }
 
         if (!empty($guestNames)) {
-            $insertGuest = $appDb->prepare("INSERT INTO tgg_checkins (contact_id, checked_in_at, guest_name) VALUES (:contact_id, NOW(), :guest_name)");
+            $insertGuest = $appDb->prepare("INSERT INTO tgg_checkins (contact_id, checked_in_at, guest_name) VALUES (:contact_id, :checked_in_at, :guest_name)");
             foreach ($guestNames as $guestName) {
-                $insertGuest->execute(['contact_id' => $contactId, 'guest_name' => $guestName]);
+                $insertGuest->execute(['contact_id' => $contactId, 'checked_in_at' => $checkedInAt, 'guest_name' => $guestName]);
             }
+        }
+
+        // A backdated add is a correction, not an ordinary live visit -- audit it.
+        // Live self-service/host check-ins stay unaudited, matching today's volume.
+        if ($isBackdated) {
+            AuditLog::log('checkins', 'checkin_added', [
+                'checkin_id' => $newCheckinId,
+                'checked_in_at' => $checkedInAt,
+                'notes' => $notes,
+                'guest_names' => $guestNames,
+            ], $contactId);
         }
 
         $message = "Check-In Successful! Welcome, {$contactName}.";
@@ -106,12 +129,72 @@ class CheckinService {
         ];
     }
 
-    /** True if $contactId already has a non-guest check-in row for today. */
-    public static function hasCheckedInToday(int $contactId): bool {
+    /** True if $contactId already has a non-guest check-in row for $onDate (default today). */
+    public static function hasCheckedInToday(int $contactId, ?string $onDate = null): bool {
         $appDb = Database::getAppConnection();
-        $stmt = $appDb->prepare("SELECT COUNT(*) FROM tgg_checkins WHERE contact_id = :contact_id AND guest_name IS NULL AND DATE(checked_in_at) = CURDATE()");
-        $stmt->execute(['contact_id' => $contactId]);
+        $stmt = $appDb->prepare("SELECT COUNT(*) FROM tgg_checkins WHERE contact_id = :contact_id AND guest_name IS NULL AND DATE(checked_in_at) = :on_date");
+        $stmt->execute(['contact_id' => $contactId, 'on_date' => $onDate ?? date('Y-m-d')]);
         return (int)$stmt->fetchColumn() > 0;
+    }
+
+    /**
+     * Correct an existing check-in's time/notes/guest name after the fact.
+     * @return array{ok: bool, error: ?string, contact_id: ?int}
+     */
+    public static function updateCheckin(int $checkinId, string $checkedInAt, ?string $notes, ?string $guestName): array {
+        $appDb = Database::getAppConnection();
+
+        $before = self::fetchCheckin($appDb, $checkinId);
+        if (!$before) {
+            return ['ok' => false, 'error' => 'Check-in record not found.', 'contact_id' => null];
+        }
+
+        $appDb->prepare("UPDATE tgg_checkins SET checked_in_at = :checked_in_at, notes = :notes, guest_name = :guest_name WHERE id = :id")
+            ->execute([
+                'checked_in_at' => $checkedInAt,
+                'notes' => $notes,
+                'guest_name' => $guestName,
+                'id' => $checkinId,
+            ]);
+
+        AuditLog::log('checkins', 'checkin_edited', [
+            'checkin_id' => $checkinId,
+            'before' => $before,
+            'after' => ['checked_in_at' => $checkedInAt, 'notes' => $notes, 'guest_name' => $guestName],
+        ], (int)$before['contact_id']);
+
+        return ['ok' => true, 'error' => null, 'contact_id' => (int)$before['contact_id']];
+    }
+
+    /**
+     * Delete a check-in record, with the audit logging none of the three
+     * existing raw-DELETE call sites (admin/checkins.php, portal.php,
+     * api/host/delete-checkin.php) had before this method centralized them.
+     * @return array{ok: bool, error: ?string, contact_id: ?int}
+     */
+    public static function deleteCheckin(int $checkinId): array {
+        $appDb = Database::getAppConnection();
+
+        $before = self::fetchCheckin($appDb, $checkinId);
+        if (!$before) {
+            return ['ok' => false, 'error' => 'Check-in record not found.', 'contact_id' => null];
+        }
+
+        $appDb->prepare("DELETE FROM tgg_checkins WHERE id = :id")->execute(['id' => $checkinId]);
+
+        AuditLog::log('checkins', 'checkin_deleted', [
+            'checkin_id' => $checkinId,
+            'before' => $before,
+        ], (int)$before['contact_id']);
+
+        return ['ok' => true, 'error' => null, 'contact_id' => (int)$before['contact_id']];
+    }
+
+    private static function fetchCheckin(\PDO $appDb, int $checkinId): ?array {
+        $stmt = $appDb->prepare("SELECT id, contact_id, checked_in_at, notes, guest_name FROM tgg_checkins WHERE id = :id LIMIT 1");
+        $stmt->execute(['id' => $checkinId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        return $row ?: null;
     }
 
     /** Trim to 100 chars, drop blanks, cap at 10 -- the rule shared by every check-in entry point. */

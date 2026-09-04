@@ -18,6 +18,7 @@ require_once (function() {
 
 use App\Auth;
 use App\BillingHelper;
+use App\CheckinService;
 use App\MembershipService;
 use App\Database;
 use App\Event;
@@ -205,10 +206,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_checkin'])) {
         $checkinId = (int)($_POST['checkin_id'] ?? 0);
         if ($checkinId > 0) {
             try {
-                $appDb = Database::getAppConnection();
-                $deleteStmt = $appDb->prepare("DELETE FROM tgg_checkins WHERE id = :id");
-                $deleteStmt->execute(['id' => $checkinId]);
-                redirect('portal.php?success=' . urlencode('Check-in deleted successfully.'));
+                $result = CheckinService::deleteCheckin($checkinId);
+                if ($result['ok']) {
+                    redirect('portal.php?success=' . urlencode('Check-in deleted successfully.'));
+                } else {
+                    $errorMsg = $result['error'];
+                }
             } catch (Exception $e) {
                 $errorMsg = safe_err("Delete error: ", $e);
             }

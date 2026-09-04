@@ -28,7 +28,7 @@ $namesMap = [];
 $totalRows = 0;
 $totalPages = 0;
 
-$validCategories = ['security', 'roles', 'rates', 'volunteer_config', 'membership', 'import', 'library'];
+$validCategories = ['security', 'roles', 'rates', 'volunteer_config', 'membership', 'import', 'library', 'billing', 'checkins'];
 
 $category = trim($_GET['category'] ?? '');
 if (!in_array($category, $validCategories, true)) {
@@ -154,6 +154,8 @@ function auditCategoryBadgeClass(string $category): string {
         case 'membership': return 'badge-active';
         case 'import': return 'badge-free';
         case 'library': return 'badge-volunteer';
+        case 'billing': return 'badge-active';
+        case 'checkins': return 'badge-free';
         default: return 'badge-free';
     }
 }
