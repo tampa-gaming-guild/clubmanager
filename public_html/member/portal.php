@@ -686,7 +686,8 @@ if (Auth::check() && has_permission('admin panel')) {
                 </div>
             <?php endif; ?>
         </main>
-    </div>
+
+        <?php include __DIR__ . '/partials/footer.php'; ?>
 
     <!-- Quick Add Member Modal -->
     <?php if (Auth::check() && $showHostingView): ?>
@@ -864,6 +865,5 @@ if (Auth::check() && has_permission('admin panel')) {
         });
     }
     </script>
-    <script src="assets/js/theme.js<?php echo asset_version('assets/js/theme.js'); ?>"></script>
 </body>
 </html>
