@@ -36,7 +36,8 @@ class CheckinService {
      *        visit that already happened (whose membership status *today*
      *        may not even match what it was on that date). Every other
      *        caller (self-service kiosk, host terminal, mobile API) must
-     *        leave this false.
+     *        leave this false. Separately (see $isFreeSunday below), Sundays
+     *        skip this gating too, regardless of this flag.
      * @return array{
      *   ok: bool,
      *   error: ?string,
@@ -59,6 +60,8 @@ class CheckinService {
         $isBackdated = $checkedInAt !== null;
         $checkedInAt = $checkedInAt ?? date('Y-m-d H:i:s');
         $onDate = date('Y-m-d', strtotime($checkedInAt));
+        // Free/Donation Sunday policy: no membership or entrance fee required, any Sunday.
+        $isFreeSunday = date('N', strtotime($onDate)) == 7;
 
         $contactStmt = $appDb->prepare("SELECT id FROM tgg_contacts WHERE id = :id AND is_deleted = 0 LIMIT 1");
         $contactStmt->execute(['id' => $contactId]);
@@ -80,8 +83,10 @@ class CheckinService {
         // it must not be blocked by the member's membership/entrance-fee status
         // *today*, which is irrelevant to (and may have since changed from) their
         // status on the date being corrected. Every other caller (live self-service/
-        // host check-ins) always runs this gating.
-        if (!$skipMembershipCheck) {
+        // host check-ins) always runs this gating -- except on Sundays, which are
+        // free/no-commitment per club policy, so no membership or entrance fee is
+        // required regardless of caller.
+        if (!$skipMembershipCheck && !$isFreeSunday) {
             if (!$membership || !$membership['is_active']) {
                 if ($suppressRedirectIfPendingPayment && self::hasPendingPayment($contactId)) {
                     return self::errorResult("You already have a pending payment with the host. Please see the host to complete your check-in.");
