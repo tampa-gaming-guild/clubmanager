@@ -824,10 +824,10 @@ class BillingHelper {
     }
 
     /**
-     * Look up a contact's pending online Trial registration (submitted via join.php but not
-     * yet email-verified).
+     * Look up a contact's pending online Join registration (Trial or Session plan, submitted
+     * via join.php but not yet email-verified).
      * @param int $contactId
-     * @return int|null The plan_id they registered for, or null if there's no pending Trial
+     * @return int|null The plan_id they registered for, or null if there's no pending registration
      */
     public static function getPendingTrialPlanId(int $contactId): ?int {
         $appDb = Database::getAppConnection();
@@ -838,37 +838,48 @@ class BillingHelper {
     }
 
     /**
-     * Activate a contact's pending online Trial registration without requiring them to click
-     * the emailed verification link -- used when a host is checking the person in physically,
-     * which is at least as strong a verification signal as an email click. Mirrors the
-     * in-person Trial activation addMember() already does for brand-new walk-ins, but for a
-     * contact who already submitted the self-service Join form and is just waiting on the
-     * email step. Ignores the verification token's 24-hour expiry, since that clock exists to
-     * bound the *unattended* email-link path, not this host-attended one.
+     * Activate a contact's pending online Join registration (Trial or Session plan) without
+     * requiring them to click the emailed verification link -- being physically present to
+     * check in is at least as strong a verification signal as an email click. Mirrors the
+     * in-person activation addMember() already does for brand-new walk-ins, but for a contact
+     * who already submitted the self-service Join form and is just waiting on the email step.
+     * Ignores the verification token's 24-hour expiry, since that clock exists to bound the
+     * *unattended* email-link path, not this in-person one. Dispatches to activateTrial() or
+     * activateSessionMembership() the same way verify-trial.php does for the email-link path,
+     * so the two paths stay equivalent.
      * @param int $contactId
-     * @param int|null $senderId Contact ID of the host performing the activation, for email logging
+     * @param int|null $senderId Contact ID of the host performing the activation, or null for
+     *                           an unaccompanied self-service check-in
      * @return array Activation details (start_date, end_date, plan, display_name)
-     * @throws Exception if there's no pending Trial registration for this contact
+     * @throws Exception if there's no pending Join registration for this contact
      */
     public static function activatePendingTrialInPerson(int $contactId, ?int $senderId = null): array {
         $planId = self::getPendingTrialPlanId($contactId);
         if (!$planId) {
-            throw new Exception("No pending Trial registration found for this member.");
+            throw new Exception("No pending Join registration found for this member.");
         }
 
         $appDb = Database::getAppConnection();
+        $planStmt = $appDb->prepare("SELECT * FROM tgg_subscription_plans WHERE id = :id LIMIT 1");
+        $planStmt->execute(['id' => $planId]);
+        $plan = $planStmt->fetch(PDO::FETCH_ASSOC);
+
         $contactStmt = $appDb->prepare("SELECT display_name, email FROM tgg_contacts WHERE id = :id LIMIT 1");
         $contactStmt->execute(['id' => $contactId]);
         $contact = $contactStmt->fetch(PDO::FETCH_ASSOC);
         $displayName = $contact['display_name'] ?? 'Member';
         $email = $contact['email'] ?? '';
 
-        $activation = self::activateTrial($contactId, $planId, $senderId);
+        if ($plan && self::isSessionPlan($plan)) {
+            // activateSessionMembership() sends its own payment_received/signup emails.
+            $activation = self::activateSessionMembership($contactId, $planId, 'join', $senderId);
+        } else {
+            $activation = self::activateTrial($contactId, $planId, $senderId);
+            self::sendTrialActivatedEmail($contactId, $displayName, $email, $activation, $senderId);
+        }
 
         $deleteToken = $appDb->prepare("DELETE FROM tgg_trial_verifications WHERE contact_id = :contact_id");
         $deleteToken->execute(['contact_id' => $contactId]);
-
-        self::sendTrialActivatedEmail($contactId, $displayName, $email, $activation, $senderId);
 
         $activation['display_name'] = $displayName;
         return $activation;

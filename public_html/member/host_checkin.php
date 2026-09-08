@@ -154,19 +154,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $errorMsg = "Check-in Denied: {$contactName} has already checked in today.";
                         } else {
                             // Host-only: a member with no active membership may have a pending
-                            // online Trial registration awaiting email verification. Checking
-                            // them in now satisfies that verification, so offer to activate it
-                            // in person instead of diverting straight to payment (pay-entrance.php's
-                            // renewal picker doesn't even offer the Trial plan, since it's a
-                            // one-time non-renewable offer).
+                            // online Trial/Session registration awaiting email verification.
+                            // Checking them in now satisfies that verification, so offer to
+                            // activate it in person instead of diverting straight to payment
+                            // (pay-entrance.php's renewal picker doesn't even offer the Trial
+                            // plan, since it's a one-time non-renewable offer).
                             $trialActivationNote = '';
                             $membership = MembershipService::getMemberMembershipDetails($contactId);
                             if (!$membership || !$membership['is_active']) {
                                 $pendingTrialPlanId = BillingHelper::getPendingTrialPlanId($contactId);
                                 if ($pendingTrialPlanId && !empty($_POST['confirm_trial_activation'])) {
-                                    // Host explicitly confirmed activating this member's Trial in person.
+                                    // Host explicitly confirmed activating this member's registration in person.
                                     BillingHelper::activatePendingTrialInPerson($contactId, $_SESSION['user']['contact_id'] ?? null);
-                                    $trialActivationNote = ' Their Trial membership was activated.';
+                                    $trialActivationNote = ' Their membership was activated.';
                                 } elseif ($pendingTrialPlanId) {
                                     // Ask the host to explicitly confirm before activating anything.
                                     $needsTrialConfirmation = true;
@@ -213,7 +213,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($needsTrialConfirmation) {
         // host_checkin.php's UI is entirely JS/AJAX-driven (no plain <form> submits this
         // page), so this is a defensive fallback only.
-        $errorMsg = "{$contactName}'s Trial registration is awaiting email verification. Use the Check-In panel to confirm activating it in person.";
+        $errorMsg = "{$contactName}'s registration is awaiting email verification. Use the Check-In panel to confirm activating it in person.";
     }
 }
 
@@ -650,11 +650,11 @@ if (isset($_GET['contact_id'])) {
 
                     if (res.body.needs_trial_confirmation) {
                         // Don't close the panel or treat this as a failure -- ask the host to
-                        // explicitly confirm activating the pending Trial before trying again.
+                        // explicitly confirm activating the pending registration before trying again.
                         pendingTrialConfirm = true;
                         buttonElement.disabled = false;
-                        buttonElement.textContent = 'Activate Trial & Check In';
-                        guestConfirmTrialNotice.textContent = "This member registered for a Trial online but hasn't verified their email yet. Tap again to activate their Trial and check them in.";
+                        buttonElement.textContent = 'Activate & Check In';
+                        guestConfirmTrialNotice.textContent = "This member registered online but hasn't verified their email yet. Tap again to activate their membership and check them in.";
                         guestConfirmTrialNotice.style.display = 'block';
                         return;
                     }

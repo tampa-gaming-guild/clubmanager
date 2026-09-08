@@ -212,6 +212,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $errorMsg = "Member not found. Please check your email, phone number, or member ID.";
                     }
                 } else {
+                    // A member with no active membership may have a pending online Trial/Session
+                    // registration awaiting email verification. Showing up in person to check in
+                    // is itself at least as strong a verification signal as clicking the emailed
+                    // link, so activate it here rather than blocking/redirecting to payment --
+                    // mirrors the host-confirmed activation host_checkin.php offers, but without
+                    // needing a host present to tap confirm.
+                    $membership = MembershipService::getMemberMembershipDetails($contactId);
+                    if (!$membership || !$membership['is_active']) {
+                        $pendingPlanId = BillingHelper::getPendingTrialPlanId($contactId);
+                        if ($pendingPlanId) {
+                            BillingHelper::activatePendingTrialInPerson($contactId);
+                        }
+                    }
+
                     $result = CheckinService::checkIn($contactId, $notes, $guestNames, suppressRedirectIfPendingPayment: true);
 
                     if ($result['redirect_reason']) {
