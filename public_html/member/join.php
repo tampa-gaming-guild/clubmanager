@@ -122,7 +122,6 @@ function lookup_member_by_email(\PDO $appDb, string $email, array $tiers): array
 
 $tiers = [];
 $errorMsg = null;
-$successMsg = null;
 $confirmation = null;
 
 try {
@@ -219,7 +218,31 @@ if (isset($_GET['status']) && $_GET['status'] === 'cancelled') {
     ];
 }
 
-// 3. Handle Form Submission (Join or Renew)
+// 3. Handle a free Session-plan renewal, activated immediately with no Stripe involved --
+//    redirected here (Post/Redirect/Get) the same way a Stripe checkout is, rather than
+//    redisplaying the Join/Renew form underneath the confirmation.
+if (isset($_GET['status']) && $_GET['status'] === 'renewed') {
+    $confirmation = [
+        'type' => 'renewed',
+        'heading' => 'Renewal Confirmation',
+        'name' => $_GET['name'] ?? 'Member',
+        'plan' => $_GET['plan'] ?? 'Membership',
+        'end_date' => $_GET['end_date'] ?? null,
+    ];
+}
+
+// 4. Handle a free Trial/Session Join that's now pending the emailed verification link --
+//    same Post/Redirect/Get reasoning as above.
+if (isset($_GET['status']) && $_GET['status'] === 'registered') {
+    $confirmation = [
+        'type' => 'registered',
+        'heading' => 'Registration Received',
+        'plan' => $_GET['plan'] ?? 'Membership',
+        'email' => $_GET['email'] ?? '',
+    ];
+}
+
+// 5. Handle Form Submission (Join or Renew)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status']) && !$isAjax) {
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
         $errorMsg = "Invalid security token. Please reload the page.";
@@ -268,13 +291,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status']) && !$isAjax
                         // happens at check-in -- so this extends the membership immediately
                         // instead of redirecting to Stripe.
                         $activation = BillingHelper::activateSessionMembership($contactId, $tierId, 'renew');
-                        $successMsg = "Thanks, {$displayName}! Your {$tierName} membership has been renewed through " . date('F j, Y', strtotime($activation['end_date'])) . ".";
+                        header("Location: join.php?status=renewed&plan=" . urlencode($tierName) . "&name=" . urlencode($displayName) . "&end_date=" . urlencode($activation['end_date']));
+                        exit;
                     } else {
                         $session = StripeHelper::createCheckoutSession($contactId, $tierId, $civicrmTypeId, $tierName, $fee, 'renew', $email, $displayName);
                         header("Location: " . $session['url']);
                         exit;
                     }
-                    // Falls through to the redisplay at the bottom of this block with $successMsg set.
                 } else {
 
                 // JOIN: first-ever membership for this contact (brand-new, or an existing
@@ -341,7 +364,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status']) && !$isAjax
                 // address -- an emailed verification link stands in for that instead, and
                 // activation is deferred until the member clicks it (see verify-trial.php).
                 send_join_verification_email($appDb, $contactId, $tierId, $email, $displayName, $tierName, 'trial_verification');
-                $successMsg = "Thanks for registering! We've sent a verification link to {$email}. Click it to activate your {$tierName} membership.";
+                header("Location: join.php?status=registered&plan=" . urlencode($tierName) . "&email=" . urlencode($email));
+                exit;
                 }
             } catch (Exception $e) {
                 $errorMsg = safe_err("Registration failed: ", $e);
@@ -351,11 +375,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status']) && !$isAjax
 }
 
 // Determine initial render mode: only relevant when redisplaying the form after a
-// server-side validation error, so the Renew UI doesn't flicker back to Join mode.
-// Also handles GET ?email= links (e.g. from renewal reminder emails) so the member
-// lookup fires immediately on arrival without requiring a form submission.
+// server-side validation error, so the Renew UI doesn't flicker back to Join mode. Skipped
+// entirely once $confirmation is set (a redirect landed here after a completed submission) --
+// also handles GET ?email= links (e.g. from renewal reminder emails) so the member lookup
+// fires immediately on arrival without requiring a form submission.
 $prefillExisting = null;
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['email']) && !isset($successMsg)) {
+if ($confirmation) {
+    // No form to prefill -- the confirmation branch below renders instead.
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['email'])) {
     try {
         $appDb = $appDb ?? Database::getAppConnection();
         $prefillEmail = trim(strtolower($_POST['email']));
@@ -365,7 +392,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['email']) && !isset($
     } catch (Exception $e) {
         $prefillExisting = null;
     }
-} elseif ($_SERVER['REQUEST_METHOD'] === 'GET' && !empty($_GET['email']) && !isset($successMsg)) {
+} elseif ($_SERVER['REQUEST_METHOD'] === 'GET' && !empty($_GET['email'])) {
     try {
         $appDb = $appDb ?? Database::getAppConnection();
         $prefillEmail = trim(strtolower($_GET['email']));
@@ -448,15 +475,25 @@ if ($isRenewMode) {
                         <br>
                         <a href="index.php?action=login" class="btn btn-primary">Go to Login</a>
                     </div>
-                <?php elseif ($confirmation): ?>
-                    <div class="alert <?php echo $confirmation['type'] === 'pending' ? 'alert-warning' : 'alert-danger'; ?> terminal-alert">
-                        <p><?php echo e($confirmation['message']); ?></p>
+                <?php elseif ($confirmation && $confirmation['type'] === 'renewed'): ?>
+                    <div class="alert alert-success terminal-alert">
+                        <p>
+                            Thanks, <?php echo e($confirmation['name']); ?>! Your <strong><?php echo e($confirmation['plan']); ?></strong> membership has been renewed<?php echo $confirmation['end_date'] ? ' through ' . date('F j, Y', strtotime($confirmation['end_date'])) : ''; ?>.
+                        </p>
+                        <br>
+                        <a href="index.php?action=login" class="btn btn-primary">Go to Login</a>
+                    </div>
+                <?php elseif ($confirmation && $confirmation['type'] === 'registered'): ?>
+                    <div class="alert alert-success terminal-alert">
+                        <p>
+                            Thanks for registering! We've sent a verification link to <?php echo e($confirmation['email']); ?>. Click it to activate your <strong><?php echo e($confirmation['plan']); ?></strong> membership.
+                        </p>
                         <br>
                         <a href="join.php" class="btn btn-primary">Back to Join / Renew</a>
                     </div>
-                <?php elseif ($successMsg): ?>
-                    <div class="alert alert-success">
-                        <p><?php echo e($successMsg); ?></p>
+                <?php elseif ($confirmation): ?>
+                    <div class="alert <?php echo $confirmation['type'] === 'pending' ? 'alert-warning' : 'alert-danger'; ?> terminal-alert">
+                        <p><?php echo e($confirmation['message']); ?></p>
                         <br>
                         <a href="join.php" class="btn btn-primary">Back to Join / Renew</a>
                     </div>
