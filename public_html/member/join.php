@@ -19,6 +19,7 @@ require_once (function() {
 })();
 
 use App\Database;
+use App\Event;
 use App\MembershipService;
 use App\StripeHelper;
 use App\Auth;
@@ -423,6 +424,13 @@ if ($isRenewMode) {
 } else {
     $displayTiers = $tiers;
 }
+
+// Where a successful Join/Renew's confirmation button should send the member: straight to
+// self-service check-in if a session is open right now (checkin.php's kiosk auto-activates a
+// still-pending Trial/Session registration on arrival -- see CheckinService), otherwise there's
+// nothing to check into yet, so send them to log in instead.
+$postJoinCtaUrl = Event::isCheckinWindowOpen() ? 'checkin.php' : 'index.php?action=login';
+$postJoinCtaLabel = $postJoinCtaUrl === 'checkin.php' ? 'Check In Now' : 'Go to Login';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -473,7 +481,7 @@ if ($isRenewMode) {
                             was successful and your membership is active. Check your email for a receipt<?php echo $confirmation['action'] === 'join' ? ' and a link to set up your portal login' : ''; ?>.
                         </p>
                         <br>
-                        <a href="index.php?action=login" class="btn btn-primary">Go to Login</a>
+                        <a href="<?php echo e($postJoinCtaUrl); ?>" class="btn btn-primary"><?php echo e($postJoinCtaLabel); ?></a>
                     </div>
                 <?php elseif ($confirmation && $confirmation['type'] === 'renewed'): ?>
                     <div class="alert alert-success terminal-alert">
@@ -481,7 +489,7 @@ if ($isRenewMode) {
                             Thanks, <?php echo e($confirmation['name']); ?>! Your <strong><?php echo e($confirmation['plan']); ?></strong> membership has been renewed<?php echo $confirmation['end_date'] ? ' through ' . date('F j, Y', strtotime($confirmation['end_date'])) : ''; ?>.
                         </p>
                         <br>
-                        <a href="index.php?action=login" class="btn btn-primary">Go to Login</a>
+                        <a href="<?php echo e($postJoinCtaUrl); ?>" class="btn btn-primary"><?php echo e($postJoinCtaLabel); ?></a>
                     </div>
                 <?php elseif ($confirmation && $confirmation['type'] === 'registered'): ?>
                     <div class="alert alert-success terminal-alert">
@@ -489,7 +497,7 @@ if ($isRenewMode) {
                             Thanks for registering! We've sent a verification link to <?php echo e($confirmation['email']); ?>. Click it to activate your <strong><?php echo e($confirmation['plan']); ?></strong> membership.
                         </p>
                         <br>
-                        <a href="join.php" class="btn btn-primary">Back to Join / Renew</a>
+                        <a href="<?php echo e($postJoinCtaUrl); ?>" class="btn btn-primary"><?php echo e($postJoinCtaLabel); ?></a>
                     </div>
                 <?php elseif ($confirmation): ?>
                     <div class="alert <?php echo $confirmation['type'] === 'pending' ? 'alert-warning' : 'alert-danger'; ?> terminal-alert">
