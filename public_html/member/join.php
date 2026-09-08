@@ -73,7 +73,8 @@ function lookup_member_by_email(\PDO $appDb, string $email, array $tiers): array
         'current_plan_id' => null,
         'current_plan_name' => null,
         'is_trial' => false,
-        'has_stored_card' => false
+        'has_stored_card' => false,
+        'has_membership_history' => false
     ];
 
     $stmt = $appDb->prepare("SELECT id, display_name FROM tgg_contacts WHERE email = :email AND is_deleted = 0 LIMIT 1");
@@ -95,6 +96,12 @@ function lookup_member_by_email(\PDO $appDb, string $email, array $tiers): array
     $cardStmt->execute(['contact_id' => $contactId]);
     $cardRow = $cardStmt->fetch();
     $result['has_stored_card'] = !empty($cardRow['stripe_payment_method_id'] ?? null);
+    // tgg_subscriptions holds exactly one row per contact, first inserted the moment
+    // any membership (Trial, Session, or paid) is ever activated and reused via
+    // ON DUPLICATE KEY on every later renewal/plan change -- its mere existence here
+    // is exactly "this contact has held a membership before", regardless of whether
+    // that membership is still active today.
+    $result['has_membership_history'] = $cardRow !== false;
 
     $membership = BillingHelper::getMemberSubscriptionDetails($contactId);
     if (!$membership) {
@@ -241,8 +248,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status']) && !$isAjax
 
                 // Re-derive Join vs Renew server-side -- the client-side detection is only a UI hint.
                 $existing = lookup_member_by_email($appDb, $email, $tiers);
+                // A contact has "history" once they've ever actually held a membership (see
+                // lookup_member_by_email()'s has_membership_history). A brand-new contact and an
+                // existing contact record (e.g. a CiviCRM import) that's never held one are both
+                // first-timers for billing purposes, and route the same way below.
+                $hasHistory = $existing['exists'] && $existing['has_membership_history'];
 
-                if ($existing['exists']) {
+                if ($hasHistory) {
                     // RENEW: reuse the existing contact, never create a duplicate.
                     if ($isTrial) {
                         throw new Exception("Trial membership is a one-time offer and is not available as a renewal.");
@@ -265,69 +277,71 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status']) && !$isAjax
                     // Falls through to the redisplay at the bottom of this block with $successMsg set.
                 } else {
 
-                // JOIN: brand-new contact.
-                $firstName = trim($_POST['first_name'] ?? '');
-                $lastName = trim($_POST['last_name'] ?? '');
-                $phone = normalize_phone(trim($_POST['phone'] ?? ''));
-
-                if (empty($firstName) || empty($lastName)) {
-                    throw new Exception("First and last name are required.");
+                // JOIN: first-ever membership for this contact (brand-new, or an existing
+                // contact with no subscription history), so it must be the free Trial -- the
+                // "Select Membership Level" dropdown only ever offers Trial in this case, but a
+                // no-JS or tampered submission is re-checked here too.
+                if (!$isTrial) {
+                    throw new Exception("First-time members must start with the free 30 Day Trial.");
                 }
 
-                if ($isTrial && BillingHelper::hasUsedOrPendingTrial($email)) {
+                if (BillingHelper::hasUsedOrPendingTrial($email)) {
                     throw new Exception("This email address has already used its one-time Trial membership and is not eligible for another.");
                 }
 
-                $appDb->beginTransaction();
+                if ($existing['exists']) {
+                    // Reuse the existing (history-less) contact rather than creating a duplicate.
+                    $contactId = $existing['contact_id'];
+                    $displayName = $existing['display_name'] ?? 'Member';
+                } else {
+                    $firstName = trim($_POST['first_name'] ?? '');
+                    $lastName = trim($_POST['last_name'] ?? '');
+                    $phone = normalize_phone(trim($_POST['phone'] ?? ''));
 
-                try {
-                    // A. Create Local Contact
-                    $displayName = "{$firstName} {$lastName}";
-                    $insertContact = $appDb->prepare("INSERT INTO tgg_contacts (contact_type, display_name, first_name, last_name, email, phone, is_deleted)
-                                                       VALUES ('Individual', :display_name, :first_name, :last_name, :email, :phone, 0)");
-                    $insertContact->execute([
-                        'display_name' => $displayName,
-                        'first_name' => $firstName,
-                        'last_name' => $lastName,
-                        'email' => $email,
-                        'phone' => !empty($phone) ? $phone : null
-                    ]);
-                    $contactId = (int)$appDb->lastInsertId();
-
-                    // B. Create Local Member Settings with a random, discarded password hash --
-                    // members don't need a portal password to be a member. They get a "set up
-                    // your password" link by email once payment/activation completes, if they
-                    // ever want to log in.
-                    $randomPasswordHash = password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT);
-                    $insertSettings = $appDb->prepare("INSERT INTO tgg_member_settings (contact_id, password_hash, role)
-                                                       VALUES (:contact_id, :password_hash, 'member')");
-                    $insertSettings->execute([
-                        'contact_id' => $contactId,
-                        'password_hash' => $randomPasswordHash
-                    ]);
-
-                    $appDb->commit();
-
-                    if ($isTrial || $isSessionPlan) {
-                        // Trial and Session-billed plans are both free at join time (Trial is a
-                        // one-time promo; Session plans charge per-visit at check-in instead), so
-                        // there's no Stripe payment to confirm the email address -- an emailed
-                        // verification link stands in for that instead, and activation is deferred
-                        // until the member clicks it (see verify-trial.php).
-                        send_join_verification_email($appDb, $contactId, $tierId, $email, $displayName, $tierName, $isTrial ? 'trial_verification' : 'session_verification');
-                        $successMsg = "Thanks for registering! We've sent a verification link to {$email}. Click it to activate your {$tierName} membership.";
-                    } else {
-                        // D. Create Stripe Session and Redirect
-                        $session = StripeHelper::createCheckoutSession($contactId, $tierId, $civicrmTypeId, $tierName, $fee, 'join', $email, $displayName);
-
-                        header("Location: " . $session['url']);
-                        exit;
+                    if (empty($firstName) || empty($lastName)) {
+                        throw new Exception("First and last name are required.");
                     }
 
-                } catch (Exception $txException) {
-                    if ($appDb->inTransaction()) $appDb->rollBack();
-                    throw $txException;
+                    $appDb->beginTransaction();
+
+                    try {
+                        // A. Create Local Contact
+                        $displayName = "{$firstName} {$lastName}";
+                        $insertContact = $appDb->prepare("INSERT INTO tgg_contacts (contact_type, display_name, first_name, last_name, email, phone, is_deleted)
+                                                           VALUES ('Individual', :display_name, :first_name, :last_name, :email, :phone, 0)");
+                        $insertContact->execute([
+                            'display_name' => $displayName,
+                            'first_name' => $firstName,
+                            'last_name' => $lastName,
+                            'email' => $email,
+                            'phone' => !empty($phone) ? $phone : null
+                        ]);
+                        $contactId = (int)$appDb->lastInsertId();
+
+                        // B. Create Local Member Settings with a random, discarded password hash --
+                        // members don't need a portal password to be a member. They get a "set up
+                        // your password" link by email once payment/activation completes, if they
+                        // ever want to log in.
+                        $randomPasswordHash = password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT);
+                        $insertSettings = $appDb->prepare("INSERT INTO tgg_member_settings (contact_id, password_hash, role)
+                                                           VALUES (:contact_id, :password_hash, 'member')");
+                        $insertSettings->execute([
+                            'contact_id' => $contactId,
+                            'password_hash' => $randomPasswordHash
+                        ]);
+
+                        $appDb->commit();
+                    } catch (Exception $txException) {
+                        if ($appDb->inTransaction()) $appDb->rollBack();
+                        throw $txException;
+                    }
                 }
+
+                // Trial is free at join time, so there's no Stripe payment to confirm the email
+                // address -- an emailed verification link stands in for that instead, and
+                // activation is deferred until the member clicks it (see verify-trial.php).
+                send_join_verification_email($appDb, $contactId, $tierId, $email, $displayName, $tierName, 'trial_verification');
+                $successMsg = "Thanks for registering! We've sent a verification link to {$email}. Click it to activate your {$tierName} membership.";
                 }
             } catch (Exception $e) {
                 $errorMsg = safe_err("Registration failed: ", $e);
@@ -362,14 +376,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['email']) && !isset($
         $prefillExisting = null;
     }
 }
-$isRenewMode = $prefillExisting && $prefillExisting['exists'];
-// Renew mode: everything except Trial (a one-time offer, never a renewal choice).
-// Join mode (the common case -- no prefill yet): every tier, including Session plans -- those
-// join for free (charged per-visit at check-in instead) and go through the same emailed
-// verification gate as Trial (see $isTrial || $isSessionPlan above).
-$displayTiers = $isRenewMode
-    ? array_values(array_filter($tiers, function ($tier) { return !BillingHelper::isTrialPlan($tier); }))
-    : $tiers;
+// isRegisteredContact: an existing contact row was found (whether or not they've ever held a
+// membership) -- name/phone don't need re-collecting, since we already have them on file.
+$isRegisteredContact = $prefillExisting && $prefillExisting['exists'];
+// isRenewMode: they've held a membership before, so this is a renewal -- every tier except
+// Trial (a one-time offer, never a renewal choice).
+$isRenewMode = $prefillExisting && $prefillExisting['has_membership_history'];
+// isTrialOnlyMode: a lookup happened (email known) and came back with no membership history --
+// whether brand-new or an existing history-less contact record (e.g. a CiviCRM import), this is
+// their first-ever membership, which can only be the free Trial.
+$isTrialOnlyMode = $prefillExisting !== null && !$isRenewMode;
+// No lookup yet (fresh page load, no email typed): show every tier as a neutral default: the
+// client-side lookup narrows this the moment an email is entered, and the server re-derives and
+// enforces the real rule at submit time regardless of what was displayed.
+if ($isRenewMode) {
+    $displayTiers = array_values(array_filter($tiers, function ($tier) { return !BillingHelper::isTrialPlan($tier); }));
+} elseif ($isTrialOnlyMode) {
+    $displayTiers = array_values(array_filter($tiers, function ($tier) { return BillingHelper::isTrialPlan($tier); }));
+} else {
+    $displayTiers = $tiers;
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -395,9 +421,13 @@ $displayTiers = $isRenewMode
                 <?php else: ?>
                     <h2 id="join_heading"><?php echo $isRenewMode ? 'Renew Your Membership' : 'Become a Member'; ?></h2>
                     <p class="subtitle" id="join_subtitle">
-                        <?php echo $isRenewMode
-                            ? 'Welcome back! Pick a level below to renew your membership.'
-                            : 'Complete the form below to register for a 30 day trial or pay your membership dues securely.'; ?>
+                        <?php if ($isRenewMode): ?>
+                            Welcome back! Pick a level below to renew your membership.
+                        <?php elseif ($isTrialOnlyMode): ?>
+                            New members start with a free 30-day Trial. Complete the form below to register.
+                        <?php else: ?>
+                            Complete the form below to register for a 30 day trial or pay your membership dues securely.
+                        <?php endif; ?>
                     </p>
                 <?php endif; ?>
 
@@ -433,8 +463,9 @@ $displayTiers = $isRenewMode
                 <?php else: ?>
                     <form action="join.php" method="POST" class="auth-form" id="join_form">
                         <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">
-                        <input type="hidden" name="existing_contact_id" id="existing_contact_id" value="<?php echo $isRenewMode ? (int)$prefillExisting['contact_id'] : ''; ?>">
+                        <input type="hidden" name="existing_contact_id" id="existing_contact_id" value="<?php echo $isRegisteredContact ? (int)$prefillExisting['contact_id'] : ''; ?>">
                         <input type="hidden" id="has_stored_card" value="<?php echo ($isRenewMode && !empty($prefillExisting['has_stored_card'])) ? '1' : ''; ?>">
+                        <input type="hidden" id="has_membership_history" value="<?php echo $isRenewMode ? '1' : ''; ?>">
 
                         <div class="form-group">
                             <label for="email">Email Address</label>
@@ -442,18 +473,18 @@ $displayTiers = $isRenewMode
                             <small id="email_lookup_status" class="field-hint" style="display:none;">Checking...</small>
                         </div>
 
-                        <div class="form-row" id="name_fields_row" style="<?php echo $isRenewMode ? 'display:none;' : ''; ?>">
+                        <div class="form-row" id="name_fields_row" style="<?php echo $isRegisteredContact ? 'display:none;' : ''; ?>">
                             <div class="form-group">
                                 <label for="first_name">First Name</label>
-                                <input type="text" id="first_name" name="first_name" <?php echo $isRenewMode ? '' : 'required'; ?> value="<?php echo e($_POST['first_name'] ?? ''); ?>">
+                                <input type="text" id="first_name" name="first_name" <?php echo $isRegisteredContact ? '' : 'required'; ?> value="<?php echo e($_POST['first_name'] ?? ''); ?>">
                             </div>
                             <div class="form-group">
                                 <label for="last_name">Last Name</label>
-                                <input type="text" id="last_name" name="last_name" <?php echo $isRenewMode ? '' : 'required'; ?> value="<?php echo e($_POST['last_name'] ?? ''); ?>">
+                                <input type="text" id="last_name" name="last_name" <?php echo $isRegisteredContact ? '' : 'required'; ?> value="<?php echo e($_POST['last_name'] ?? ''); ?>">
                             </div>
                         </div>
 
-                        <div class="form-group" id="phone_field_group" style="<?php echo $isRenewMode ? 'display:none;' : ''; ?>">
+                        <div class="form-group" id="phone_field_group" style="<?php echo $isRegisteredContact ? 'display:none;' : ''; ?>">
                             <label for="phone">Phone Number (Optional)</label>
                             <input type="tel" id="phone" name="phone" value="<?php echo e($_POST['phone'] ?? ''); ?>">
                         </div>
@@ -461,14 +492,17 @@ $displayTiers = $isRenewMode
                         <div class="form-group">
                             <label for="tier_id">Select Membership Level</label>
                             <select id="tier_id" name="tier_id" required onchange="updateJoinCallToAction()">
-                                <option value="" disabled <?php echo $isRenewMode ? '' : 'selected'; ?>>-- Select a Level --</option>
+                                <option value="" disabled <?php echo ($isRenewMode || $isTrialOnlyMode) ? '' : 'selected'; ?>>-- Select a Level --</option>
                                 <?php foreach ($displayTiers as $tier): ?>
                                     <?php
                                         $optionSelected = $isRenewMode
                                             ? ((int)$tier['id'] === (int)($prefillExisting['current_plan_id'] ?? 0))
-                                            : (
-                                                (isset($_POST['tier_id']) && $_POST['tier_id'] == $tier['id'])
-                                                || (!isset($_POST['tier_id']) && $preselectTierName !== null && $tier['name'] === $preselectTierName)
+                                            : ($isTrialOnlyMode
+                                                ? BillingHelper::isTrialPlan($tier)
+                                                : (
+                                                    (isset($_POST['tier_id']) && $_POST['tier_id'] == $tier['id'])
+                                                    || (!isset($_POST['tier_id']) && $preselectTierName !== null && $tier['name'] === $preselectTierName)
+                                                  )
                                               );
                                     ?>
                                     <option value="<?php echo (int)$tier['id']; ?>" data-trial="<?php echo BillingHelper::isTrialPlan($tier) ? '1' : '0'; ?>" data-session="<?php echo BillingHelper::isSessionPlan($tier) ? '1' : '0'; ?>" data-duration-interval="<?php echo (int)$tier['duration_interval']; ?>" data-duration-unit="<?php echo e(strtolower($tier['duration_unit'])); ?>" <?php echo $optionSelected ? 'selected' : ''; ?>>
@@ -495,6 +529,7 @@ $displayTiers = $isRenewMode
                         const tierSelect = document.getElementById('tier_id');
                         const existingContactInput = document.getElementById('existing_contact_id');
                         const hasStoredCardInput = document.getElementById('has_stored_card');
+                        const hasMembershipHistoryInput = document.getElementById('has_membership_history');
                         const emailInput = document.getElementById('email');
                         const headingEl = document.getElementById('join_heading');
                         const subtitleEl = document.getElementById('join_subtitle');
@@ -517,7 +552,7 @@ $displayTiers = $isRenewMode
                             const selectedOpt = tierSelect.options[tierSelect.selectedIndex];
                             const isTrial = selectedOpt && selectedOpt.getAttribute('data-trial') === '1';
                             const isSession = selectedOpt && selectedOpt.getAttribute('data-session') === '1';
-                            const isRenew = !!existingContactInput.value;
+                            const isRenew = hasMembershipHistoryInput.value === '1';
                             const hasStoredCard = hasStoredCardInput.value === '1';
 
                             let legalHtml = '';
@@ -550,27 +585,44 @@ $displayTiers = $isRenewMode
                         }
 
                         function applyLookupResult(result) {
-                            const isRenew = !!(result && result.exists);
-                            existingContactInput.value = isRenew ? result.contact_id : '';
+                            // isRegisteredContact: a contact row exists (name/phone already on file),
+                            // regardless of whether they've ever held a membership.
+                            const isRegisteredContact = !!(result && result.exists);
+                            // isRenew: they've held a membership before -- every tier except Trial.
+                            const isRenew = !!(result && result.has_membership_history);
+                            // isTrialOnly: email is known (a lookup happened) but there's no membership
+                            // history yet -- brand-new, or an existing history-less contact record --
+                            // so this is their first-ever membership, which can only be the free Trial.
+                            const isTrialOnly = !!result && !isRenew;
+
+                            existingContactInput.value = isRegisteredContact ? result.contact_id : '';
                             hasStoredCardInput.value = (isRenew && result.has_stored_card) ? '1' : '';
+                            hasMembershipHistoryInput.value = isRenew ? '1' : '';
 
                             headingEl.textContent = isRenew ? 'Renew Your Membership' : 'Become a Member';
                             subtitleEl.textContent = isRenew
                                 ? 'Welcome back! Pick a level below to renew your membership.'
-                                : 'Complete the form below to register for a 30 day trial or pay your membership dues securely.';
+                                : (isTrialOnly
+                                    ? 'New members start with a free 30-day Trial. Complete the form below to register.'
+                                    : 'Complete the form below to register for a 30 day trial or pay your membership dues securely.');
 
-                            nameRow.style.display = isRenew ? 'none' : '';
-                            phoneGroup.style.display = isRenew ? 'none' : '';
-                            firstNameInput.required = !isRenew;
-                            lastNameInput.required = !isRenew;
+                            nameRow.style.display = isRegisteredContact ? 'none' : '';
+                            phoneGroup.style.display = isRegisteredContact ? 'none' : '';
+                            firstNameInput.required = !isRegisteredContact;
+                            lastNameInput.required = !isRegisteredContact;
 
                             let hasSelection = false;
                             for (const opt of tierSelect.options) {
                                 if (!opt.value) continue;
                                 const isTrialOption = opt.getAttribute('data-trial') === '1';
-                                opt.hidden = isRenew && isTrialOption;
-                                opt.disabled = isRenew && isTrialOption;
+                                const hide = (isRenew && isTrialOption) || (isTrialOnly && !isTrialOption);
+                                opt.hidden = hide;
+                                opt.disabled = hide;
                                 if (isRenew && result.current_plan_id && Number(opt.value) === Number(result.current_plan_id) && !isTrialOption) {
+                                    opt.selected = true;
+                                    hasSelection = true;
+                                }
+                                if (isTrialOnly && isTrialOption) {
                                     opt.selected = true;
                                     hasSelection = true;
                                 }
