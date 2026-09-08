@@ -30,17 +30,22 @@ if (strlen($q) < 2) {
 }
 
 $appDb = Database::getAppConnection();
+// A single stray digit in a name (e.g. "Trial3") would otherwise normalize to a 1-digit "phone
+// number" and LIKE-match nearly every phone on file -- require a few digits before treating the
+// query as phone-shaped, so an area code or last-4 search still works but an incidental digit in
+// a name doesn't flood the results. Mirrors host_checkin.php's search action.
 $qPhone = normalize_phone($q);
+$qPhoneUsable = strlen($qPhone) >= 3;
 $sql = "
     SELECT id, display_name, email, phone
     FROM tgg_contacts
-    WHERE (display_name LIKE :q1 OR email LIKE :q2" . ($qPhone !== '' ? " OR REGEXP_REPLACE(phone, '[^0-9]', '') LIKE :q3" : "") . ")
+    WHERE (display_name LIKE :q1 OR email LIKE :q2" . ($qPhoneUsable ? " OR REGEXP_REPLACE(phone, '[^0-9]', '') LIKE :q3" : "") . ")
       AND is_deleted = 0
     LIMIT 15
 ";
 $stmt = $appDb->prepare($sql);
 $params = ['q1' => '%' . $q . '%', 'q2' => '%' . $q . '%'];
-if ($qPhone !== '') {
+if ($qPhoneUsable) {
     $params['q3'] = '%' . $qPhone . '%';
 }
 $stmt->execute($params);
