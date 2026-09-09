@@ -29,9 +29,13 @@ $user = ApiAuth::requireAuth();
 $contactId = (int)$user['contact_id'];
 
 $today = date('Y-m-d 00:00:00');
-$events = array_values(array_filter(Event::getEvents(), fn($e) => $e['start_time'] >= $today));
+$candidateEvents = array_values(array_filter(Event::getEvents(), fn($e) => $e['start_time'] >= $today));
 
-$slotsByEvent = EventSlot::getSlotsForEvents(array_column($events, 'id'));
+$slotsByEvent = EventSlot::getSlotsForEvents(array_column($candidateEvents, 'id'));
+
+// Events with no configured volunteer slots (e.g. a "closed"/social notice)
+// aren't volunteer opportunities -- keep them out of the mobile schedule too.
+$events = array_values(array_filter($candidateEvents, fn($e) => !empty($slotsByEvent[(int)$e['id']])));
 
 $result = [];
 foreach ($events as $evt) {

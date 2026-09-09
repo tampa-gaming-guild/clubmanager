@@ -114,19 +114,23 @@ try {
     $allEvents = Event::getEvents();
     $today = date('Y-m-d 00:00:00');
 
+    $candidateEvents = [];
     foreach ($allEvents as $evt) {
         if ($filter === 'upcoming') {
             $evtDate = date('Y-m-d', strtotime($evt['start_time']));
             $isHighlighted = $selectedRaw !== null && $selectedRaw === $evtDate;
             if ($evt['start_time'] >= $today || $isHighlighted) {
-                $listEvents[] = $evt;
+                $candidateEvents[] = $evt;
             }
         } else {
-            $listEvents[] = $evt;
+            $candidateEvents[] = $evt;
         }
     }
 
-    $listSlotsByEvent = EventSlot::getSlotsForEvents(array_column($listEvents, 'id'));
+    $listSlotsByEvent = EventSlot::getSlotsForEvents(array_column($candidateEvents, 'id'));
+    // Events with no configured volunteer slots (e.g. a "closed"/social notice)
+    // aren't volunteer opportunities -- keep them off this schedule entirely.
+    $listEvents = array_values(array_filter($candidateEvents, fn($e) => !empty($listSlotsByEvent[(int)$e['id']])));
 } catch (Exception $e) {
     $listEvents = [];
     $listSlotsByEvent = [];
@@ -134,6 +138,7 @@ try {
 }
 
 $monthEvents = [];
+$slottedMonthEvents = [];
 $eventsByDay = [];
 $selectedEvents = [];
 $slotsByEvent = [];
@@ -152,10 +157,6 @@ if ($view !== 'list') {
         $day = (int)date('d', strtotime($evt['start_time']));
         $eventsByDay[$day][] = $evt;
     }
-
-    $selectedEvents = $selectedDay
-        ? array_values(array_filter($monthEvents, fn($e) => date('Y-m-d', strtotime($e['start_time'])) === $selectedDay))
-        : [];
 
     if (!empty($monthEvents)) {
         try {
@@ -189,6 +190,16 @@ if ($view !== 'list') {
             // Fallback to empty
         }
     }
+
+    // Events with no configured volunteer slots (e.g. a "closed"/social notice)
+    // aren't volunteer opportunities -- exclude them from the side list. The
+    // day-cell grid above still shows their day; it already renders nothing
+    // extra for a 0-slot event, so no filtering is needed there.
+    $slottedMonthEvents = array_values(array_filter($monthEvents, fn($e) => !empty($slotsByEvent[(int)$e['id']])));
+
+    $selectedEvents = $selectedDay
+        ? array_values(array_filter($slottedMonthEvents, fn($e) => date('Y-m-d', strtotime($e['start_time'])) === $selectedDay))
+        : [];
 }
 
 // Shared POST form-action builder: signups from any view redirect back to the
@@ -201,7 +212,7 @@ $vsFormAction = function (string $evtDateStr) use ($buildUrl): string {
 // Combo view's side list: filtered down to the selected day's events, or the
 // full visible month when nothing is selected. Rendered via a closure so the
 // AJAX day-selection endpoint below and the normal full-page render share it.
-$comboListEvents = $selectedDay ? $selectedEvents : $monthEvents;
+$comboListEvents = $selectedDay ? $selectedEvents : $slottedMonthEvents;
 $comboHeading = $selectedDay ? date('F d, Y (l)', strtotime($selectedDay)) : "{$monthLabel} Schedule";
 $renderComboListPanel = function () use ($comboHeading, $comboListEvents, $slotsByEvent, $buildUrl, $selectedDay, $vsFormAction) {
     ?>

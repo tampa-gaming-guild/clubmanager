@@ -80,6 +80,20 @@ function build_event_times(string $date, string $startTime, string $endTime): ar
     return [$mysqlStart, $mysqlEnd];
 }
 
+// Icon presets offered in the create/edit forms' "Custom..." dropdown -- purely
+// cosmetic, shown before the event title everywhere it's rendered.
+const EVENT_ICON_PRESETS = ['🎉' => 'Social', '🚫' => 'Closed', '🏆' => 'Tournament', '📢' => 'Meeting', '⭐' => 'Special'];
+
+function parse_event_type_input(): string {
+    $type = $_POST['event_type'] ?? '';
+    return in_array($type, Event::TYPES, true) ? $type : Event::DEFAULT_TYPE;
+}
+
+function parse_icon_input(): ?string {
+    $icon = trim((string)($_POST['icon'] ?? ''));
+    return $icon !== '' ? $icon : null;
+}
+
 // Slot definitions arrive as slots[n][id|label|type] parallel to the form rows.
 function parse_slots_input(): array {
     $slots = [];
@@ -146,6 +160,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_create'])) {
         $startTime = trim($_POST['start_time'] ?? '');
         $endTime = trim($_POST['end_time'] ?? '');
         $isRecurring = isset($_POST['recurring']);
+        $eventType = parse_event_type_input();
+        $icon = parse_icon_input();
 
         if (empty($title) || empty($eventDate) || empty($startTime) || empty($endTime)) {
             $errorMsg = "Event Title, Date, Start Time, and End Time are required.";
@@ -153,7 +169,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_create'])) {
             try {
                 [$mysqlStart, $mysqlEnd] = build_event_times($eventDate, $startTime, $endTime);
 
-                Event::createEvent($title, $description, $mysqlStart, $mysqlEnd, parse_slots_input());
+                Event::createEvent($title, $description, $mysqlStart, $mysqlEnd, parse_slots_input(), $eventType, $icon);
                 redirect('admin/scheduler.php?' . http_build_query(['success' => 'New session scheduled successfully!']));
             } catch (Exception $e) {
                 $errorMsg = safe_err("Scheduling failed: ", $e);
@@ -197,7 +213,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_create'])) {
 
                         if ($shouldInsert) {
                             [$mysqlStart, $mysqlEnd] = build_event_times(date('Y-m-d', $currentDate), $startTime, $endTime);
-                            Event::createEvent($title, $description, $mysqlStart, $mysqlEnd, $slots);
+                            Event::createEvent($title, $description, $mysqlStart, $mysqlEnd, $slots, $eventType, $icon);
                             $insertedCount++;
                         }
 
@@ -224,6 +240,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_update'])) {
         $eventDate = trim($_POST['event_date'] ?? '');
         $startTime = trim($_POST['start_time'] ?? '');
         $endTime = trim($_POST['end_time'] ?? '');
+        $eventType = parse_event_type_input();
+        $icon = parse_icon_input();
 
         if (empty($title) || empty($eventDate) || empty($startTime) || empty($endTime)) {
             $errorMsg = "Event Title, Date, Start Time, and End Time are required.";
@@ -231,7 +249,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_update'])) {
             try {
                 [$mysqlStart, $mysqlEnd] = build_event_times($eventDate, $startTime, $endTime);
 
-                Event::updateEvent($eventId, $title, $description, $mysqlStart, $mysqlEnd, parse_slots_input());
+                Event::updateEvent($eventId, $title, $description, $mysqlStart, $mysqlEnd, parse_slots_input(), $eventType, $icon);
                 redirect('admin/scheduler.php?' . http_build_query(array_filter([
                     'success' => 'Event updated successfully!',
                     'view' => $view !== 'upcoming' ? $view : null,
@@ -294,7 +312,7 @@ try {
     $offset = ($page - 1) * $eventsPerPage;
 
     $eventsStmt = $appDb->prepare("
-        SELECT id, title, description, start_time, end_time FROM tgg_events
+        SELECT id, title, description, start_time, end_time, event_type, icon FROM tgg_events
         $where
         ORDER BY $order
         LIMIT $eventsPerPage OFFSET $offset
@@ -314,6 +332,39 @@ try {
 } catch (Exception $e) {
     $events = [];
     $errorMsg = safe_err("Unable to load events: ", $e);
+}
+
+/**
+ * Render the Event Type + Icon fields shared by the create/edit forms.
+ * $prefix distinguishes element ids between the two forms (e.g. "create", "edit").
+ */
+function render_type_icon_fields(string $prefix, string $selectedType, ?string $selectedIcon): void {
+    $selectedIcon = $selectedIcon ?? '';
+    $isPreset = $selectedIcon === '' || isset(EVENT_ICON_PRESETS[$selectedIcon]);
+    ?>
+    <div class="form-row">
+        <div class="form-group">
+            <label for="<?php echo $prefix; ?>_event_type">Event Type</label>
+            <select id="<?php echo $prefix; ?>_event_type" name="event_type" onchange="toggleEventType('<?php echo $prefix; ?>')">
+                <option value="session" <?php echo $selectedType === 'session' ? 'selected' : ''; ?>>Game Day / Session</option>
+                <option value="other" <?php echo $selectedType === 'other' ? 'selected' : ''; ?>>Other (No Check-In)</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="<?php echo $prefix; ?>_icon_select">Icon (Optional)</label>
+            <select id="<?php echo $prefix; ?>_icon_select" onchange="onIconPresetChange('<?php echo $prefix; ?>')">
+                <option value="">None</option>
+                <?php foreach (EVENT_ICON_PRESETS as $emoji => $label): ?>
+                    <option value="<?php echo $emoji; ?>" <?php echo $selectedIcon === $emoji ? 'selected' : ''; ?>><?php echo $emoji . ' ' . $label; ?></option>
+                <?php endforeach; ?>
+                <option value="custom" <?php echo !$isPreset ? 'selected' : ''; ?>>Custom&hellip;</option>
+            </select>
+            <input type="text" id="<?php echo $prefix; ?>_icon" name="icon" maxlength="8" placeholder="Emoji"
+                   value="<?php echo e($selectedIcon); ?>"
+                   style="display: <?php echo !$isPreset ? 'inline-block' : 'none'; ?>; width: 80px; margin-top: 6px;">
+        </div>
+    </div>
+    <?php
 }
 
 /**
@@ -348,7 +399,13 @@ function render_slot_rows(array $slots, array $filledBySlotId = []): void {
     }
 }
 
-// Slot rows to show on the create form: repost after a failed create, else defaults
+// Type/icon + slot rows to show on the create form: repost after a failed
+// create, else defaults (Session type gets the default Open/Close slots;
+// Other starts with no slots -- an admin adds one only if this particular
+// event needs a volunteer).
+$createFormEventType = isset($_POST['action_create']) ? parse_event_type_input() : Event::DEFAULT_TYPE;
+$createFormIcon = isset($_POST['action_create']) ? parse_icon_input() : null;
+
 $createFormSlots = [];
 if (isset($_POST['action_create'])) {
     foreach ($_POST['slots'] ?? [] as $row) {
@@ -356,8 +413,7 @@ if (isset($_POST['action_create'])) {
             $createFormSlots[] = ['id' => null, 'label' => (string)($row['label'] ?? ''), 'type' => (string)($row['type'] ?? 'open')];
         }
     }
-}
-if (empty($createFormSlots)) {
+} elseif ($createFormEventType === 'session') {
     foreach (EventSlot::DEFAULT_SLOTS as $slot) {
         $createFormSlots[] = ['id' => null, 'label' => $slot['label'], 'type' => $slot['type']];
     }
@@ -436,6 +492,8 @@ if (empty($createFormSlots)) {
                                     <input type="text" id="edit_title" name="title" required value="<?php echo e($editEvent['title']); ?>">
                                 </div>
 
+                                <?php render_type_icon_fields('edit', $editEvent['event_type'] ?? Event::DEFAULT_TYPE, $editEvent['icon'] ?? null); ?>
+
                                 <div class="form-group">
                                     <label for="edit_description">Description (Optional)</label>
                                     <textarea id="edit_description" name="description"><?php echo e($editEvent['description'] ?? ''); ?></textarea>
@@ -459,7 +517,7 @@ if (empty($createFormSlots)) {
 
                                 <div class="form-group">
                                     <label>Volunteer Slots</label>
-                                    <p style="font-size: 0.75rem; color: var(--color-text-secondary); margin: 0 0 8px;">The type determines which credit weight the volunteer earns.</p>
+                                    <p id="edit-slots-hint" style="font-size: 0.75rem; color: var(--color-text-secondary); margin: 0 0 8px;"><?php echo ($editEvent['event_type'] ?? 'session') === 'session' ? 'The type determines which credit weight the volunteer earns.' : 'Optional — add slots only if this event needs volunteers.'; ?></p>
                                     <div class="slot-rows" id="edit-slot-rows">
                                         <?php
                                             $editSlotRows = array_map(fn($s) => ['id' => (int)$s['id'], 'label' => $s['slot_label'], 'type' => $s['slot_type']], $editSlots);
@@ -490,6 +548,8 @@ if (empty($createFormSlots)) {
                                         <label for="title">Event Title</label>
                                         <input type="text" id="title" name="title" required value="<?php echo e($_POST['title'] ?? ''); ?>" placeholder="e.g. Wednesday Gaming">
                                     </div>
+
+                                    <?php render_type_icon_fields('create', $createFormEventType, $createFormIcon); ?>
 
                                     <div class="form-group">
                                         <label for="description">Description (Optional)</label>
@@ -574,7 +634,7 @@ if (empty($createFormSlots)) {
 
                                     <div class="form-group">
                                         <label>Volunteer Slots</label>
-                                        <p style="font-size: 0.75rem; color: var(--color-text-secondary); margin: 0 0 8px;">The type determines which credit weight the volunteer earns. Recurring events all get these slots.</p>
+                                        <p id="create-slots-hint" style="font-size: 0.75rem; color: var(--color-text-secondary); margin: 0 0 8px;"><?php echo $createFormEventType === 'session' ? 'The type determines which credit weight the volunteer earns. Recurring events all get these slots.' : 'Optional — add slots only if this event needs volunteers.'; ?></p>
                                         <div class="slot-rows" id="create-slot-rows">
                                             <?php render_slot_rows($createFormSlots); ?>
                                         </div>
@@ -629,10 +689,47 @@ if (empty($createFormSlots)) {
                             document.getElementById('event_date').addEventListener('change', updateRecurrenceEndLimit);
                             document.addEventListener('DOMContentLoaded', toggleRecurring);
 
+                            // Icon field: a preset dropdown drives the actual "icon" text input;
+                            // picking "Custom..." reveals it for free-text emoji entry.
+                            function onIconPresetChange(prefix) {
+                                const select = document.getElementById(prefix + '_icon_select');
+                                const input = document.getElementById(prefix + '_icon');
+                                if (select.value === 'custom') {
+                                    input.style.display = 'inline-block';
+                                    input.value = '';
+                                    input.focus();
+                                } else {
+                                    input.style.display = 'none';
+                                    input.value = select.value;
+                                }
+                            }
+
+                            // Event Type: relabels the Volunteer Slots hint, and (create form
+                            // only) starts the slot editor empty for "Other" events instead of
+                            // the usual Open/Close defaults.
+                            function toggleEventType(prefix) {
+                                const type = document.getElementById(prefix + '_event_type').value;
+                                const hint = document.getElementById(prefix + '-slots-hint');
+                                if (hint) {
+                                    hint.textContent = type === 'session'
+                                        ? 'The type determines which credit weight the volunteer earns.'
+                                        : 'Optional — add slots only if this event needs volunteers.';
+                                }
+                                if (prefix === 'create') {
+                                    const container = document.getElementById('create-slot-rows');
+                                    if (type === 'other') {
+                                        container.innerHTML = '';
+                                    } else if (container.children.length === 0) {
+                                        addSlotRow('create-slot-rows', 'Open', 'open');
+                                        addSlotRow('create-slot-rows', 'Close', 'close');
+                                    }
+                                }
+                            }
+
                             // Indexes only need to be unique per form; start well above
                             // anything the server rendered.
                             let slotRowIdx = 1000;
-                            function addSlotRow(containerId) {
+                            function addSlotRow(containerId, defaultLabel = '', defaultType = 'open') {
                                 const container = document.getElementById(containerId);
                                 const i = slotRowIdx++;
                                 const row = document.createElement('div');
@@ -640,15 +737,17 @@ if (empty($createFormSlots)) {
                                 row.style.cssText = 'display: flex; gap: 8px; align-items: center; margin-bottom: 8px;';
                                 row.innerHTML = `
                                     <input type="hidden" name="slots[${i}][id]" value="">
-                                    <input type="text" name="slots[${i}][label]" required placeholder="Slot name" style="flex: 1; min-width: 0;">
+                                    <input type="text" name="slots[${i}][label]" required placeholder="Slot name" value="${defaultLabel}" style="flex: 1; min-width: 0;">
                                     <select name="slots[${i}][type]" style="width: 110px; flex-shrink: 0;">
-                                        <option value="open">Open</option>
-                                        <option value="close">Close</option>
-                                        <option value="greeter">Greeter</option>
+                                        <option value="open" ${defaultType === 'open' ? 'selected' : ''}>Open</option>
+                                        <option value="close" ${defaultType === 'close' ? 'selected' : ''}>Close</option>
+                                        <option value="greeter" ${defaultType === 'greeter' ? 'selected' : ''}>Greeter</option>
                                     </select>
                                     <button type="button" class="btn btn-danger btn-small slot-remove" title="Remove slot" style="flex-shrink: 0;">×</button>`;
                                 container.appendChild(row);
-                                row.querySelector('input[type="text"]').focus();
+                                if (!defaultLabel) {
+                                    row.querySelector('input[type="text"]').focus();
+                                }
                             }
 
                             document.addEventListener('click', function(e) {
@@ -724,7 +823,7 @@ if (empty($createFormSlots)) {
                                         const tbody = row.closest('tbody');
                                         row.remove();
                                         if (!tbody.querySelector('tr')) {
-                                            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--color-text-secondary); padding: 20px;">No events scheduled yet. Add one using the form.</td></tr>';
+                                            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--color-text-secondary); padding: 20px;">No events scheduled yet. Add one using the form.</td></tr>';
                                         }
                                     } else {
                                         showListError(data.error || 'Failed to delete event.');
@@ -754,6 +853,7 @@ if (empty($createFormSlots)) {
                                         <thead>
                                             <tr>
                                                 <th class="sortable">Title</th>
+                                                <th>Type</th>
                                                 <th class="sortable <?php echo $view === 'upcoming' ? 'asc' : 'desc'; ?>">Date & Time</th>
                                                 <th>Vols</th>
                                                 <th>Actions</th>
@@ -761,9 +861,15 @@ if (empty($createFormSlots)) {
                                         </thead>
                                         <tbody>
                                             <?php foreach ($events as $evt): ?>
-                                                <?php $eid = (int)$evt['id']; ?>
+                                                <?php
+                                                    $eid = (int)$evt['id'];
+                                                    $evtType = $evt['event_type'] ?? Event::DEFAULT_TYPE;
+                                                    $evtIcon = $evt['icon'] ?? null;
+                                                    $totalSlots = (int)($slotTotals[$eid] ?? 0);
+                                                ?>
                                                 <tr>
-                                                    <td><strong><?php echo e($evt['title']); ?></strong></td>
+                                                    <td><strong><?php echo trim(e($evtIcon ?? '') . ' ' . e($evt['title'])); ?></strong></td>
+                                                    <td><?php echo $evtType === 'session' ? 'Session' : 'Other'; ?></td>
                                                     <td data-sort="<?php echo e($evt['start_time']); ?>">
                                                         <span class="table-datetime">
                                                             <?php echo date('m/d/y', strtotime($evt['start_time'])); ?><br>
@@ -771,7 +877,7 @@ if (empty($createFormSlots)) {
                                                         </span>
                                                     </td>
                                                     <td>
-                                                        <?php echo (int)($slotFilled[$eid] ?? 0); ?> / <?php echo (int)($slotTotals[$eid] ?? 0); ?>
+                                                        <?php echo $totalSlots > 0 ? ((int)($slotFilled[$eid] ?? 0) . ' / ' . $totalSlots) : '—'; ?>
                                                     </td>
                                                     <td>
                                                         <div style="display: flex; gap: 6px;">

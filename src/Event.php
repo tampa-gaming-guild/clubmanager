@@ -12,11 +12,15 @@ use PDO;
  */
 class Event {
 
+    public const TYPES = ['session', 'other'];
+    public const DEFAULT_TYPE = 'session';
+
     /**
      * Create a new event with its volunteer slots. Returns the new event id.
      */
-    public static function createEvent(string $title, string $description, string $startTime, string $endTime, ?array $slots = null): int {
-        self::validateEventFields($title, $startTime, $endTime);
+    public static function createEvent(string $title, string $description, string $startTime, string $endTime, ?array $slots = null, string $eventType = self::DEFAULT_TYPE, ?string $icon = null): int {
+        self::validateEventFields($title, $startTime, $endTime, $eventType);
+        $icon = self::cleanIcon($icon);
 
         $appDb = Database::getAppConnection();
         $ownTransaction = !$appDb->inTransaction();
@@ -26,18 +30,21 @@ class Event {
 
         try {
             $stmt = $appDb->prepare("
-                INSERT INTO tgg_events (title, description, start_time, end_time)
-                VALUES (:title, :description, :start_time, :end_time)
+                INSERT INTO tgg_events (title, description, start_time, end_time, event_type, icon)
+                VALUES (:title, :description, :start_time, :end_time, :event_type, :icon)
             ");
             $stmt->execute([
                 'title' => $title,
                 'description' => $description,
                 'start_time' => $startTime,
-                'end_time' => $endTime
+                'end_time' => $endTime,
+                'event_type' => $eventType,
+                'icon' => $icon
             ]);
             $eventId = (int)$appDb->lastInsertId();
 
-            EventSlot::setSlots($eventId, $slots ?? EventSlot::DEFAULT_SLOTS);
+            $requireSlot = $eventType === 'session';
+            EventSlot::setSlots($eventId, $slots ?? ($requireSlot ? EventSlot::DEFAULT_SLOTS : []), $requireSlot);
 
             if ($ownTransaction) {
                 $appDb->commit();
@@ -54,8 +61,9 @@ class Event {
     /**
      * Update an event's details and reconcile its volunteer slots.
      */
-    public static function updateEvent(int $eventId, string $title, string $description, string $startTime, string $endTime, array $slots): void {
-        self::validateEventFields($title, $startTime, $endTime);
+    public static function updateEvent(int $eventId, string $title, string $description, string $startTime, string $endTime, array $slots, string $eventType = self::DEFAULT_TYPE, ?string $icon = null): void {
+        self::validateEventFields($title, $startTime, $endTime, $eventType);
+        $icon = self::cleanIcon($icon);
 
         if (!self::getEvent($eventId)) {
             throw new Exception("Event not found.", 423);
@@ -70,7 +78,8 @@ class Event {
         try {
             $stmt = $appDb->prepare("
                 UPDATE tgg_events
-                SET title = :title, description = :description, start_time = :start_time, end_time = :end_time
+                SET title = :title, description = :description, start_time = :start_time, end_time = :end_time,
+                    event_type = :event_type, icon = :icon
                 WHERE id = :id
             ");
             $stmt->execute([
@@ -78,10 +87,12 @@ class Event {
                 'description' => $description,
                 'start_time' => $startTime,
                 'end_time' => $endTime,
+                'event_type' => $eventType,
+                'icon' => $icon,
                 'id' => $eventId
             ]);
 
-            EventSlot::setSlots($eventId, $slots);
+            EventSlot::setSlots($eventId, $slots, $eventType === 'session');
 
             if ($ownTransaction) {
                 $appDb->commit();
@@ -127,7 +138,7 @@ class Event {
         }
     }
 
-    private static function validateEventFields(string $title, string $startTime, string $endTime): void {
+    private static function validateEventFields(string $title, string $startTime, string $endTime, string $eventType = self::DEFAULT_TYPE): void {
         if (empty($title) || empty($startTime) || empty($endTime)) {
             throw new Exception("Title, start time, and end time are required.");
         }
@@ -135,6 +146,22 @@ class Event {
         if (strtotime($startTime) >= strtotime($endTime)) {
             throw new Exception("Start time must be before end time.");
         }
+
+        if (!in_array($eventType, self::TYPES, true)) {
+            throw new Exception("Invalid event type.", 423);
+        }
+    }
+
+    /**
+     * Trim an admin-entered icon down to something that fits the column and
+     * collapses blank input to null (no icon).
+     */
+    private static function cleanIcon(?string $icon): ?string {
+        $icon = trim((string)$icon);
+        if ($icon === '') {
+            return null;
+        }
+        return mb_substr($icon, 0, 8);
     }
 
     /**
@@ -143,7 +170,7 @@ class Event {
     public static function getEvents(?string $start = null, ?string $end = null): array {
         $appDb = Database::getAppConnection();
 
-        $sql = "SELECT id, title, description, start_time, end_time FROM tgg_events";
+        $sql = "SELECT id, title, description, start_time, end_time, event_type, icon FROM tgg_events";
         $params = [];
 
         if ($start && $end) {
@@ -162,7 +189,7 @@ class Event {
      */
     public static function getEvent(int $id): ?array {
         $appDb = Database::getAppConnection();
-        $stmt = $appDb->prepare("SELECT id, title, description, start_time, end_time FROM tgg_events WHERE id = :id LIMIT 1");
+        $stmt = $appDb->prepare("SELECT id, title, description, start_time, end_time, event_type, icon FROM tgg_events WHERE id = :id LIMIT 1");
         $stmt->execute(['id' => $id]);
         $row = $stmt->fetch();
         return $row ?: null;
@@ -181,7 +208,8 @@ class Event {
         $stmt = $appDb->prepare("
             SELECT id, title, description, start_time, end_time
             FROM tgg_events
-            WHERE DATE(start_time) = CURDATE()
+            WHERE event_type = 'session'
+              AND DATE(start_time) = CURDATE()
               AND NOW() >= DATE_SUB(start_time, INTERVAL 2 HOUR)
               AND NOW() <= DATE_ADD(end_time, INTERVAL 2 HOUR)
             ORDER BY start_time ASC
@@ -202,7 +230,8 @@ class Event {
         $appDb = Database::getAppConnection();
         $stmt = $appDb->prepare("
             SELECT COUNT(*) FROM tgg_events
-            WHERE DATE(start_time) = CURDATE()
+            WHERE event_type = 'session'
+              AND DATE(start_time) = CURDATE()
               AND NOW() >= DATE_SUB(start_time, INTERVAL 1 HOUR)
               AND NOW() <= end_time
         ");

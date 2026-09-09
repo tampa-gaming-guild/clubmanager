@@ -100,7 +100,8 @@ $cgDayContent = function (int $day, array $eventsForDay) {
     echo '<div class="day-event-names">';
     $shown = array_slice($eventsForDay, 0, 2);
     foreach ($shown as $evt) {
-        $label = date('g:i', strtotime($evt['start_time'])) . ' - ' . $evt['title'];
+        $icon = trim((string)($evt['icon'] ?? ''));
+        $label = date('g:i', strtotime($evt['start_time'])) . ' - ' . trim($icon . ' ' . $evt['title']);
         echo '<div class="day-event-name-row" title="' . e($label) . '">' . e($label) . '</div>';
     }
     $remaining = count($eventsForDay) - count($shown);

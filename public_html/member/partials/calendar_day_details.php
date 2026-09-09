@@ -21,7 +21,7 @@
             $isPast = strtotime($evt['start_time']) < strtotime('today');
         ?>
         <div class="calendar-day-event-card<?php echo $isPast ? ' is-past-event' : ''; ?>">
-            <h4 style="margin-bottom: 4px;"><?php echo e($evt['title']); ?></h4>
+            <h4 style="margin-bottom: 4px;"><?php echo e(trim(($evt['icon'] ?? '') . ' ' . $evt['title'])); ?></h4>
             <p style="color: var(--color-text-secondary); font-size: 0.85rem; margin-bottom: 12px;">📅 <?php echo e($eventDate); ?> — ⏰ <?php echo $eventTime; ?></p>
             <?php if ($description !== ''): ?>
                 <p style="margin-bottom: 16px; white-space: pre-line;"><?php echo e($description); ?></p>

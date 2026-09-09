@@ -80,7 +80,7 @@ class EventSlot {
      * [['id' => int|null, 'label' => string, 'type' => string], ...]
      * Throws a user-safe 423 Exception on any problem.
      */
-    public static function validateSlots(array $slots): array {
+    public static function validateSlots(array $slots, bool $requireAtLeastOne = true): array {
         $clean = [];
         $seenLabels = [];
 
@@ -108,7 +108,7 @@ class EventSlot {
             $clean[] = ['id' => $id, 'label' => $label, 'type' => $type];
         }
 
-        if (empty($clean)) {
+        if ($requireAtLeastOne && empty($clean)) {
             throw new Exception("An event needs at least one volunteer slot.", 423);
         }
         if (count($clean) > 20) {
@@ -124,8 +124,8 @@ class EventSlot {
      * that has a signup is refused -- the signup must be cancelled first.
      * Joins the caller's transaction when one is open.
      */
-    public static function setSlots(int $eventId, array $slots): void {
-        $slots = self::validateSlots($slots);
+    public static function setSlots(int $eventId, array $slots, bool $requireAtLeastOne = true): void {
+        $slots = self::validateSlots($slots, $requireAtLeastOne);
 
         $appDb = Database::getAppConnection();
         $ownTransaction = !$appDb->inTransaction();
