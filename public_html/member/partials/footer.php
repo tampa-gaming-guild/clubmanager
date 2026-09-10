@@ -9,7 +9,7 @@ $navPrefix = $navPrefix ?? '';
 $footerText = $footerText ?? 'TGG Club Membership System. Secure Public Portal.';
 ?>
         <footer class="app-footer">
-            <p>&copy; <?php echo date('Y'); ?> <?php echo e($footerText); ?></p>
+            <p>&copy; <?php echo date('Y'); ?> <?php echo e($footerText); ?> &middot; <a href="<?php echo $navPrefix; ?>privacy.php">Privacy Policy</a></p>
         </footer>
     </div>
 
