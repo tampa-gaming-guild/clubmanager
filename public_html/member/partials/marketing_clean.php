@@ -185,7 +185,7 @@
                     <span class="eyebrow">Bargain Game Sales</span>
                     <h3>Flea Market</h3>
                     <p>We hold a semi-annual flea market where you can buy and sell used games. Hundreds of games are for sale at bargain prices!</p>
-                    <p class="mkt-text-strong" style="margin-top: 8px;">Next flea market date: to be determined.</p>
+                    <p class="mkt-text-strong" style="margin-top: 8px;">Next flea market date: Sunday, November 8, 2026 at 1:30 PM.</p>
                 </div>
             </div>
 
