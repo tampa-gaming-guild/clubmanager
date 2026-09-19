@@ -1296,6 +1296,9 @@ class BillingHelper {
      * @param string $paymentMethod 'cash', 'check', 'complimentary', 'volunteer credit'
      * @param string $action 'join' or 'renew'
      * @param string $levelChangeMode 'extend_current' or 'change_level'
+     * @param string|null $paymentDate Backdates the ledger entry's created_at to this date
+     *        instead of now. Callers must gate this on 'admin panel' permission themselves --
+     *        this method does no permission checking of its own.
      * @return bool True if successful
      * @throws Exception
      */
@@ -1308,7 +1311,8 @@ class BillingHelper {
         string $durationMode = 'standard',
         ?string $customDate = null,
         ?float $customAmount = null,
-        ?int $actorContactId = null
+        ?int $actorContactId = null,
+        ?string $paymentDate = null
     ): bool {
         $appDb = Database::getAppConnection();
 
@@ -1319,6 +1323,29 @@ class BillingHelper {
         $validMethods = ['cash', 'check', 'complimentary', 'volunteer credit', 'card_on_file'];
         if (!in_array(strtolower($paymentMethod), $validMethods)) {
             throw new Exception("Invalid offline payment method: " . htmlspecialchars($paymentMethod));
+        }
+
+        // Backdating only makes sense for cash -- it's the one method where the money may have
+        // already changed hands before anyone got around to recording it. card_on_file charges
+        // the card right now (see below), and the others aren't exposed to this param by any
+        // caller today, so silently ignore a submitted date for anything but cash rather than
+        // letting a real-time charge get mis-dated in the ledger.
+        if (strtolower($paymentMethod) !== 'cash') {
+            $paymentDate = null;
+        }
+
+        // Resolve the ledger entry's created_at: backdated to $paymentDate if given (must be a
+        // real, non-future date), otherwise now, same as CURRENT_TIMESTAMP would produce.
+        $ledgerCreatedAt = date('Y-m-d H:i:s');
+        if ($paymentDate !== null && $paymentDate !== '') {
+            $paymentTs = strtotime($paymentDate);
+            if ($paymentTs === false) {
+                throw new Exception("Invalid payment date.");
+            }
+            if ($paymentTs > time()) {
+                throw new Exception("Payment date cannot be in the future.");
+            }
+            $ledgerCreatedAt = date('Y-m-d H:i:s', $paymentTs);
         }
 
         // Get local plan details
@@ -1430,8 +1457,8 @@ class BillingHelper {
         try {
             // A. Log transaction locally in tgg_billing_ledger
             $insertLedger = $appDb->prepare("
-                INSERT INTO tgg_billing_ledger (contact_id, plan_id, rate_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type, created_by, impersonator_id, source)
-                VALUES (:contact_id, :plan_id, :rate_id, :stripe_session_id, :payment_intent_id, :amount, :currency, 'paid', :action_type, :created_by, :impersonator_id, :source)
+                INSERT INTO tgg_billing_ledger (contact_id, plan_id, rate_id, stripe_session_id, payment_intent_id, amount, currency, payment_status, action_type, created_by, impersonator_id, source, created_at)
+                VALUES (:contact_id, :plan_id, :rate_id, :stripe_session_id, :payment_intent_id, :amount, :currency, 'paid', :action_type, :created_by, :impersonator_id, :source, :created_at)
             ");
             $actorCols = AuditLog::actorColumns($actorContactId);
             $insertLedger->execute([
@@ -1445,7 +1472,8 @@ class BillingHelper {
                 'action_type' => $action,
                 'created_by' => $actorCols['created_by'],
                 'impersonator_id' => $actorCols['impersonator_id'],
-                'source' => $actorCols['source']
+                'source' => $actorCols['source'],
+                'created_at' => $ledgerCreatedAt
             ]);
 
             if ($durationMode === '1_month') {
@@ -1538,7 +1566,8 @@ class BillingHelper {
                 'duration_mode' => $durationMode,
                 'custom_date' => $customDate,
                 'amount' => $amountTotal,
-                'new_end_date' => $endDate
+                'new_end_date' => $endDate,
+                'backdated_payment_date' => $paymentDate
             ], $contactId, $actorContactId);
 
             // Send confirmation email for offline renewal

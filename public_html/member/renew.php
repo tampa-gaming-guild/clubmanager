@@ -69,6 +69,9 @@ if (isset($_GET['status']) && $_GET['status'] === 'cancelled') {
 Auth::requireAuth();
 $contactId = $_SESSION['user']['contact_id'];
 $isAdmin = has_permission('edit checkins');
+// Backdating the payment date is restricted to full admins ('admin panel'), not just
+// hosts/majordomos who also hold 'edit checkins' -- see BillingHelper::processOfflineRenewal().
+$isFullAdmin = has_permission('admin panel');
 if ($isAdmin && isset($_GET['contact_id'])) {
     $contactId = (int)$_GET['contact_id'];
 }
@@ -129,10 +132,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
                     }
                     $tierName = $tiers[$tierIndex]['name'];
 
+                    // Backdating the ledger entry is admin-only and cash-only -- a card_on_file
+                    // charge happens right now, so it always gets today's date regardless of what
+                    // was typed in the field (BillingHelper::processOfflineRenewal() also enforces
+                    // this, but checking it here too keeps the success message from lying about it).
+                    $paymentDate = ($isFullAdmin && $paymentMethod === 'cash' && !empty($_POST['payment_date']))
+                        ? $_POST['payment_date']
+                        : null;
+
                     // 'change_level' (not 'extend_current') so the selected tier always takes
                     // effect -- same "whatever tier you pick is what you get" behavior as the
                     // Stripe flow below, now that there's no separate duration/level-change UI.
-                    BillingHelper::processOfflineRenewal($contactId, $tierId, $paymentMethod, 'renew', 'change_level', 'standard');
+                    BillingHelper::processOfflineRenewal($contactId, $tierId, $paymentMethod, 'renew', 'change_level', 'standard', null, null, $_SESSION['user']['contact_id'] ?? null, $paymentDate);
 
                     $membership = BillingHelper::getMemberSubscriptionDetails($contactId);
                     if (!$membership) {
@@ -142,6 +153,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['status'])) {
 
                     $methodLabel = ($paymentFlow === 'card_on_file') ? 'card on file' : 'cash';
                     $successMsg = "Renewed to " . htmlspecialchars($tierName) . " via {$methodLabel}, through " . htmlspecialchars($expiresLabel) . ".";
+                    if ($paymentDate) {
+                        $successMsg .= " Payment recorded as of " . htmlspecialchars(date('F j, Y', strtotime($paymentDate))) . ".";
+                    }
                     $successMsg .= ' <a href="profile.php?id=' . $contactId . '" class="btn btn-secondary btn-small" style="display: inline-block; margin-left: 15px; padding: 4px 10px; font-size: 0.8rem; vertical-align: middle; background: rgba(var(--overlay-rgb), 0.15); border: 1px solid rgba(var(--overlay-rgb), 0.25); color: var(--color-text-primary);">Back to Profile</a>';
                 } catch (Exception $e) {
                     $errorMsg = safe_err("Failed to process renewal: ", $e);
@@ -326,13 +340,42 @@ try {
                                     </select>
                                 </div>
 
-                                <?php if ($hasCardOnFile): ?>
-                                    <button type="submit" name="payment_flow" value="card_on_file" class="btn btn-primary btn-block">Charge Card on File</button>
+                                <?php if ($isFullAdmin): ?>
+                                    <div class="form-group">
+                                        <label for="payment_date">Payment Date <span style="font-weight: normal; color: var(--color-text-secondary);">(optional, cash only -- backdates the payment record, admin only)</span></label>
+                                        <input type="date" id="payment_date" name="payment_date" max="<?php echo date('Y-m-d'); ?>">
+                                    </div>
                                 <?php endif; ?>
-                                <button type="submit" name="payment_flow" value="stripe" class="btn btn-secondary btn-block">Pay with Card via Checkout</button>
+
+                                <?php if ($hasCardOnFile): ?>
+                                    <button type="submit" id="btn_card_on_file" name="payment_flow" value="card_on_file" class="btn btn-primary btn-block">Charge Card on File</button>
+                                <?php endif; ?>
+                                <button type="submit" id="btn_stripe_checkout" name="payment_flow" value="stripe" class="btn btn-secondary btn-block">Pay with Card via Checkout</button>
                                 <button type="submit" name="payment_flow" value="offline_cash" class="btn btn-warning btn-block">Pay Cash</button>
                             </form>
                         </div>
+
+                        <?php if ($isFullAdmin): ?>
+                        <script>
+                        (function() {
+                            // Card payments always happen (and get ledgered) right now -- a
+                            // Payment Date typed in is only honored for Pay Cash, so disable the
+                            // card buttons while it's filled in rather than let an admin think
+                            // they backdated a card charge.
+                            var dateInput = document.getElementById('payment_date');
+                            var cardButtons = [document.getElementById('btn_card_on_file'), document.getElementById('btn_stripe_checkout')].filter(Boolean);
+                            function syncCardButtons() {
+                                var hasDate = !!dateInput.value;
+                                cardButtons.forEach(function(btn) {
+                                    btn.disabled = hasDate;
+                                    btn.title = hasDate ? 'Card payments always use today\'s date. Clear the Payment Date field to pay by card.' : '';
+                                });
+                            }
+                            dateInput.addEventListener('input', syncCardButtons);
+                            syncCardButtons();
+                        })();
+                        </script>
+                        <?php endif; ?>
 
                         <?php if ($redeemableMonths >= 1): ?>
                         <!-- SECTION 2: USE MEMBERSHIP CREDITS -->
