@@ -225,6 +225,7 @@ $renderComboListPanel = function () use ($comboHeading, $comboListEvents, $slots
         $vsSlotsByEvent = $slotsByEvent;
         $vsHighlightDate = null;
         $vsEmptyMessage = $selectedDay ? 'No volunteer slots scheduled for this day.' : 'No events scheduled this month.';
+        $vsIdPrefix = 'combo-';
         include __DIR__ . '/partials/volunteer_signup_table.php';
     ?>
     <?php
@@ -428,6 +429,7 @@ $cgDayContent = function (int $day, array $eventsForDay) use ($slotsByEvent, $vo
                             $vsSlotsByEvent = $listSlotsByEvent;
                             $vsHighlightDate = $selectedRaw;
                             $vsEmptyMessage = 'No events scheduled.';
+                            $vsIdPrefix = 'list-';
                             include __DIR__ . '/partials/volunteer_signup_table.php';
                         ?>
                     <?php endif; ?>
@@ -448,6 +450,7 @@ $cgDayContent = function (int $day, array $eventsForDay) use ($slotsByEvent, $vo
                                 $vsSlotsByEvent = $slotsByEvent;
                                 $vsHighlightDate = null;
                                 $vsEmptyMessage = 'No volunteer slots scheduled for this day.';
+                                $vsIdPrefix = 'day-';
                                 include __DIR__ . '/partials/volunteer_signup_table.php';
                             ?>
                         </section>
@@ -476,6 +479,7 @@ $cgDayContent = function (int $day, array $eventsForDay) use ($slotsByEvent, $vo
                     $vsSlotsByEvent = $listSlotsByEvent;
                     $vsHighlightDate = $selectedRaw;
                     $vsEmptyMessage = 'No events scheduled.';
+                    $vsIdPrefix = 'mobile-';
                     include __DIR__ . '/partials/volunteer_signup_table.php';
                 ?>
             </div>
