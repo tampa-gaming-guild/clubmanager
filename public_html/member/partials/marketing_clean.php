@@ -161,23 +161,6 @@
             <h2>Events</h2>
             <div class="bleed-section bleed-left" style="margin-top: 24px;">
                 <div class="bleed-image">
-                    <img src="assets/images/botc.jpg" alt="Blood on the Clocktower session at Tampa Gaming Guild" loading="lazy">
-                </div>
-                <div class="bleed-text">
-                    <div class="event-header-group">
-                        <img src="assets/images/botc-logo.jpg" alt="Blood on the Clocktower Logo" class="event-logo" loading="lazy">
-                        <div class="event-meta">
-                            <span class="event-badge">📅 Every 3rd Sunday at 1:00 pm</span>
-                            <span class="eyebrow">Social Deduction Game</span>
-                        </div>
-                    </div>
-                    <h3>Blood on the Clocktower</h3>
-                    <p>Blood on the Clocktower is an afternoon of social deduction and hidden roles, one of the most beloved and acclaimed social deduction games around! Currently meeting here every 3rd Sunday at 1:00 pm.</p>
-                </div>
-            </div>
-
-            <div class="bleed-section bleed-left" style="margin-top: 40px;">
-                <div class="bleed-image">
                     <img src="assets/images/flea-market.jpg" alt="Semi-annual board game flea market at Tampa Gaming Guild" loading="lazy">
                 </div>
                 <div class="bleed-text">
