@@ -33,14 +33,7 @@
     </nav>
 
     <div class="clean-page-body">
-        <section class="marketing-section" id="section-closure-announcement" style="margin-top: 24px;">
-            <div class="free-sundays-banner">
-                <h2>Club Closed Oct 2 &amp; 4</h2>
-                <p>Heads up &mdash; the club will be closed on <strong>Friday, October 2</strong> and <strong>Sunday, October 4</strong>. We'll be back to our regular schedule after that. Thanks for understanding!</p>
-            </div>
-        </section>
-
-        <section class="marketing-section" id="section-announcements">
+        <section class="marketing-section" id="section-announcements" style="margin-top: 24px;">
             <div class="free-sundays-banner">
                 <h2>Donation Sundays!</h2>
                 <p>Come play and pitch in what you can &mdash; no pressure, just good games. First time? Just <a href="join.php?tier=trial">register with us</a> when you arrive (or online beforehand) to check in.<br><strong>1st &amp; 3rd Sundays, 1:00pm &ndash; 11:00pm</strong>.</p>
