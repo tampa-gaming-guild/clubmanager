@@ -23,6 +23,107 @@
     margin: 20px 0 10px;
 }
 
+.library-search-row {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-bottom: 10px;
+}
+
+.library-search-wrap {
+    position: relative;
+    flex: 1;
+    max-width: 420px;
+    min-width: 0;
+}
+
+.library-search-clear {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 24px;
+    height: 24px;
+    line-height: 22px;
+    text-align: center;
+    border-radius: 50%;
+    font-size: 1.2rem;
+    text-decoration: none;
+    color: var(--color-text-muted);
+}
+
+.library-search-clear:hover {
+    background: rgba(var(--overlay-rgb), 0.1);
+    color: var(--color-text-primary);
+}
+
+.library-clear-filters {
+    font-size: 0.85rem;
+    color: var(--color-text-secondary);
+    align-self: center;
+}
+
+.library-search-row input[type="search"]::-webkit-search-cancel-button {
+    display: none;
+}
+
+.library-search-row input[type="search"] {
+    width: 100%;
+    box-sizing: border-box;
+    padding-right: 34px !important;
+    background: rgba(var(--overlay-rgb), 0.05);
+    border: 1px solid var(--border-glass);
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: var(--color-text-primary);
+    font-size: 0.9rem;
+    outline: none;
+}
+
+.library-search-row .btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 18px;
+}
+
+.library-filters {
+    margin-bottom: 10px;
+}
+
+.library-filters > summary {
+    cursor: pointer;
+    list-style: none;
+    text-align: center;
+    font-size: 0.85rem;
+    color: var(--color-text-secondary);
+    padding: 6px 0;
+    user-select: none;
+}
+
+.library-filters > summary::-webkit-details-marker {
+    display: none;
+}
+
+.library-filters > summary::after {
+    content: " ▾";
+}
+
+.library-filters[open] > summary::after {
+    content: " ▴";
+}
+
+.library-filter-count {
+    display: inline-block;
+    min-width: 18px;
+    padding: 0 6px;
+    border-radius: 9px;
+    background: var(--color-primary);
+    color: #fff;
+    font-size: 0.7rem;
+    line-height: 18px;
+}
+
 .library-filter-bar {
     display: flex;
     flex-wrap: wrap;
@@ -282,22 +383,46 @@
 
 @media (max-width: 600px) {
     .library-filter-bar {
-        justify-content: flex-start;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        align-items: end;
     }
     .library-filter-bar select {
         min-width: 0;
-        flex: 1;
+        width: 100%;
+    }
+    .library-filter-bar > button {
+        grid-column: 1 / -1;
+    }
+    .library-search-wrap {
+        max-width: none;
+    }
+    .library-toolbar-actions {
+        flex-wrap: wrap;
+    }
+    .view-toggle-btn {
+        white-space: nowrap;
     }
     .form-row {
         grid-template-columns: 1fr;
     }
+    /* Gallery = 2 columns of cards; list = compact rows (see base rules), so the toggle is visible. */
+    .game-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+    }
+    .game-grid.game-list {
+        grid-template-columns: none;
+    }
     .game-list .game-card {
-        flex-direction: column;
-        align-items: stretch;
+        align-items: flex-start;
     }
     .game-list .game-card-thumb {
-        width: 100%;
-        height: auto;
-        aspect-ratio: 4 / 3;
+        width: 72px;
+        height: 54px;
+    }
+    .game-card-body {
+        min-width: 0;
+        padding: 10px;
     }
 }

@@ -151,9 +151,13 @@ $mechanism = trim($_GET['mechanism'] ?? '');
 $category = trim($_GET['category'] ?? '');
 $sort = $_GET['sort'] ?? 'name';
 $onLoanOnly = $canManageLibrary && ($_GET['on_loan'] ?? '') === '1';
+$nameQuery = mb_substr(trim((string)($_GET['q'] ?? '')), 0, 100);
 
-$games = array_values(array_filter($rows, function ($g) use ($playerCount, $maxPlaytime, $mechanism, $category, $onLoanOnly) {
+$games = array_values(array_filter($rows, function ($g) use ($playerCount, $maxPlaytime, $mechanism, $category, $onLoanOnly, $nameQuery) {
     if ($onLoanOnly && $g['owner_contact_id'] === null) {
+        return false;
+    }
+    if ($nameQuery !== '' && mb_stripos($g['name'], $nameQuery) === false) {
         return false;
     }
     if ($playerCount !== null) {
@@ -228,7 +232,11 @@ function syncBadgeClass(string $status): string {
     }
 }
 
-$hasFilters = $playerCount !== null || $maxPlaytime !== null || $mechanism !== '' || $category !== '' || $sort !== 'name' || $onLoanOnly;
+$activeFilterCount = ($playerCount !== null ? 1 : 0) + ($maxPlaytime !== null ? 1 : 0) + ($mechanism !== '' ? 1 : 0)
+    + ($category !== '' ? 1 : 0) + ($sort !== 'name' ? 1 : 0) + ($onLoanOnly ? 1 : 0);
+$hasFilters = $activeFilterCount > 0 || $nameQuery !== '';
+// Same URL minus the search text (and the one-shot success flash), so the "x" keeps the other filters.
+$clearSearchQuery = http_build_query(array_diff_key($_GET, ['q' => 1, 'success' => 1]));
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -262,7 +270,19 @@ $hasFilters = $playerCount !== null || $maxPlaytime !== null || $mechanism !== '
                     <div class="alert alert-success"><?php echo e($successMsg); ?></div>
                 <?php endif; ?>
 
-                <form method="GET" action="library.php" class="library-filter-bar">
+                <form method="GET" action="library.php" class="library-filter-form">
+                    <div class="library-search-row">
+                        <div class="library-search-wrap">
+                            <input type="search" id="filter-q" name="q" value="<?php echo e($nameQuery); ?>" maxlength="100" placeholder="Search games by name…" aria-label="Search games by name">
+                            <?php if ($nameQuery !== ''): ?>
+                                <a href="library.php<?php echo $clearSearchQuery !== '' ? '?' . e($clearSearchQuery) : ''; ?>" class="library-search-clear" title="Clear search" aria-label="Clear search">&times;</a>
+                            <?php endif; ?>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Search</button>
+                    </div>
+                    <details class="library-filters" id="library-filters"<?php echo $activeFilterCount > 0 ? ' data-has-active="1"' : ''; ?>>
+                    <summary>Filters<?php if ($activeFilterCount > 0): ?> <span class="library-filter-count"><?php echo $activeFilterCount; ?></span><?php endif; ?></summary>
+                    <div class="library-filter-bar">
                     <div class="filter-field">
                         <label for="filter-players">Players</label>
                         <select id="filter-players" name="players">
@@ -317,10 +337,12 @@ $hasFilters = $playerCount !== null || $maxPlaytime !== null || $mechanism !== '
                             </label>
                         </div>
                     <?php endif; ?>
-                    <button type="submit" class="btn btn-primary" style="padding: 9px 20px;">Filter</button>
-                    <?php if ($hasFilters): ?>
-                        <a href="library.php" class="btn btn-secondary" style="padding: 9px 15px; display: flex; align-items: center; justify-content: center;">Clear</a>
+                    <button type="submit" class="btn btn-primary" style="padding: 9px 20px;">Apply</button>
+                    <?php if ($activeFilterCount > 0): ?>
+                        <a href="library.php<?php echo $nameQuery !== '' ? '?' . e(http_build_query(['q' => $nameQuery])) : ''; ?>" class="library-clear-filters">Clear filters</a>
                     <?php endif; ?>
+                    </div>
+                    </details>
                 </form>
 
                 <div class="library-toolbar">
@@ -525,6 +547,13 @@ $hasFilters = $playerCount !== null || $maxPlaytime !== null || $mechanism !== '
     <?php endif; ?>
 
     <script>
+        // Filters panel: open on desktop or when filters are active; collapsed on phones otherwise.
+        (function () {
+            var d = document.getElementById('library-filters');
+            if (!d) return;
+            d.open = d.hasAttribute('data-has-active') || !window.matchMedia('(max-width: 600px)').matches;
+        })();
+
         // Gallery/List view toggle, persisted per-browser.
         (function () {
             var container = document.getElementById('game-container');
