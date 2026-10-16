@@ -1526,7 +1526,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                             <div style="margin-bottom: 20px; background: rgba(var(--overlay-rgb), 0.02); padding: 12px 15px; border-radius: 8px; border: 1px solid var(--border-glass); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
                                 <div>
                                     <p style="margin: 0 0 3px 0; font-size: 0.9rem; color: var(--color-text-primary); font-weight: 600;">Auto-Apply Membership Credits</p>
-                                    <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-secondary);">When enabled, banked credits are used automatically at auto-renewal (instead of charging your card) whenever there's enough for at least one month.</p>
+                                    <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-secondary);">When enabled, your membership is extended automatically (by the nightly job) as soon as you've banked enough credits for at least one month, instead of waiting until renewal.</p>
                                 </div>
                                 <form action="profile.php?id=<?php echo $profileId; ?>" method="POST" style="display: inline; margin: 0;">
                                     <input type="hidden" name="csrf_token" value="<?php echo e(get_csrf_token()); ?>">

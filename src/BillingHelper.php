@@ -1612,7 +1612,7 @@ class BillingHelper {
     /**
      * Spend banked Membership Credits to extend a membership -- the single write path
      * reused by the admin manual-override action, the autorenew cron (when a member has
-     * opted in and has enough banked), and renew.php's "Use Membership Credits" option.
+     * opted in and has enough banked -- applied daily, not only at renewal), and renew.php's "Use Membership Credits" option.
      * Never touches Stripe. Earning and spending stay fully separate: this only consumes
      * an already-earned balance (see MembershipCredits::confirmAttendance() for earning).
      *
@@ -1744,6 +1744,55 @@ class BillingHelper {
     }
 
     /**
+     * Extend the membership of every opted-in member (auto_apply_credits = 1) who has
+     * banked at least one month's worth of Membership Credits, using all redeemable
+     * months in one go. Called daily by bin/autorenew.php right after attendance credits
+     * are confirmed, so a member is extended as soon as they cross the threshold rather
+     * than waiting for renewal. Trial and Session plans are never extended by credits.
+     * Uses applyMembershipCreditsToMembership(), so the same grace-period rule applies
+     * (extend from the current expiry if active or within grace, else restart from today).
+     *
+     * @return array{extended: array, failed: string[]} extended rows: contact_id, months_applied, credits_applied, end_date
+     */
+    public static function applyCreditExtensionsForOptedInMembers(): array {
+        $appDb = Database::getAppConnection();
+
+        $stmt = $appDb->query("
+            SELECT s.contact_id, p.name, p.duration_unit
+            FROM tgg_subscriptions s
+            INNER JOIN tgg_subscription_plans p ON p.id = s.plan_id
+            INNER JOIN tgg_member_settings ms ON ms.contact_id = s.contact_id
+            WHERE ms.auto_apply_credits = 1
+        ");
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $extended = [];
+        $failed = [];
+        foreach ($rows as $row) {
+            $contactId = (int)$row['contact_id'];
+            if (self::isTrialPlan($row) || self::isSessionPlan($row)) {
+                continue;
+            }
+            try {
+                $months = MembershipCredits::getRedeemableMonths($contactId);
+                if ($months < 1) {
+                    continue;
+                }
+                $result = self::applyMembershipCreditsToMembership($contactId, $months, null);
+                $extended[] = [
+                    'contact_id' => $contactId,
+                    'months_applied' => $result['months_applied'],
+                    'credits_applied' => $result['credits_applied'],
+                    'end_date' => $result['end_date'],
+                ];
+            } catch (\Throwable $e) {
+                $failed[] = "contact_id={$contactId}: credit extension failed - " . $e->getMessage();
+            }
+        }
+        return ['extended' => $extended, 'failed' => $failed];
+    }
+
+    /**
      * Charge a due auto-renewal off-session via the member's saved Stripe card. Allows up to
      * 3 consecutive attempts per renewal cycle (this call plus 2 retries, one per daily cron
      * run): the first failure sends a warning email, the 3rd failure marks the subscription
@@ -1782,28 +1831,8 @@ class BillingHelper {
                 // here too in case it was ever set some other way.
                 return ['result' => 'skipped', 'message' => 'Session plans are never auto-renewed', 'end_date' => null];
             }
-            // Auto-apply Membership Credits before ever considering the card: an
-            // opted-in member with enough banked credit renews for free, on any
-            // subscription, card on file or not.
-            $autoApplyStmt = $appDb->prepare("SELECT auto_apply_credits FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1");
-            $autoApplyStmt->execute(['contact_id' => $contactId]);
-            if ((bool)$autoApplyStmt->fetchColumn()) {
-                $redeemableMonths = MembershipCredits::getRedeemableMonths($contactId);
-                if ($redeemableMonths >= 1) {
-                    try {
-                        $result = self::applyMembershipCreditsToMembership($contactId, $redeemableMonths, null);
-                        return [
-                            'result' => 'credited',
-                            'message' => "Renewed via {$redeemableMonths} month(s) of Membership Credits through {$result['end_date']}",
-                            'end_date' => $result['end_date'],
-                        ];
-                    } catch (Exception $e) {
-                        error_log("Auto-apply Membership Credits failed for contact #{$contactId}, falling back to card charge: " . $e->getMessage());
-                        // fall through to the Stripe charge below
-                    }
-                }
-            }
-
+            // Opted-in members' banked credits are already applied earlier in the
+            // daily run by applyCreditExtensionsForOptedInMembers().
             if (empty($sub['stripe_customer_id']) || empty($sub['stripe_payment_method_id'])) {
                 return ['result' => 'skipped', 'message' => 'No card on file', 'end_date' => null];
             }

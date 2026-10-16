@@ -221,7 +221,8 @@ class MembershipCredits {
      * Grant Membership Credits for a shift a member signed up and was confirmed
      * for -- this is the ONLY way credits get earned. It never touches
      * tgg_subscriptions or tgg_billing_ledger; spending is a fully separate step
-     * that only happens at renewal time.
+     * (manual at renewal, or automatic for opted-in members via
+     * BillingHelper::applyCreditExtensionsForOptedInMembers()).
      *
      * Normally invoked automatically by bin/autorenew.php via
      * autoConfirmEligibleAttendance() once a shift clears its grace period, with

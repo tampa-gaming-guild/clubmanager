@@ -3,7 +3,8 @@
 /**
  * Daily auto-renewal cron job.
  * Sends 5-day-advance renewal reminders, grants Membership Credits for hosting
- * shifts that cleared their grace period, then charges any subscription whose
+ * shifts that cleared their grace period, extends opted-in members' memberships
+ * with any redeemable credits, then charges any subscription whose
  * membership period has ended and has auto-renew enabled using the Stripe card
  * on file.
  */
@@ -55,6 +56,15 @@ foreach ($creditsResult['failed'] as $err) {
 }
 echo "[" . date('Y-m-d H:i:s') . "] [autorenew] Membership Credits: " . count($creditsResult['confirmed']) . " shift(s) confirmed, " . count($creditsResult['failed']) . " error(s).\n";
 
+$extensions = BillingHelper::applyCreditExtensionsForOptedInMembers();
+foreach ($extensions['extended'] as $x) {
+    echo "[" . date('Y-m-d H:i:s') . "] [autorenew] contact_id={$x['contact_id']}: credit_extended - {$x['months_applied']} month(s) for {$x['credits_applied']} credit(s) through {$x['end_date']}.\n";
+}
+foreach ($extensions['failed'] as $err) {
+    echo "[" . date('Y-m-d H:i:s') . "] [autorenew] $err\n";
+}
+echo "[" . date('Y-m-d H:i:s') . "] [autorenew] Membership Credits: " . count($extensions['extended']) . " membership(s) extended, " . count($extensions['failed']) . " error(s).\n";
+
 $appDb = Database::getAppConnection();
 $stmt = $appDb->query("
     SELECT contact_id FROM tgg_subscriptions
@@ -63,7 +73,6 @@ $stmt = $appDb->query("
 $contactIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
 $charged = 0;
-$credited = 0;
 $declined = 0;
 $expired = 0;
 $skipped = 0;
@@ -75,9 +84,6 @@ foreach ($contactIds as $contactId) {
         switch ($result['result']) {
             case 'charged':
                 $charged++;
-                break;
-            case 'credited':
-                $credited++;
                 break;
             case 'declined':
                 $declined++;
@@ -99,6 +105,6 @@ foreach ($contactIds as $contactId) {
     }
 }
 
-$summary = "[" . date('Y-m-d H:i:s') . "] [autorenew] Summary: " . count($contactIds) . " due, {$charged} charged, {$credited} credited, {$declined} declined, "
+$summary = "[" . date('Y-m-d H:i:s') . "] [autorenew] Summary: " . count($contactIds) . " due, {$charged} charged, {$declined} declined, "
     . "{$expired} expired, {$skipped} skipped, {$errors} errors.";
 echo $summary . "\n";
