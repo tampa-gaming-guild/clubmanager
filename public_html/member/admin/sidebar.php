@@ -35,7 +35,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
         <?php endif; ?>
         
         <?php 
-        $reports_active = in_array($current_page, ['reports.php', 'payments.php', 'attendance.php', 'email_log.php', 'autorenew_log.php', 'audit_log.php']);
+        $reports_active = in_array($current_page, ['reports.php', 'payments.php', 'checkins.php', 'email_log.php', 'autorenew_log.php', 'audit_log.php']);
         $show_payments = has_permission('process payments');
         $show_attendance = has_permission('edit checkins');
         $show_email_log = has_permission('all');
@@ -50,7 +50,6 @@ $current_page = basename($_SERVER['PHP_SELF']);
                         <li><a href="payments.php" class="<?php echo ($current_page === 'payments.php') ? 'active' : ''; ?>" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Payments Log</a></li>
                     <?php endif; ?>
                     <?php if ($show_attendance): ?>
-                        <li><a href="attendance.php" class="<?php echo ($current_page === 'attendance.php') ? 'active' : ''; ?>" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Attendance Log</a></li>
                         <li><a href="checkins.php" class="<?php echo ($current_page === 'checkins.php') ? 'active' : ''; ?>" style="padding: 6px 10px; font-size: 0.85rem; border-left: none; border-radius: 4px;">Check-In List</a></li>
                     <?php endif; ?>
                     <?php if ($show_email_log): ?>

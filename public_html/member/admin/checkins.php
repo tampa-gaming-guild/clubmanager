@@ -390,6 +390,7 @@ try {
                         <?php
                         $checkinDeleteFormAction = "checkins.php?date=" . urlencode($selectedDate);
                         $checkinEmptyMessage = "No check-in records found for " . date('M d, Y', strtotime($selectedDate)) . ".";
+                        $checkinProfileUrl = '../profile.php';
                         include __DIR__ . '/../partials/checkin_list_table.php';
                         ?>
                     </div>

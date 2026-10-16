@@ -5,6 +5,9 @@
  *   $checkinsList            array   Rows with: checkin_id, checked_in_at, notes, guest_name, display_name, first_name, last_name
  *   $checkinDeleteFormAction string  Form action URL for the per-row Delete and Edit buttons
  *   $checkinEmptyMessage     string  Message shown when the list is empty
+ *   $checkinProfileUrl       string  (optional) Profile page URL relative to the caller, e.g. '../profile.php'.
+ *                                    When set and rows carry contact_id, names link to that member's profile
+ *                                    (guest rows link to the sponsoring member).
  *
  * Rows with a non-empty guest_name represent a guest visit (contact_id is the sponsoring
  * member, not the guest -- guests have no contact record). For those rows, the guest's name
@@ -40,7 +43,14 @@
                     <tr>
                         <td class="col-firstname"><strong><?php echo $isGuestRow ? '-' : e($chk['first_name'] ?: '-'); ?></strong></td>
                         <td class="col-lastname"><strong><?php echo $isGuestRow ? '-' : e($chk['last_name'] ?: '-'); ?></strong></td>
-                        <td><?php echo $isGuestRow ? e($chk['guest_name']) : e($chk['display_name']); ?></td>
+                        <?php $nameText = $isGuestRow ? $chk['guest_name'] : $chk['display_name']; ?>
+                        <td>
+                            <?php if (!empty($checkinProfileUrl) && !empty($chk['contact_id'])): ?>
+                                <a href="<?php echo e($checkinProfileUrl); ?>?id=<?php echo (int)$chk['contact_id']; ?>" style="color: var(--color-primary); text-decoration: underline;" title="<?php echo $isGuestRow ? "View sponsoring member's profile" : 'View member profile'; ?>"><?php echo e($nameText); ?></a>
+                            <?php else: ?>
+                                <?php echo e($nameText); ?>
+                            <?php endif; ?>
+                        </td>
                         <td><span class="table-datetime"><?php echo date('g:i A', strtotime($chk['checked_in_at'])); ?></span></td>
                         <td class="col-notes"><?php echo $isGuestRow ? 'Guest of ' . e($chk['display_name']) : e($chk['notes'] ?: 'Regular Visit'); ?></td>
                         <td style="text-align: center;">
