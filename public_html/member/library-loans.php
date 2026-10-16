@@ -130,7 +130,7 @@ function loanSyncBadgeClass(string $status): string {
                                     <tbody>
                                         <?php foreach ($member['games'] as $game): ?>
                                             <tr>
-                                                <td><strong><?php echo e($game['name']); ?></strong></td>
+                                                <td><strong><a href="library.php#game-<?php echo (int)$game['id']; ?>"><?php echo e($game['name']); ?></a></strong></td>
                                                 <td><span class="table-datetime"><?php echo $game['loan_started_at'] ? date('Y-m-d', strtotime($game['loan_started_at'])) : '—'; ?></span></td>
                                                 <td>
                                                     <span class="badge <?php echo loanSyncBadgeClass($game['bgg_sync_status']); ?>">

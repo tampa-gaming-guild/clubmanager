@@ -1987,7 +1987,7 @@ $displayNameToPublic = !empty(trim($settings['custom_display_name'] ?? '')) ? tr
                                                 elseif ($lg['bgg_sync_status'] === 'failed') $syncBadgeClass = 'badge-expired';
                                                 ?>
                                                 <tr>
-                                                    <td style="padding: 8px 10px;"><strong><a href="library.php"><?php echo e($lg['name']); ?></a></strong></td>
+                                                    <td style="padding: 8px 10px;"><strong><a href="library.php#game-<?php echo (int)$lg['id']; ?>"><?php echo e($lg['name']); ?></a></strong></td>
                                                     <td style="padding: 8px 10px;"><span class="table-datetime"><?php echo $lg['loan_started_at'] ? date('Y-m-d', strtotime($lg['loan_started_at'])) : '—'; ?></span></td>
                                                     <td style="padding: 8px 10px;">
                                                         <span class="badge <?php echo $syncBadgeClass; ?>" style="font-size: 0.75rem; padding: 2px 6px; display: inline-block;">

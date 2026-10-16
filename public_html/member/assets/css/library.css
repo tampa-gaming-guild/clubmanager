@@ -222,6 +222,26 @@
     border-color: var(--color-primary);
 }
 
+/* Arriving via a #game-<id> link (e.g. from a member's Library Loans tab). */
+.game-card:target {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(var(--overlay-rgb), 0.08), 0 0 16px var(--color-primary);
+    scroll-margin-top: 90px;
+    /* Hold the highlight for 10s, then fade back to a normal card over 2s. */
+    animation: game-card-target-fade 12s ease-out forwards;
+}
+
+@keyframes game-card-target-fade {
+    0%, 83.33% {
+        border-color: var(--color-primary);
+        box-shadow: 0 0 0 3px rgba(var(--overlay-rgb), 0.08), 0 0 16px var(--color-primary);
+    }
+    100% {
+        border-color: var(--border-glass);
+        box-shadow: 0 0 0 0 transparent, 0 0 0 transparent;
+    }
+}
+
 .game-card-link {
     text-decoration: none;
     color: inherit;

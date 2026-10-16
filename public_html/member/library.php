@@ -380,7 +380,7 @@ $clearSearchQuery = http_build_query(array_diff_key($_GET, ['q' => 1, 'success' 
                             'owner_name' => $ownerName,
                         ], JSON_HEX_APOS | JSON_HEX_QUOT) : null;
                         ?>
-                        <div class="game-card">
+                        <div class="game-card" id="game-<?php echo (int)$game['id']; ?>">
                             <a class="game-card-link" href="https://boardgamegeek.com/boardgame/<?php echo (int)$game['bgg_id']; ?>" target="_blank" rel="noopener">
                                 <?php if ($game['thumbnail_url']): ?>
                                     <img class="game-card-thumb" src="<?php echo e($game['thumbnail_url']); ?>" alt="<?php echo e($game['name']); ?>" loading="lazy">
