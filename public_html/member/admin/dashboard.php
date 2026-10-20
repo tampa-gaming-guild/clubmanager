@@ -414,7 +414,7 @@ try {
                                 <tbody>
                                     <?php if (empty($members)): ?>
                                         <tr>
-                                            <td colspan="6" class="text-center">No members found. Use the CiviCRM Importer to sync records.</td>
+                                            <td colspan="6" class="text-center">No members found.</td>
                                         </tr>
                                     <?php else: ?>
                                         <?php foreach ($members as $m): ?>
