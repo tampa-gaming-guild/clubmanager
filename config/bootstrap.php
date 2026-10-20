@@ -126,6 +126,9 @@ if (session_status() === PHP_SESSION_NONE && php_sapi_name() !== 'cli') {
     session_set_cookie_params($cookieParams);
     session_name('TGG_SESSID');
     session_start();
+
+    // Pick up role/permission changes made since this session cached them
+    \App\Auth::syncSessionPermissions();
 }
 
 // 6. Security Helper Functions

@@ -66,7 +66,7 @@ class Auth {
         $contactId = (int)$emailRow['id'];
 
         // 2. Fetch the credentials from local tgg_member_settings
-        $authQuery = "SELECT password_hash, role, failed_login_attempts, locked_until FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1";
+        $authQuery = "SELECT password_hash, role, permissions_version, failed_login_attempts, locked_until FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1";
         $stmt = $appDb->prepare($authQuery);
         $stmt->execute(['contact_id' => $contactId]);
         $authRow = $stmt->fetch();
@@ -136,7 +136,8 @@ class Auth {
             'display_name' => $displayName,
             'roles' => $rolesAndPermissions['roles'],
             'role' => $rolesAndPermissions['role'], // for legacy string compatibility
-            'permissions' => $rolesAndPermissions['permissions']
+            'permissions' => $rolesAndPermissions['permissions'],
+            'permissions_version' => (int)$authRow['permissions_version']
         ];
     }
 
@@ -452,7 +453,7 @@ class Auth {
         $contactId = (int)$_SESSION['user']['contact_id'];
         $appDb = Database::getAppConnection();
 
-        $stmt = $appDb->prepare("SELECT role FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1");
+        $stmt = $appDb->prepare("SELECT role, permissions_version FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1");
         $stmt->execute(['contact_id' => $contactId]);
         $row = $stmt->fetch();
         if ($row) {
@@ -460,6 +461,43 @@ class Auth {
             $_SESSION['user']['roles'] = $rolesAndPermissions['roles'];
             $_SESSION['user']['role'] = $rolesAndPermissions['role']; // for legacy string compatibility
             $_SESSION['user']['permissions'] = $rolesAndPermissions['permissions'];
+            $_SESSION['user']['permissions_version'] = (int)$row['permissions_version'];
+        }
+    }
+
+    /**
+     * Invalidate cached roles/permissions: any live session for the account
+     * reloads them on its next request. Pass null when the role->permission
+     * matrix changed, which affects every account.
+     */
+    public static function bumpPermissionsVersion(?int $contactId = null): void {
+        $appDb = Database::getAppConnection();
+        if ($contactId === null) {
+            $appDb->exec("UPDATE tgg_member_settings SET permissions_version = permissions_version + 1");
+            return;
+        }
+        $stmt = $appDb->prepare("UPDATE tgg_member_settings SET permissions_version = permissions_version + 1 WHERE contact_id = :contact_id");
+        $stmt->execute(['contact_id' => $contactId]);
+    }
+
+    /**
+     * Called once per request from the bootstrap: if the account's
+     * permissions_version has moved past the one cached in the session,
+     * reload roles/permissions. Never breaks the request on failure.
+     */
+    public static function syncSessionPermissions(): void {
+        if (!self::check()) {
+            return;
+        }
+        try {
+            $stmt = Database::getAppConnection()->prepare("SELECT permissions_version FROM tgg_member_settings WHERE contact_id = :contact_id LIMIT 1");
+            $stmt->execute(['contact_id' => (int)$_SESSION['user']['contact_id']]);
+            $version = $stmt->fetchColumn();
+            if ($version !== false && (int)$version !== ($_SESSION['user']['permissions_version'] ?? null)) {
+                self::refreshPermissions();
+            }
+        } catch (Exception $e) {
+            error_log('Permission sync failed: ' . $e->getMessage());
         }
     }
 

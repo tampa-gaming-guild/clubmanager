@@ -113,6 +113,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $appDb->commit();
 
+                // The matrix affects every account holding these roles
+                Auth::bumpPermissionsVersion();
+
                 $matrixAfter = $matrixSnapshot();
                 if ($matrixBefore !== $matrixAfter) {
                     AuditLog::log('roles', 'role_matrix_updated', [
@@ -229,6 +232,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $updateSettingsStmt->execute(['role' => $primaryRole, 'id' => $targetContactId]);
 
                 $appDb->commit();
+
+                Auth::bumpPermissionsVersion($targetContactId);
 
                 AuditLog::log('roles', 'member_roles_updated', [
                     'before' => array_values($targetCurrentRoles),

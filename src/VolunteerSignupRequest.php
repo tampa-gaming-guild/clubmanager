@@ -339,6 +339,8 @@ class VolunteerSignupRequest {
         $insert = $appDb->prepare("INSERT IGNORE INTO tgg_member_roles (contact_id, role_name) VALUES (:contact_id, 'host')");
         $insert->execute(['contact_id' => $contactId]);
 
+        Auth::bumpPermissionsVersion($contactId);
+
         AuditLog::log('roles', 'role_granted', [
             'role' => 'host',
             'reason' => 'volunteer_signup_approved'

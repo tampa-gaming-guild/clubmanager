@@ -708,6 +708,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($hasPrivateAccess || $canManageCon
                 
                 $appDb->commit();
 
+                Auth::bumpPermissionsVersion($profileId);
+
                 AuditLog::log('roles', 'member_roles_updated', [
                     'before' => array_values($rolesBefore),
                     'after' => array_values($newRoles)
